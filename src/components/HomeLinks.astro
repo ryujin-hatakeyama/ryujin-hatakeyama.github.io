@@ -5,10 +5,13 @@ import { withBase } from '../lib/paths';
 const suppliedLinks = [...siteInfo.academicLinks, ...siteInfo.contacts];
 const isGitHub = (link: { label: string; href: string }) =>
   link.label.toLowerCase() === 'github' || /^https?:\/\/(?:www\.)?github\.com\//i.test(link.href);
-const isEmail = (link: { label: string; href: string }) =>
-  link.label.toLowerCase() === 'email' || link.href.startsWith('mailto:');
 const github = suppliedLinks.find(isGitHub);
-const email = suppliedLinks.find(isEmail);
+const emailAddress = siteInfo.email
+  ? `${siteInfo.email.localParts.join('.')}@${siteInfo.email.domainParts.join('.')}`
+  : null;
+const emailCode = emailAddress
+  ? Array.from(emailAddress, (character) => character.codePointAt(0)).join('-')
+  : null;
 ---
 
 <nav class="home-links" aria-label="Academic and contact links">
@@ -41,9 +44,9 @@ const email = suppliedLinks.find(isEmail);
         </a>
       </li>
     )}
-    {email && (
+    {emailCode && (
       <li>
-        <a href={email.href}>
+        <a href="#email" data-email-code={emailCode}>
           <svg class="home-link-icon" aria-hidden="true" viewBox="0 0 16 16">
             <path d="M1.5 3.5h13v9h-13zM2 4l6 4.5L14 4" />
           </svg>
@@ -53,3 +56,17 @@ const email = suppliedLinks.find(isEmail);
     )}
   </ul>
 </nav>
+
+<script>
+  for (const control of document.querySelectorAll<HTMLElement>('[data-email-code]')) {
+    control.addEventListener('click', (event) => {
+      event.preventDefault();
+      const encoded = control.dataset.emailCode;
+      if (!encoded) return;
+      const codePoints = encoded.split('-').map(Number);
+      if (codePoints.some((value) => !Number.isInteger(value))) return;
+      const address = String.fromCodePoint(...codePoints);
+      window.location.href = `mailto:${address}`;
+    });
+  }
+</script>

@@ -29,6 +29,12 @@ function walk(directory) {
 walk(root.pathname);
 
 const htmlFiles = files.filter((path) => path.endsWith('.html'));
+const protectedEmail = 'hatakeyama.ryujin.q7@dc.tohoku.ac.jp';
+for (const path of files.filter((file) => /\.(?:html|js|css|xml|txt|svg)$/.test(file))) {
+  if (readFileSync(path, 'utf8').includes(protectedEmail)) {
+    fail(`${relative(root.pathname, path)} exposes the complete email address`);
+  }
+}
 const forbidden = [
   'Fixture award',
   'Test record',
@@ -109,8 +115,16 @@ if (!presentationsLink.includes('home-link-icon') || !presentationsLink.includes
 }
 const githubPosition = academicList.indexOf('href="https://github.com/ryujin-hatakeyama"');
 if (githubPosition < presentationsPosition) fail('GitHub does not follow Talks & Presentations');
-const emailPosition = academicList.indexOf('href="mailto:');
-if (emailPosition !== -1 && emailPosition < githubPosition) fail('Email does not follow GitHub');
+const emailPosition = academicList.indexOf('data-email-code="');
+if (emailPosition < githubPosition) fail('Email does not follow GitHub');
+const emailCodeMatch = academicList.match(/data-email-code="([0-9-]+)"/);
+if (!emailCodeMatch) fail('Homepage is missing the protected Email control');
+const decodedEmail = emailCodeMatch?.[1].split('-').map(Number).map((value) => String.fromCodePoint(value)).join('');
+if (decodedEmail !== protectedEmail) fail('Homepage Email control does not reconstruct the verified address');
+if (academicList.includes('mailto:')) fail('Homepage contains a static mailto link');
+const emailLinkEnd = academicList.indexOf('</a>', emailPosition);
+const emailLink = emailPosition === -1 || emailLinkEnd === -1 ? '' : academicList.slice(emailPosition, emailLinkEnd);
+if (!emailLink.includes('home-link-icon') || !emailLink.includes('>Email</span>')) fail('Email control is missing its icon or visible label');
 if (home.indexOf('Recent Updates') < academicListEnd) fail('Recent Updates does not follow the homepage link list');
 const publicHeader = home.slice(home.indexOf('<header class="site-header">'), home.indexOf('</header>'));
 if (publicHeader.includes('>Writings</a>')) fail('Writings remains in primary navigation');

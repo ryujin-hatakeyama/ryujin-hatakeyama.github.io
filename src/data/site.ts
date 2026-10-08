@@ -20,5 +20,9 @@ export const siteInfo = {
   contacts: [
     { label: 'GitHub', href: 'https://github.com/ryujin-hatakeyama' }
   ] as Array<{ label: string; href: string }>,
+  email: {
+    localParts: ['hatakeyama', 'ryujin', 'q7'],
+    domainParts: ['dc', 'tohoku', 'ac', 'jp']
+  } as null | { localParts: string[]; domainParts: string[] },
   academicLinks: [] as Array<{ label: string; href: string }>
 } as const;
