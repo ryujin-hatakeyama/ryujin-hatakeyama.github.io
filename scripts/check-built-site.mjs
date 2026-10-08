@@ -71,7 +71,7 @@ if (!home.includes('Prof. Eijiro Sumii')) fail('English homepage is missing the 
 if (!home.includes('Oleg Kiselyov')) fail('English homepage is missing the collaborator link');
 if (!home.includes('compositional descriptions of probabilistic models and staged inference code generation')) fail('English homepage is missing the current research description');
 if (home.includes('compositional descriptions of hidden Markov models')) fail('English homepage still narrows the biography to hidden Markov models');
-if (!home.includes('I am also interested in modal and categorical logic, and in the elucidation of the form and meaning of programming languages.')) fail('English homepage is missing the distinct logic interest');
+if (!home.includes('My broader interests lie in modal and categorical logic, and in the conditions of intelligibility of formal reasoning.')) fail('English homepage is missing the distinct broader interest');
 if (!home.includes('appearance-toggle')) fail('appearance control is missing');
 if (!home.includes('Ryujin Hatakeyama')) fail('English display name is missing');
 if (!home.includes('畠山竜迅')) fail('Japanese name is missing or incorrectly spaced');
