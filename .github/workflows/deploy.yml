@@ -1,8 +1,10 @@
 name: Deploy to GitHub Pages
 
-# Publication is intentionally manual. Running this workflow deploys the current
-# main branch to https://ryujin-hatakeyama.github.io/.
+# Pushes to main deploy automatically; workflow_dispatch remains available for
+# an explicit rebuild of https://ryujin-hatakeyama.github.io/.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 env:

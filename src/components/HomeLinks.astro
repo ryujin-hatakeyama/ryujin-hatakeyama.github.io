@@ -23,7 +23,14 @@ const email = suppliedLinks.find(isEmail);
         </a>
       </li>
     )}
-    <li><a href={withBase('/research/#presentations')}>Talks & Presentations</a></li>
+    <li>
+      <a href={withBase('/research/#presentations')}>
+        <svg class="home-link-icon" aria-hidden="true" viewBox="0 0 16 16">
+          <path d="M1.5 2.5h13M14 2.5v7.25A1.25 1.25 0 0 1 12.75 11h-9.5A1.25 1.25 0 0 1 2 9.75V2.5M4.8 14 8 11l3.2 3" />
+        </svg>
+        <span>Talks & Presentations</span>
+      </a>
+    </li>
     {github && (
       <li>
         <a href={github.href}>

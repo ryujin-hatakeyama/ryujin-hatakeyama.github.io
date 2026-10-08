@@ -121,8 +121,8 @@ The visual studies used during design review remain under `src/inactive-pages/` 
 
 ## Deployment
 
-`.github/workflows/deploy.yml` follows Astro’s current GitHub Pages action pattern and also installs OCaml so generated update data can never depend on an undocumented local artifact. It uses Node.js 24, installs the opam dependencies, and runs `npm run verify` through the opam environment before uploading `dist/`. Deployment is manual (`workflow_dispatch`) to prevent accidental publication; no repository variables or secrets are required.
+`.github/workflows/deploy.yml` follows Astro’s current GitHub Pages action pattern and also installs OCaml so generated update data can never depend on an undocumented local artifact. It uses Node.js 24, installs the opam dependencies, and runs `npm run verify` through the opam environment before uploading `dist/`. A push to `main` deploys automatically, and `workflow_dispatch` remains available for a manual rebuild. No repository variables or secrets are required.
 
-Before the first deployment, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions**. After the reviewed source has been pushed to `main`, open **Actions → Deploy to GitHub Pages → Run workflow**. Running that workflow is the publication action.
+Before the first deployment, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions**. Pushing reviewed source to `main` then starts the deployment workflow automatically. To redeploy manually, open **Actions → Deploy to GitHub Pages → Run workflow**.
 
 `dist/` is ordinary static output and can instead be copied to Sakura Internet or any other static host. No runtime server, database, CMS, analytics, or third-party script is required.

@@ -96,6 +96,13 @@ if (cvLinkPosition === -1) fail('English homepage is missing the CV link');
 if (academicList.includes('>Research</a>') || academicList.includes('>Publications</a>')) fail('Homepage contains a redundant Research or Publications link');
 const presentationsPosition = academicList.indexOf('href="/research/#presentations"');
 if (presentationsPosition < cvLinkPosition) fail('Talks & Presentations does not follow CV');
+const presentationsLinkEnd = academicList.indexOf('</a>', presentationsPosition);
+const presentationsLink = presentationsPosition === -1 || presentationsLinkEnd === -1
+  ? ''
+  : academicList.slice(presentationsPosition, presentationsLinkEnd);
+if (!presentationsLink.includes('home-link-icon') || !presentationsLink.includes('aria-hidden="true"')) {
+  fail('Talks & Presentations is missing its accessible presentation icon');
+}
 const githubPosition = academicList.indexOf('href="https://github.com/ryujin-hatakeyama"');
 if (githubPosition < presentationsPosition) fail('GitHub does not follow Talks & Presentations');
 const emailPosition = academicList.indexOf('href="mailto:');
