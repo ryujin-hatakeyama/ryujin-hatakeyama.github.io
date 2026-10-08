@@ -1,0 +1,40 @@
+---
+import { categoryLabels, formatDate, kindLabels, type Locale } from '../lib/content';
+import { withBase } from '../lib/paths';
+import EmptyState from './EmptyState.astro';
+
+const { updates = [], locale = 'en', compact = false } = Astro.props;
+const language = locale as Locale;
+---
+
+{updates.length === 0 ? (
+  <EmptyState locale={locale} type={locale === 'ja' ? '更新情報' : 'updates'} />
+) : (
+  <ol class:list={['update-list', { compact }]}>
+    {updates.map((entry: any) => {
+      const labels = categoryLabels[language];
+      const title = language === 'ja' ? (entry.data.title.ja ?? entry.data.title.en) : entry.data.title.en;
+      const summary = language === 'ja' ? (entry.data.summary.ja ?? entry.data.summary.en) : entry.data.summary.en;
+      const detailHref = `${language === 'ja' ? '/ja' : ''}/updates/item/${entry.data.id}/`;
+      return (
+        <li>
+          <article>
+            <div class="update-meta">
+              <time datetime={entry.data.date.toISOString().slice(0, 10)}>{formatDate(entry.data.date, language)}</time>
+              <span class="kind-label">{kindLabels[language][entry.data.kind.type as keyof typeof kindLabels.en]}</span>
+            </div>
+            <div class="update-copy">
+              <h3>{entry.data.detail ? <a href={withBase(detailHref)}>{title}</a> : title}</h3>
+              {!compact && <p>{summary}</p>}
+              <p class="category-line">
+                {entry.data.categories.map((category: keyof typeof labels, index: number) => (
+                  <><a href={withBase(`${language === 'ja' ? '/ja' : ''}/updates/${category}/`)}>{categoryLabels[language][category]}</a>{index < entry.data.categories.length - 1 && <span aria-hidden="true"> · </span>}</>
+                ))}
+              </p>
+            </div>
+          </article>
+        </li>
+      );
+    })}
+  </ol>
+)}

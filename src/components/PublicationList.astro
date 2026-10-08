@@ -1,0 +1,70 @@
+---
+import EmptyState from './EmptyState.astro';
+const { publications = [], locale = 'en', variant = 'publications' } = Astro.props;
+const language = locale as 'en' | 'ja';
+const typeLabels: Record<string, { en: string; ja: string }> = {
+  'conference-paper': { en: 'Conference paper', ja: '国際会議論文' },
+  'journal-article': { en: 'Journal article', ja: '論文誌論文' },
+  preprint: { en: 'Preprint', ja: 'プレプリント' },
+  'extended-abstract': { en: 'Extended abstract', ja: '拡張要旨' },
+  'workshop-contribution': { en: 'Workshop contribution', ja: 'ワークショップ発表' },
+  'student-research-competition': { en: 'Student research competition', ja: '学生研究コンペティション' },
+  presentation: { en: 'Presentation', ja: '発表' },
+  poster: { en: 'Poster', ja: 'ポスター' },
+  software: { en: 'Software', ja: 'ソフトウェア' }
+};
+const statusLabels: Record<string, { en: string; ja: string }> = {
+  draft: { en: 'Draft', ja: '草稿' }, submitted: { en: 'Submitted', ja: '投稿中' },
+  accepted: { en: 'Accepted', ja: '採択済み' }, forthcoming: { en: 'Forthcoming', ja: '刊行予定' },
+  published: { en: 'Published', ja: '公開済み' }, presented: { en: 'Presented', ja: '発表済み' }
+};
+const presentationFormatLabels: Record<string, { en: string; ja: string }> = {
+  oral: { en: 'Oral presentation', ja: '口頭発表' },
+  poster: { en: 'Poster presentation', ja: 'ポスター発表' }
+};
+const reviewLabels: Record<string, { en: string; ja: string }> = {
+  refereed: { en: 'Refereed proceedings paper', ja: '査読付き予稿論文' },
+  unrefereed: { en: 'Unrefereed proceedings paper', ja: '査読なし予稿論文' }
+};
+
+const classification = (entry: any) => {
+  if (variant !== 'presentations' || !entry.data.presentation) {
+    return `${typeLabels[entry.data.type]?.[language] ?? entry.data.type} · ${statusLabels[entry.data.status]?.[language] ?? entry.data.status}`;
+  }
+
+  const details = [presentationFormatLabels[entry.data.presentation.format]?.[language] ?? entry.data.presentation.format];
+  if (entry.data.presentation.category) details[0] += ` (${entry.data.presentation.category})`;
+  if (entry.data.presentation.proceedingsReview) {
+    details.push(reviewLabels[entry.data.presentation.proceedingsReview]?.[language] ?? entry.data.presentation.proceedingsReview);
+  }
+  return details.join(' · ');
+};
+---
+
+{publications.length === 0 ? (
+  <EmptyState locale={locale} type="publications" />
+) : (
+  <ol class="publication-list">
+    {publications.map((entry: any) => (
+      <li>
+        <article>
+          <p class="publication-index">{String(entry.data.year)}</p>
+          <div>
+            <h3>{entry.data.title}</h3>
+            <p class="authors">{entry.data.authors.join(', ')}</p>
+            <p class="venue">
+              {entry.data.venue && <span>{entry.data.venue}. </span>}
+              <span>{classification(entry)}</span>
+            </p>
+            {entry.data.note && <p class="publication-note">{entry.data.note}</p>}
+            {entry.data.links.length > 0 && (
+              <p class="record-links">
+                {entry.data.links.map((link: any) => <a href={link.url}>{link.label}<span class="sr-only"> ({link.type})</span></a>)}
+              </p>
+            )}
+          </div>
+        </article>
+      </li>
+    ))}
+  </ol>
+)}

@@ -1,0 +1,56 @@
+---
+const { locale = 'en' } = Astro.props;
+const darkLabel = locale === 'ja' ? 'ダークモードに切り替える' : 'Switch to dark mode';
+const lightLabel = locale === 'ja' ? 'ライトモードに切り替える' : 'Switch to light mode';
+---
+
+<button
+  class="appearance-toggle"
+  id="appearance-toggle"
+  type="button"
+  aria-label={darkLabel}
+  title={darkLabel}
+  data-dark-label={darkLabel}
+  data-light-label={lightLabel}
+>
+  <svg class="theme-icon theme-icon-moon" aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
+    <path d="M20.2 15.3A8.5 8.5 0 0 1 8.7 3.8 8.5 8.5 0 1 0 20.2 15.3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+  </svg>
+  <svg class="theme-icon theme-icon-sun" aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
+    <circle cx="12" cy="12" r="3.6" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+    <path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
+  </svg>
+</button>
+
+<script is:inline>
+  (() => {
+    const button = document.querySelector('#appearance-toggle');
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const read = () => {
+      try {
+        const stored = localStorage.getItem('appearance');
+        return stored === 'light' || stored === 'dark' ? stored : null;
+      } catch { return null; }
+    };
+    const apply = (choice) => {
+      const resolved = choice ?? (media.matches ? 'dark' : 'light');
+      document.documentElement.dataset.theme = resolved;
+      document.documentElement.dataset.appearance = choice ?? 'system';
+      document.documentElement.style.colorScheme = resolved;
+      if (button) {
+        const label = resolved === 'dark' ? button.dataset.lightLabel : button.dataset.darkLabel;
+        button.setAttribute('aria-label', label);
+        button.setAttribute('title', label);
+      }
+    };
+    apply(read());
+    button?.addEventListener('click', () => {
+      const choice = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      try { localStorage.setItem('appearance', choice); } catch {}
+      apply(choice);
+    });
+    media.addEventListener?.('change', () => {
+      if (read() === null) apply(null);
+    });
+  })();
+</script>

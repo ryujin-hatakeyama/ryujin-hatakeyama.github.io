@@ -1,0 +1,14 @@
+---
+import { siteInfo } from '../data/site';
+const { locale = 'en' } = Astro.props;
+const links = [...siteInfo.contacts, ...siteInfo.academicLinks];
+---
+
+{links.length > 0 && (
+  <section class="contact-block" aria-labelledby="contact-heading">
+    <h2 id="contact-heading">{locale === 'ja' ? '連絡先・リンク' : 'Contact & links'}</h2>
+    <ul class="contact-links">
+      {links.map((link) => <li><a href={link.href}>{link.label}</a></li>)}
+    </ul>
+  </section>
+)}

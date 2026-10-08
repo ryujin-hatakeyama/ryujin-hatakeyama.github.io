@@ -1,0 +1,31 @@
+---
+import { formatDate } from '../lib/content';
+import { withBase } from '../lib/paths';
+import EmptyState from './EmptyState.astro';
+const { writings = [], locale = 'en' } = Astro.props;
+const language = locale as 'en' | 'ja';
+const kindLabels: Record<string, { en: string; ja: string }> = {
+  essay: { en: 'Essay', ja: 'エッセイ' }, note: { en: 'Note', ja: 'ノート' },
+  literary: { en: 'Literary work', ja: '文芸' }, prose: { en: 'Prose', ja: '散文' }, fragment: { en: 'Fragment', ja: '断片' }
+};
+---
+
+{writings.length === 0 ? (
+  <EmptyState locale={locale} type={locale === 'ja' ? '文章' : 'writings'} />
+) : (
+  <ol class="writing-list">
+    {writings.map((entry: any) => {
+      const path = `${entry.data.lang === 'ja' ? '/ja' : ''}/writings/${entry.data.slug}/`;
+      return (
+        <li>
+          <article>
+            <p class="writing-meta"><span>{kindLabels[entry.data.kind]?.[language] ?? entry.data.kind}</span><time datetime={entry.data.date.toISOString().slice(0, 10)}>{formatDate(entry.data.date, language)}</time></p>
+            <h3><a href={entry.data.externalUrl ?? withBase(path)} lang={entry.data.lang}>{entry.data.title}</a></h3>
+            <p>{entry.data.description}</p>
+            {entry.data.lang !== language && <p class="original-language">{language === 'ja' ? '英語の原文' : 'Original in Japanese'}</p>}
+          </article>
+        </li>
+      );
+    })}
+  </ol>
+)}

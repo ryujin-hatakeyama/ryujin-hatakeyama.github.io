@@ -1,0 +1,33 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import UpdateList from '../components/UpdateList.astro';
+import NameIdentity from '../components/NameIdentity.astro';
+import HomeBio from '../components/HomeBio.astro';
+import HomeLinks from '../components/HomeLinks.astro';
+import { sortByDate } from '../lib/content';
+import { withBase } from '../lib/paths';
+
+const updates = sortByDate(await getCollection('updates')).slice(0, 5);
+---
+
+<BaseLayout
+  title="Ryujin Hatakeyama"
+  description="Ryujin Hatakeyama is a second-year master's student at Tohoku University studying programming language theory and staged computation."
+  currentPath="/"
+>
+  <section class="home-intro" aria-labelledby="home-name">
+    <NameIdentity />
+    <HomeBio />
+    <HomeLinks />
+  </section>
+
+  <section class="home-news" aria-labelledby="updates-heading">
+    <header class="home-news-heading">
+      <h2 id="updates-heading">Recent Updates</h2>
+      <a href={withBase('/updates/')}>All updates</a>
+    </header>
+    {updates.length > 0 && <UpdateList updates={updates} compact />}
+  </section>
+  <p class="home-writings-link"><a href={withBase('/writings/')}>Writings</a></p>
+</BaseLayout>

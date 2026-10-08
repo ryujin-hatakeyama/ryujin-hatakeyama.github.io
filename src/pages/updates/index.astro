@@ -1,0 +1,15 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PageIntro from '../../components/PageIntro.astro';
+import UpdateFilters from '../../components/UpdateFilters.astro';
+import UpdateList from '../../components/UpdateList.astro';
+import { sortByDate } from '../../lib/content';
+const updates = sortByDate(await getCollection('updates'));
+---
+
+<BaseLayout title="Updates" description="Research, academic, and writing updates from Ryujin Hatakeyama." currentPath="/updates/">
+  <PageIntro number="03" eyebrow="Updates" title="Updates" />
+  <UpdateFilters />
+  <UpdateList updates={updates} />
+</BaseLayout>

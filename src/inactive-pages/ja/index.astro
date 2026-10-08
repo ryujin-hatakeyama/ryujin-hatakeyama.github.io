@@ -1,0 +1,37 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import UpdateList from '../../components/UpdateList.astro';
+import NameIdentity from '../../components/NameIdentity.astro';
+import HomeBio from '../../components/HomeBio.astro';
+import HomeLinks from '../../components/HomeLinks.astro';
+import { sortByDate } from '../../lib/content';
+import { withBase } from '../../lib/paths';
+
+const updates = sortByDate(await getCollection('updates')).slice(0, 3);
+---
+
+<BaseLayout
+  title="Ryujin Hatakeyama"
+  description="プログラミング言語とその基礎を研究する、Ryujin Hatakeyama の個人ウェブサイトです。"
+  locale="ja"
+  currentPath="/ja/"
+  alternatePath="/"
+>
+  <section class="home-intro" aria-labelledby="home-name">
+    <NameIdentity locale="ja" />
+    <HomeBio locale="ja" />
+    <HomeLinks locale="ja" />
+  </section>
+
+  {updates.length > 0 && (
+    <section class="home-news" aria-labelledby="news-heading">
+      <header class="home-news-heading">
+        <h2 id="news-heading">お知らせ</h2>
+        <a href={withBase('/ja/updates/')}>すべて見る</a>
+      </header>
+      <UpdateList updates={updates} locale="ja" compact />
+    </section>
+  )}
+  <p class="home-writings-link"><a href={withBase('/ja/writings/')}>文章</a></p>
+</BaseLayout>

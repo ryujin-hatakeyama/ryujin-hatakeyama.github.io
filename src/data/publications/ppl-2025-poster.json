@@ -1,0 +1,22 @@
+{
+  "slug": "ppl-2025-poster",
+  "title": "Applicativeによるグラフィカルモデルの表現と厳密推論に向けた実装",
+  "authors": ["Ryujin Hatakeyama", "Oleg Kiselyov"],
+  "year": 2025,
+  "type": "poster",
+  "status": "presented",
+  "venue": "The 27th Workshop on Programming and Programming Languages (PPL 2025)",
+  "presentation": {
+    "format": "poster",
+    "category": "Category 3 / C3"
+  },
+  "links": [
+    {
+      "label": "Official listing",
+      "url": "https://jssst-ppl.org/workshop/2025/accepted.html",
+      "type": "external"
+    }
+  ],
+  "projectIds": [],
+  "draft": false
+}

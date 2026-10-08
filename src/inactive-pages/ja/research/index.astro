@@ -1,0 +1,46 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import PublicationList from '../../../components/PublicationList.astro';
+import EmptyState from '../../../components/EmptyState.astro';
+import { siteInfo } from '../../../data/site';
+import { withBase } from '../../../lib/paths';
+
+const publications = (await getCollection('publications', ({ data }) => !data.draft)).sort((a, b) => b.data.year - a.data.year);
+const projects = await getCollection('projects', ({ data }) => !data.draft);
+---
+
+<BaseLayout title="研究" description="Ryujin Hatakeyama の研究プロジェクト、論文、発表、ソフトウェア、関連資料。" locale="ja" currentPath="/ja/research/" alternatePath="/research/">
+  <header class="plain-page-header">
+    <h1>研究</h1>
+    <p>プログラミング言語とその基礎に関する研究をしています。</p>
+    <nav class="jump-links" aria-label="研究ページの目次">
+      <a href="#publications">研究成果</a>
+      <a href="#projects">プロジェクト</a>
+      <a href="#materials">発表・資料</a>
+      <a href="#cv">CV</a>
+    </nav>
+  </header>
+  <div class="research-page">
+    <section id="publications" class="content-section">
+      <h2>研究成果・発表</h2>
+      <PublicationList publications={publications} locale="ja" />
+    </section>
+    <section id="projects" class="content-section">
+      <h2>プロジェクト</h2>
+      {projects.length === 0 ? <EmptyState locale="ja" type="研究プロジェクト" /> : projects.map((project) => (
+        <article class="project-entry"><h3>{project.data.titleJa ?? project.data.title}</h3><p>{project.data.summaryJa ?? project.data.summary}</p></article>
+      ))}
+    </section>
+    <section id="materials" class="content-section">
+      <h2>発表・その他の資料</h2>
+      <EmptyState locale="ja" type="研究資料" />
+    </section>
+    <section id="cv" class="content-section">
+      <h2>CV</h2>
+      {siteInfo.cv
+        ? <p><a href={withBase(siteInfo.cv.href)}>{siteInfo.cv.labelJapanese ?? siteInfo.cv.label ?? 'Curriculum vitae'}</a></p>
+        : <p class="quiet-empty">現在は掲載していません。</p>}
+    </section>
+  </div>
+</BaseLayout>

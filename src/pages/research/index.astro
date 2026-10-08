@@ -1,0 +1,48 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PublicationList from '../../components/PublicationList.astro';
+import { siteInfo } from '../../data/site';
+import { withBase } from '../../lib/paths';
+
+const records = (await getCollection('publications', ({ data }) => !data.draft)).sort((a, b) => b.data.year - a.data.year);
+const presentations = records.filter(({ data }) => data.type === 'presentation' || data.type === 'poster');
+const publications = records.filter(({ data }) => data.type !== 'presentation' && data.type !== 'poster');
+const projects = await getCollection('projects', ({ data }) => !data.draft);
+---
+
+<BaseLayout title="Research" description="Research in programming language theory and staged computation by Ryujin Hatakeyama." currentPath="/research/">
+  <header class="plain-page-header">
+    <h1>Research</h1>
+    <nav class="jump-links" aria-label="Research sections">
+      <a href="#publications">Publications</a>
+      {projects.length > 0 && <a href="#projects">Projects</a>}
+      <a href="#presentations">Talks & Presentations</a>
+      <a href="#cv">CV</a>
+    </nav>
+  </header>
+  <div class="research-page">
+    <section id="publications" class="content-section">
+      <h2>Publications</h2>
+      {publications.length > 0 && <PublicationList publications={publications} />}
+    </section>
+    {projects.length > 0 && (
+      <section id="projects" class="content-section">
+        <h2>Projects</h2>
+        {projects.map((project) => (
+          <article class="project-entry"><h3>{project.data.title}</h3><p>{project.data.summary}</p></article>
+        ))}
+      </section>
+    )}
+    <section id="presentations" class="content-section">
+      <h2>Talks &amp; Presentations</h2>
+      <PublicationList publications={presentations} variant="presentations" />
+    </section>
+    <section id="cv" class="content-section">
+      <h2>CV</h2>
+      {siteInfo.cv
+        ? <p><a href={withBase(siteInfo.cv.href)}>{siteInfo.cv.label ?? 'Curriculum vitae'}</a></p>
+        : <p class="quiet-empty">Not currently posted.</p>}
+    </section>
+  </div>
+</BaseLayout>

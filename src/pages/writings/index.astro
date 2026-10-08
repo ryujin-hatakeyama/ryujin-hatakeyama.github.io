@@ -1,0 +1,13 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PageIntro from '../../components/PageIntro.astro';
+import WritingList from '../../components/WritingList.astro';
+import { sortByDate } from '../../lib/content';
+const writings = sortByDate(await getCollection('writings', ({ data }) => !data.draft));
+---
+
+<BaseLayout title="Writings" description="Writings by Ryujin Hatakeyama." currentPath="/writings/">
+  <PageIntro number="02" eyebrow="Writings" title="Writings" />
+  <WritingList writings={writings} />
+</BaseLayout>

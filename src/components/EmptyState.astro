@@ -1,0 +1,8 @@
+---
+const { locale = 'en', type = 'records' } = Astro.props;
+const text = locale === 'ja'
+  ? 'まだありません。'
+  : `No ${type} yet.`;
+---
+
+<p class="empty-state">{text}</p>

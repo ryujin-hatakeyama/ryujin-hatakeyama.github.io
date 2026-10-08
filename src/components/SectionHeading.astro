@@ -1,0 +1,8 @@
+---
+const { title, link, linkLabel } = Astro.props;
+---
+
+<div class="section-heading">
+  <h2>{title}</h2>
+  {link && <a href={link}>{linkLabel}</a>}
+</div>

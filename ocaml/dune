@@ -1,0 +1,14 @@
+(library
+ (name content_pipeline)
+ (modules json update_model))
+
+(executable
+ (name generate_updates)
+ (modules generate_updates)
+ (libraries content_pipeline))
+
+(test
+ (name update_pipeline_test)
+ (modules update_pipeline_test)
+ (libraries content_pipeline))
+

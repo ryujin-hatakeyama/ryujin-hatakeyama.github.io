@@ -1,0 +1,28 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import { categoryLabels, formatDate, kindLabels } from '../../../lib/content';
+
+export async function getStaticPaths() {
+  const updates = await getCollection('updates', ({ data }) => data.detail);
+  return updates.map((entry) => ({ params: { slug: entry.data.id }, props: { entry } }));
+}
+const { entry } = Astro.props;
+---
+
+<BaseLayout title={entry.data.title.en} description={entry.data.summary.en} currentPath={`/updates/item/${entry.data.id}/`} article>
+  <article class="detail-sheet">
+    <header>
+      <p class="longform-kicker">Update <span aria-hidden="true">/</span> {kindLabels.en[entry.data.kind.type]}</p>
+      <h1>{entry.data.title.en}</h1>
+      <p class="summary">{entry.data.summary.en}</p>
+    </header>
+    <dl>
+      <div class="detail-meta"><dt>Event date</dt><dd><time datetime={entry.data.date.toISOString().slice(0, 10)}>{formatDate(entry.data.date, 'en')}</time></dd></div>
+      <div class="detail-meta"><dt>Announced</dt><dd><time datetime={entry.data.announcedOn.toISOString().slice(0, 10)}>{formatDate(entry.data.announcedOn, 'en')}</time></dd></div>
+      <div class="detail-meta"><dt>Categories</dt><dd>{entry.data.categories.map((category: keyof typeof categoryLabels.en) => categoryLabels.en[category]).join(' · ')}</dd></div>
+    </dl>
+    {entry.data.body?.en && <div class="prose"><p>{entry.data.body.en}</p></div>}
+    {entry.data.links.length > 0 && <p class="record-links">{entry.data.links.map((link: any) => <a href={link.url}>{link.label}</a>)}</p>}
+  </article>
+</BaseLayout>

@@ -1,0 +1,48 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PublicationList from '../../components/PublicationList.astro';
+
+const presentations = (await getCollection('publications', ({ data }) =>
+  !data.draft && (data.type === 'presentation' || data.type === 'poster')
+)).sort((a, b) => b.data.year - a.data.year);
+---
+
+<BaseLayout
+  title="CV"
+  description="Curriculum vitae of Ryujin Hatakeyama, a second-year master's student in the Graduate School of Information Sciences at Tohoku University."
+  currentPath="/cv/"
+>
+  <article class="cv-page">
+    <header class="cv-header">
+      <h1>Curriculum vitae</h1>
+      <p>Ryujin Hatakeyama <span lang="ja">（畠山竜迅）</span></p>
+    </header>
+
+    <section aria-labelledby="education-heading">
+      <h2 id="education-heading">Education</h2>
+      <div class="cv-entry">
+        <time datetime="2025">2025–present</time>
+        <div>
+          <p><strong>Master's program, Graduate School of Information Sciences, Tohoku University</strong></p>
+          <p><a href="https://www.is.tohoku.ac.jp/en/laboratory/list_dept/a11.html">Foundations of Software Science</a></p>
+          <p>Current status: second-year master's student (M2), academic year 2026.</p>
+          <p>Supervisor: <a href="https://www.kb.ecei.tohoku.ac.jp/~sumii/">Prof. Eijiro Sumii</a>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="programs-heading">
+      <h2 id="programs-heading">Academic programs</h2>
+      <div class="cv-entry">
+        <time datetime="2025">2025–present</time>
+        <p>Selected participant, <a href="https://www.aie.tohoku.ac.jp/english/">WISE Program for AI Electronics (AIE)</a>, Tohoku University.</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="presentations-heading">
+      <h2 id="presentations-heading">Presentations</h2>
+      <PublicationList publications={presentations} variant="presentations" />
+    </section>
+  </article>
+</BaseLayout>

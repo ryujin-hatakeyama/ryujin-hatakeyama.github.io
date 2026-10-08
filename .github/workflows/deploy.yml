@@ -1,0 +1,56 @@
+name: Deploy to GitHub Pages
+
+# Publication is intentionally manual. Running this workflow deploys the current
+# main branch to https://ryujin-hatakeyama.github.io/.
+on:
+  workflow_dispatch:
+
+env:
+  ASTRO_TELEMETRY_DISABLED: 1
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the isolated OCaml environment
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.3.x
+          dune-cache: true
+
+      - name: Install OCaml build dependencies
+        run: opam install . --deps-only --with-test --yes
+
+      - name: Test, build, and upload the static site
+        uses: withastro/action@v6
+        with:
+          node-version: 24
+          package-manager: npm
+          build-cmd: opam exec -- npm run verify
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

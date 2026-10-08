@@ -1,0 +1,24 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import { formatDate } from '../lib/content';
+import 'katex/dist/katex.min.css';
+const { entry } = Astro.props;
+const lang = entry.data.lang as 'en' | 'ja';
+---
+
+<BaseLayout
+  title={entry.data.title}
+  description={entry.data.description}
+  currentPath={`/writings/${entry.data.slug}/`}
+  article
+>
+  <article class:list={['longform', { 'longform-ja': lang === 'ja' }]} lang={lang}>
+    <header class="longform-header">
+      <p class="longform-kicker">{entry.data.kind} <span aria-hidden="true">/</span> <time datetime={entry.data.date.toISOString().slice(0, 10)}>{formatDate(entry.data.date, lang)}</time></p>
+      <h1>{entry.data.title}</h1>
+      <p class="dek">{entry.data.description}</p>
+      {entry.data.publication && <p class="publication-context">{entry.data.publication}</p>}
+    </header>
+    <div class="prose"><slot /></div>
+  </article>
+</BaseLayout>

@@ -1,0 +1,22 @@
+---
+import { getCollection, render } from 'astro:content';
+import WritingLayout from '../../../layouts/WritingLayout.astro';
+
+export async function getStaticPaths() {
+  const writings = await getCollection('writings', ({ data }) => !data.draft && data.lang === 'ja');
+  const all = await getCollection('writings', ({ data }) => !data.draft);
+  return writings.map((entry) => {
+    const translation = entry.data.translationKey
+      ? all.find((other) => other.data.translationKey === entry.data.translationKey && other.data.lang === 'en')
+      : undefined;
+    return { params: { slug: entry.data.slug }, props: { entry, alternatePath: translation ? `/writings/${translation.data.slug}/` : '/writings/', alternateIsExact: Boolean(translation) } };
+  });
+}
+
+const { entry, alternatePath, alternateIsExact } = Astro.props;
+const { Content } = await render(entry);
+---
+
+<WritingLayout entry={entry} locale="ja" alternatePath={alternatePath} alternateIsExact={alternateIsExact}>
+  <Content />
+</WritingLayout>

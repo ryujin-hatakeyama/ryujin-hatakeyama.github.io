@@ -1,0 +1,27 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageIntro from '../components/PageIntro.astro';
+---
+
+<BaseLayout title="Design directions" description="A local comparison of the two visual directions considered for this website." currentPath="/design-directions/" noindex>
+  <PageIntro number="A/B" eyebrow="Design study" title="Two directions" description="The same material, with a different center of gravity. The implemented site is a deliberate synthesis rather than a midpoint." />
+  <div class="direction-grid">
+    <section class="direction-sample direction-a">
+      <p>Direction A / Academic Editorial</p>
+      <h2>Rigorous, compact, bibliographic.</h2>
+      <p>Smaller intervals, firmer rules, and metadata aligned for scanning.</p>
+      <article class="sample-record"><span>20XX</span><div><h3>Untitled research record</h3><p>A clearly labeled layout sample—not a publication claim.</p></div></article>
+    </section>
+    <section class="direction-sample direction-b">
+      <p>Direction B / Personal Editorial</p>
+      <h2>Open, offset, quietly intimate.</h2>
+      <p>More breathing room, stronger reading typography, and controlled asymmetry.</p>
+      <article class="sample-record"><span>NOTE</span><div><h3>A deliberately long title showing how a personal text may occupy the page</h3><p>Writing is given its own rhythm without becoming a separate identity.</p></div></article>
+    </section>
+  </div>
+  <div class="direction-notes">
+    <p><strong>Recommendation:</strong> keep Direction A’s information architecture and bibliographic discipline, then borrow Direction B’s composition for the homepage and long-form reading. That synthesis is used throughout the working prototype.</p>
+    <p lang="ja">長い日本語の見出しや本文でも、行間と余白が過度に詰まらないよう、和文には独立した組版設定を用意しています。</p>
+  </div>
+</BaseLayout>
+
