@@ -5,7 +5,8 @@ const root = new URL('../dist/', import.meta.url);
 const required = [
   'index.html', 'cv/index.html', 'research/index.html', 'writings/index.html', 'updates/index.html',
   'updates/research/index.html', 'updates/academia/index.html', 'updates/writing/index.html',
-  '404.html', 'rss.xml', 'robots.txt', 'sitemap-index.xml', 'sitemap-0.xml'
+  '404.html', 'rss.xml', 'robots.txt', 'sitemap-index.xml', 'sitemap-0.xml',
+  'favicon.svg', 'favicon-32x32.png', 'apple-touch-icon.png'
 ];
 
 const fail = (message) => {
@@ -64,6 +65,9 @@ for (const path of htmlFiles) {
 const home = readFileSync(new URL('index.html', root), 'utf8');
 if (!home.includes('<link rel="canonical" href="https://ryujin-hatakeyama.github.io/">')) fail('homepage canonical URL is incorrect');
 if (!home.includes('<meta property="og:url" content="https://ryujin-hatakeyama.github.io/">')) fail('homepage Open Graph URL is incorrect');
+if (!home.includes('<link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">')) fail('homepage is missing the versioned SVG favicon');
+if (!home.includes('<link rel="icon" href="/favicon-32x32.png?v=2" type="image/png" sizes="32x32">')) fail('homepage is missing the versioned PNG favicon fallback');
+if (!home.includes('<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" sizes="180x180">')) fail('homepage is missing the versioned Apple touch icon');
 if (!home.includes('Hello!')) fail('English homepage does not contain the required greeting');
 if (!home.includes("a second-year master's student")) fail('English homepage does not contain the M2 academic introduction');
 if (!home.includes('Foundations of Software Science')) fail('English homepage is missing the research-group link');
