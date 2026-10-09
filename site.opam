@@ -1,6 +1,6 @@
 opam-version: "2.0"
 synopsis: "Typed content generator for Ryujin Hatakeyama's website"
-description: "Validates structured update records and exports public JSON for Astro."
+description: "Validates structured update records and exports public JSON for the Rust site builder."
 maintainer: "Ryujin Hatakeyama"
 authors: "Ryujin Hatakeyama"
 license: "UNLICENSED"

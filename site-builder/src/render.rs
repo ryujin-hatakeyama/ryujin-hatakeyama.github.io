@@ -1,0 +1,786 @@
+use std::fmt::Write as _;
+
+use chrono::NaiveDate;
+use maud::{DOCTYPE, Markup, PreEscaped, html};
+
+use crate::content::{SiteContent, public_english_writings};
+use crate::model::{Category, Language, Link, Project, Publication, Update, Writing};
+
+const SITE_ORIGIN: &str = "https://ryujin-hatakeyama.github.io";
+const SITE_NAME: &str = "Ryujin Hatakeyama";
+const HOME_DESCRIPTION: &str = "Ryujin Hatakeyama is a second-year master's student at Tohoku University studying programming language theory and staged computation.";
+
+#[derive(Debug)]
+pub struct GeneratedPage {
+    pub output_path: String,
+    pub public_path: String,
+    pub include_in_sitemap: bool,
+    pub html: String,
+}
+
+#[derive(Clone, Copy)]
+struct PageMetadata<'a> {
+    title: &'a str,
+    description: &'a str,
+    current_path: &'a str,
+    noindex: bool,
+    article: bool,
+}
+
+pub fn pages(content: &SiteContent) -> Vec<GeneratedPage> {
+    let public_publications: Vec<_> = content
+        .publications
+        .iter()
+        .filter(|record| !record.draft && !record.is_presentation())
+        .collect();
+    let presentations: Vec<_> = content
+        .publications
+        .iter()
+        .filter(|record| !record.draft && record.is_presentation())
+        .collect();
+    let public_projects: Vec<_> = content
+        .projects
+        .iter()
+        .filter(|project| !project.metadata.draft)
+        .collect();
+    let writings: Vec<_> = public_english_writings(&content.writings).collect();
+
+    let mut pages = vec![
+        page(
+            "index.html",
+            "/",
+            true,
+            PageMetadata {
+                title: SITE_NAME,
+                description: HOME_DESCRIPTION,
+                current_path: "/",
+                noindex: false,
+                article: false,
+            },
+            home(&content.updates),
+        ),
+        page(
+            "cv/index.html",
+            "/cv/",
+            true,
+            PageMetadata {
+                title: "CV",
+                description: "Curriculum vitae of Ryujin Hatakeyama, a second-year master's student in the Graduate School of Information Sciences at Tohoku University.",
+                current_path: "/cv/",
+                noindex: false,
+                article: false,
+            },
+            cv(&presentations),
+        ),
+        page(
+            "research/index.html",
+            "/research/",
+            true,
+            PageMetadata {
+                title: "Research",
+                description: "Research in programming language theory and staged computation by Ryujin Hatakeyama.",
+                current_path: "/research/",
+                noindex: false,
+                article: false,
+            },
+            research(&public_publications, &presentations, &public_projects),
+        ),
+        page(
+            "updates/index.html",
+            "/updates/",
+            true,
+            PageMetadata {
+                title: "Updates",
+                description: "Research, academic, and writing updates from Ryujin Hatakeyama.",
+                current_path: "/updates/",
+                noindex: false,
+                article: false,
+            },
+            updates_page(&content.updates, None),
+        ),
+        page(
+            "writings/index.html",
+            "/writings/",
+            true,
+            PageMetadata {
+                title: "Writings",
+                description: "Writings by Ryujin Hatakeyama.",
+                current_path: "/writings/",
+                noindex: false,
+                article: false,
+            },
+            writings_page(&writings),
+        ),
+        page(
+            "404.html",
+            "/404/",
+            false,
+            PageMetadata {
+                title: "Page not found",
+                description: "The requested page could not be found.",
+                current_path: "/404/",
+                noindex: true,
+                article: false,
+            },
+            not_found(),
+        ),
+    ];
+
+    for category in Category::ALL {
+        let category_updates: Vec<_> = content
+            .updates
+            .iter()
+            .filter(|update| update.categories.contains(&category))
+            .collect();
+        let title = format!("{} updates", category.label());
+        let description = format!("{} updates from Ryujin Hatakeyama.", category.label());
+        let path = format!("/updates/{}/", category.slug());
+        pages.push(page_owned(
+            format!("updates/{}/index.html", category.slug()),
+            path.clone(),
+            true,
+            &title,
+            &description,
+            &path,
+            updates_page_refs(&category_updates, Some(category)),
+        ));
+    }
+
+    for update in content.updates.iter().filter(|update| update.detail) {
+        let path = format!("/updates/item/{}/", update.id);
+        pages.push(page_owned(
+            format!("updates/item/{}/index.html", update.id),
+            path.clone(),
+            true,
+            &update.title.en,
+            &update.summary.en,
+            &path,
+            update_detail(update),
+        ));
+    }
+
+    for writing in writings {
+        if writing.metadata.external_url.is_some() {
+            continue;
+        }
+        let path = format!("/writings/{}/", writing.metadata.slug);
+        pages.push(page_owned(
+            format!("writings/{}/index.html", writing.metadata.slug),
+            path.clone(),
+            true,
+            &writing.metadata.title,
+            &writing.metadata.description,
+            &path,
+            writing_detail(writing),
+        ));
+    }
+
+    pages.sort_by(|left, right| left.output_path.cmp(&right.output_path));
+    pages
+}
+
+fn page(
+    output_path: &str,
+    public_path: &str,
+    include_in_sitemap: bool,
+    metadata: PageMetadata<'_>,
+    body: Markup,
+) -> GeneratedPage {
+    GeneratedPage {
+        output_path: output_path.to_owned(),
+        public_path: public_path.to_owned(),
+        include_in_sitemap,
+        html: layout(metadata, body).into_string(),
+    }
+}
+
+fn page_owned(
+    output_path: String,
+    public_path: String,
+    include_in_sitemap: bool,
+    title: &str,
+    description: &str,
+    current_path: &str,
+    body: Markup,
+) -> GeneratedPage {
+    let html = layout(
+        PageMetadata {
+            title,
+            description,
+            current_path,
+            noindex: false,
+            article: true,
+        },
+        body,
+    )
+    .into_string();
+    GeneratedPage {
+        output_path,
+        public_path,
+        include_in_sitemap,
+        html,
+    }
+}
+
+fn layout(metadata: PageMetadata<'_>, body: Markup) -> Markup {
+    let full_title = if metadata.title == SITE_NAME {
+        SITE_NAME.to_owned()
+    } else {
+        format!("{} — {SITE_NAME}", metadata.title)
+    };
+    let canonical = format!("{SITE_ORIGIN}{}", metadata.current_path);
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="UTF-8";
+                meta name="viewport" content="width=device-width";
+                meta name="generator" content="site-builder (Rust/Maud)";
+                meta name="description" content=(metadata.description);
+                meta name="theme-color" content="#f4f0e8" media="(prefers-color-scheme: light)";
+                meta name="theme-color" content="#111820" media="(prefers-color-scheme: dark)";
+                @if metadata.noindex {
+                    meta name="robots" content="noindex, nofollow";
+                }
+                link rel="canonical" href=(canonical);
+                link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml";
+                link rel="icon" href="/favicon-32x32.png?v=2" type="image/png" sizes="32x32";
+                link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" sizes="180x180";
+                link rel="alternate" type="application/rss+xml" title="Ryujin Hatakeyama — Updates" href="/rss.xml";
+                link rel="stylesheet" href="/assets/site.css";
+                @if metadata.article {
+                    meta property="og:type" content="article";
+                } @else {
+                    meta property="og:type" content="website";
+                }
+                meta property="og:title" content=(full_title);
+                meta property="og:description" content=(metadata.description);
+                meta property="og:locale" content="en_US";
+                meta property="og:url" content=(canonical);
+                title { (full_title) }
+                script src="/assets/site.js" {}
+            }
+            body {
+                a.skip-link href="#main-content" { "Skip to content" }
+                div.site-shell {
+                    (header(metadata.current_path))
+                    main id="main-content" { (body) }
+                    (footer())
+                }
+            }
+        }
+    }
+}
+
+fn header(current_path: &str) -> Markup {
+    html! {
+        header.site-header {
+            a.wordmark href="/" aria-label="Ryujin Hatakeyama home" { "Ryujin Hatakeyama" }
+            nav.primary-nav aria-label="Primary navigation" {
+                (nav_link("/", "Home", current_path == "/"))
+                (nav_link("/research/", "Research", current_path.starts_with("/research/")))
+                (nav_link("/updates/", "Updates", current_path.starts_with("/updates/")))
+            }
+            div.header-tools {
+                button.appearance-toggle
+                    id="appearance-toggle"
+                    type="button"
+                    aria-label="Switch to dark mode"
+                    title="Switch to dark mode"
+                    data-dark-label="Switch to dark mode"
+                    data-light-label="Switch to light mode" {
+                    svg.theme-icon.theme-icon-moon aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" {
+                        path d="M20.2 15.3A8.5 8.5 0 0 1 8.7 3.8 8.5 8.5 0 1 0 20.2 15.3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" {}
+                    }
+                    svg.theme-icon.theme-icon-sun aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" {
+                        circle cx="12" cy="12" r="3.6" fill="none" stroke="currentColor" stroke-width="1.7" {}
+                        path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn nav_link(href: &str, label: &str, active: bool) -> Markup {
+    if active {
+        html! { a href=(href) aria-current="page" { (label) } }
+    } else {
+        html! { a href=(href) { (label) } }
+    }
+}
+
+fn footer() -> Markup {
+    html! {
+        footer.site-footer {
+            p.footer-name { "© 2026 Ryujin Hatakeyama" }
+            p.footer-meta { a href="/rss.xml" { "RSS" } }
+        }
+    }
+}
+
+fn home(updates: &[Update]) -> Markup {
+    let recent: Vec<_> = updates.iter().take(5).collect();
+    let email = "hatakeyama.ryujin.q7@dc.tohoku.ac.jp";
+    let encoded_email = email
+        .chars()
+        .map(|character| u32::from(character).to_string())
+        .collect::<Vec<_>>()
+        .join("-");
+    html! {
+        section.home-intro aria-labelledby="home-name" {
+            div.identity-block {
+                h1 id="home-name" { "Ryujin Hatakeyama" }
+                p.name-japanese lang="ja" { "畠山竜迅" }
+                p.name-pronunciation {
+                    span lang="ja" { "はたけやま りゅうじん" }
+                    span aria-hidden="true" { " · " }
+                    span.ipa { "/hatakejama ɾʲɯːdʑiɴ/" }
+                }
+            }
+            div.home-bio-copy {
+                p.home-bio {
+                    "Hello! I'm Ryujin, a second-year master's student in the "
+                    a href="https://www.is.tohoku.ac.jp/en/laboratory/list_dept/" { "Department of Computer and Mathematical Sciences" }
+                    " at "
+                    a href="https://www.is.tohoku.ac.jp/en/" { "Tohoku University's Graduate School of Information Sciences" }
+                    ". I work in the "
+                    a href="https://www.is.tohoku.ac.jp/en/laboratory/list_dept/a11.html" { "Foundations of Software Science" }
+                    " group under the supervision of "
+                    a href="https://www.kb.ecei.tohoku.ac.jp/~sumii/" { "Professor Eijiro Sumii" }
+                    "."
+                }
+                p.home-bio {
+                    "My research is in programming language theory. I'm currently working with "
+                    a href="https://okmij.org/ftp/" { "Oleg Kiselyov" }
+                    " on compositional descriptions of probabilistic models and staged inference code generation."
+                }
+                p.home-bio { "My broader interests lie in modal and categorical logic, and in the conditions of intelligibility of formal reasoning." }
+            }
+            nav.home-links aria-label="Academic and contact links" {
+                ul.home-academic-links {
+                    li { (home_link("/cv/", cv_icon(), "CV", None)) }
+                    li { (home_link("/research/#presentations", presentation_icon(), "Talks & Presentations", None)) }
+                    li { (home_link("https://github.com/ryujin-hatakeyama", github_icon(), "GitHub", None)) }
+                    li { (home_link("#email", email_icon(), "Email", Some(&encoded_email))) }
+                }
+            }
+        }
+        section.home-news aria-labelledby="updates-heading" {
+            header.home-news-heading {
+                h2 id="updates-heading" { "Recent Updates" }
+                a href="/updates/" { "All updates" }
+            }
+            @if !recent.is_empty() { (update_list(&recent, true)) }
+        }
+        p.home-writings-link { a href="/writings/" { "Writings" } }
+    }
+}
+
+fn home_link(href: &str, icon: Markup, label: &str, email_code: Option<&str>) -> Markup {
+    if let Some(code) = email_code {
+        html! { a href=(href) data-email-code=(code) { (icon) span { (label) } } }
+    } else {
+        html! { a href=(href) { (icon) span { (label) } } }
+    }
+}
+
+fn cv_icon() -> Markup {
+    html! { svg.home-link-icon aria-hidden="true" viewBox="0 0 16 16" { path d="M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3M5.5 7.5h5M5.5 10h5M5.5 12.5h3.5" {} } }
+}
+
+fn presentation_icon() -> Markup {
+    html! { svg.home-link-icon aria-hidden="true" viewBox="0 0 16 16" { path d="M1.5 2.5h13M14 2.5v7.25A1.25 1.25 0 0 1 12.75 11h-9.5A1.25 1.25 0 0 1 2 9.75V2.5M4.8 14 8 11l3.2 3" {} } }
+}
+
+fn github_icon() -> Markup {
+    html! { svg.home-link-icon aria-hidden="true" viewBox="0 0 16 16" { path d="M8 1.3a6.7 6.7 0 0 0-2.1 13.1c.3.1.4-.1.4-.3v-1.3c-1.8.4-2.2-.8-2.2-.8-.3-.8-.7-1-1-1.2-.6-.4 0-.4 0-.4.7.1 1.1.7 1.1.7.6 1.1 1.7.8 2.1.6.1-.5.2-.8.5-1-1.5-.2-3-.7-3-3.3 0-.7.3-1.3.7-1.8-.1-.2-.3-.8.1-1.8 0 0 .6-.2 1.8.7A6.4 6.4 0 0 1 8 4.3c.6 0 1.1.1 1.6.2 1.3-.9 1.8-.7 1.8-.7.4 1 .2 1.6.1 1.8.5.5.7 1.1.7 1.8 0 2.6-1.6 3.1-3 3.3.3.2.5.6.5 1.2v2.2c0 .2.1.4.5.3A6.7 6.7 0 0 0 8 1.3Z" fill="currentColor" stroke="none" {} } }
+}
+
+fn email_icon() -> Markup {
+    html! { svg.home-link-icon aria-hidden="true" viewBox="0 0 16 16" { path d="M1.5 3.5h13v9h-13zM2 4l6 4.5L14 4" {} } }
+}
+
+fn cv(presentations: &[&Publication]) -> Markup {
+    html! {
+        article.cv-page {
+            header.cv-header {
+                h1 { "Curriculum vitae" }
+                p { "Ryujin Hatakeyama " span lang="ja" { "（畠山竜迅）" } }
+            }
+            section aria-labelledby="education-heading" {
+                h2 id="education-heading" { "Education" }
+                div.cv-entry {
+                    time datetime="2025" { "2025–present" }
+                    div {
+                        p { strong { "Master's program, Graduate School of Information Sciences, Tohoku University" } }
+                        p { a href="https://www.is.tohoku.ac.jp/en/laboratory/list_dept/a11.html" { "Foundations of Software Science" } }
+                        p { "Current status: second-year master's student (M2), academic year 2026." }
+                        p { "Supervisor: " a href="https://www.kb.ecei.tohoku.ac.jp/~sumii/" { "Prof. Eijiro Sumii" } "." }
+                    }
+                }
+            }
+            section aria-labelledby="programs-heading" {
+                h2 id="programs-heading" { "Academic programs" }
+                div.cv-entry {
+                    time datetime="2025" { "2025–present" }
+                    p { "Selected participant, " a href="https://www.aie.tohoku.ac.jp/english/" { "WISE Program for AI Electronics (AIE)" } ", Tohoku University." }
+                }
+            }
+            section aria-labelledby="presentations-heading" {
+                h2 id="presentations-heading" { "Presentations" }
+                (publication_list(presentations, true))
+            }
+        }
+    }
+}
+
+fn research(
+    publications: &[&Publication],
+    presentations: &[&Publication],
+    projects: &[&Project],
+) -> Markup {
+    html! {
+        header.plain-page-header {
+            h1 { "Research" }
+            nav.jump-links aria-label="Research sections" {
+                a href="#publications" { "Publications" }
+                @if !projects.is_empty() { a href="#projects" { "Projects" } }
+                a href="#presentations" { "Talks & Presentations" }
+                a href="#cv" { "CV" }
+            }
+        }
+        div.research-page {
+            section id="publications" class="content-section" {
+                h2 { "Publications" }
+                @if !publications.is_empty() { (publication_list(publications, false)) }
+            }
+            @if !projects.is_empty() {
+                section id="projects" class="content-section" {
+                    h2 { "Projects" }
+                    @for project in projects {
+                        article.project-entry {
+                            h3 { (&project.metadata.title) }
+                            p { (&project.metadata.summary) }
+                        }
+                    }
+                }
+            }
+            section id="presentations" class="content-section" {
+                h2 { "Talks & Presentations" }
+                (publication_list(presentations, true))
+            }
+            section id="cv" class="content-section" {
+                h2 { "CV" }
+                p { a href="/cv/" { "CV" } }
+            }
+        }
+    }
+}
+
+fn publication_list(publications: &[&Publication], presentations: bool) -> Markup {
+    if publications.is_empty() {
+        return html! { p.empty-state { "No publications yet." } };
+    }
+    html! {
+        ol.publication-list {
+            @for publication in publications {
+                li {
+                    article {
+                        p.publication-index { (publication.year) }
+                        div {
+                            h3 { (&publication.title) }
+                            p.authors { (publication.authors.join(", ")) }
+                            p.venue {
+                                @if let Some(venue) = &publication.venue { span { (venue) ". " } }
+                                span { (classification(publication, presentations)) }
+                            }
+                            @if let Some(note) = &publication.note { p.publication-note { (note) } }
+                            @if !publication.links.is_empty() { (record_links(&publication.links, true)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn classification(publication: &Publication, presentations: bool) -> String {
+    if presentations {
+        if let Some(metadata) = &publication.presentation {
+            let mut format = metadata.format.label().to_owned();
+            if let Some(category) = &metadata.category {
+                format.push_str(" (");
+                format.push_str(category);
+                format.push(')');
+            }
+            if let Some(review) = metadata.proceedings_review {
+                format.push_str(" · ");
+                format.push_str(review.label());
+            }
+            return format;
+        }
+    }
+    format!(
+        "{} · {}",
+        publication.record_type.label(),
+        publication.status.label()
+    )
+}
+
+fn updates_page(updates: &[Update], active: Option<Category>) -> Markup {
+    let refs: Vec<_> = updates.iter().collect();
+    updates_page_refs(&refs, active)
+}
+
+fn updates_page_refs(updates: &[&Update], active: Option<Category>) -> Markup {
+    html! {
+        (page_intro(active.map_or("Updates", Category::label)))
+        (update_filters(active))
+        (update_list(updates, false))
+    }
+}
+
+fn page_intro(title: &str) -> Markup {
+    html! { header.page-intro { h1 { (title) } } }
+}
+
+fn update_filters(active: Option<Category>) -> Markup {
+    html! {
+        nav.update-filters aria-label="Update categories" {
+            (filter_link("/updates/", "All", active.is_none()))
+            @for category in Category::ALL {
+                (filter_link(
+                    &format!("/updates/{}/", category.slug()),
+                    category.label(),
+                    active == Some(category),
+                ))
+            }
+        }
+    }
+}
+
+fn filter_link(href: &str, label: &str, active: bool) -> Markup {
+    if active {
+        html! { a href=(href) aria-current="page" { (label) } }
+    } else {
+        html! { a href=(href) { (label) } }
+    }
+}
+
+fn update_list(updates: &[&Update], compact: bool) -> Markup {
+    if updates.is_empty() {
+        return html! { p.empty-state { "No updates yet." } };
+    }
+    let class = if compact {
+        "update-list compact"
+    } else {
+        "update-list"
+    };
+    html! {
+        ol class=(class) {
+            @for update in updates {
+                li {
+                    article {
+                        div.update-meta {
+                            time datetime=(update.date.format("%Y-%m-%d")) { (format_date(update.date)) }
+                            span.kind-label { (update.kind.label()) }
+                        }
+                        div.update-copy {
+                            h3 {
+                                @if update.detail {
+                                    a href=(format!("/updates/item/{}/", update.id)) { (&update.title.en) }
+                                } @else { (&update.title.en) }
+                            }
+                            @if !compact { p { (&update.summary.en) } }
+                            p.category-line {
+                                @for (index, category) in update.categories.iter().enumerate() {
+                                    a href=(format!("/updates/{}/", category.slug())) { (category.label()) }
+                                    @if index + 1 < update.categories.len() { span aria-hidden="true" { " · " } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn update_detail(update: &Update) -> Markup {
+    html! {
+        article.detail-sheet {
+            header {
+                p.longform-kicker { "Update " span aria-hidden="true" { "/" } " " (update.kind.label()) }
+                h1 { (&update.title.en) }
+                p.summary { (&update.summary.en) }
+            }
+            dl {
+                div.detail-meta { dt { "Event date" } dd { time datetime=(update.date.format("%Y-%m-%d")) { (format_date(update.date)) } } }
+                div.detail-meta { dt { "Announced" } dd { time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) } } }
+                div.detail-meta { dt { "Categories" } dd { (update.categories.iter().map(|category| category.label()).collect::<Vec<_>>().join(" · ")) } }
+            }
+            @if let Some(body) = &update.body { div.prose { p { (&body.en) } } }
+            @if !update.links.is_empty() { (record_links(&update.links, false)) }
+        }
+    }
+}
+
+fn record_links(links: &[Link], include_type: bool) -> Markup {
+    html! {
+        p.record-links {
+            @for link in links {
+                a href=(&link.url) {
+                    (&link.label)
+                    @if include_type { span.sr-only { " (" (link.link_type.label()) ")" } }
+                }
+            }
+        }
+    }
+}
+
+fn writings_page(writings: &[&Writing]) -> Markup {
+    html! {
+        (page_intro("Writings"))
+        @if writings.is_empty() {
+            p.empty-state { "No writings yet." }
+        } @else {
+            ol.writing-list {
+                @for writing in writings { (writing_list_item(writing)) }
+            }
+        }
+    }
+}
+
+fn writing_list_item(writing: &Writing) -> Markup {
+    let href = writing
+        .metadata
+        .external_url
+        .clone()
+        .unwrap_or_else(|| format!("/writings/{}/", writing.metadata.slug));
+    html! {
+        li {
+            article {
+                p.writing-meta {
+                    span { (writing.metadata.kind.label()) }
+                    time datetime=(writing.metadata.date.format("%Y-%m-%d")) { (format_date(writing.metadata.date)) }
+                }
+                h3 { a href=(href) lang=(writing.metadata.lang.code()) { (&writing.metadata.title) } }
+                p { (&writing.metadata.description) }
+            }
+        }
+    }
+}
+
+fn writing_detail(writing: &Writing) -> Markup {
+    let class = if writing.metadata.lang == Language::Ja {
+        "longform longform-ja"
+    } else {
+        "longform"
+    };
+    html! {
+        article class=(class) lang=(writing.metadata.lang.code()) {
+            header.longform-header {
+                p.longform-kicker {
+                    (writing.metadata.kind.label()) " " span aria-hidden="true" { "/" } " "
+                    time datetime=(writing.metadata.date.format("%Y-%m-%d")) { (format_date(writing.metadata.date)) }
+                }
+                h1 { (&writing.metadata.title) }
+                p.dek { (&writing.metadata.description) }
+                @if let Some(publication) = &writing.metadata.publication { p.publication-context { (publication) } }
+            }
+            div.prose { (PreEscaped(&writing.rendered_body)) }
+        }
+    }
+}
+
+fn not_found() -> Markup {
+    html! {
+        section.detail-sheet {
+            p.longform-kicker { "404 / Not found" }
+            h1 { "Nothing is filed here." }
+            p.summary { "The address may have changed, or the page may not be public." }
+            p { a href="/" { "Return home" } " " span aria-hidden="true" { "·" } " " a href="/research/" { "Browse research" } }
+        }
+    }
+}
+
+fn format_date(date: NaiveDate) -> String {
+    date.format("%d %b %Y").to_string()
+}
+
+pub fn rss(updates: &[Update]) -> String {
+    let mut items = String::new();
+    for update in updates {
+        let link = if update.detail {
+            format!("{SITE_ORIGIN}/updates/item/{}/", update.id)
+        } else {
+            format!("{SITE_ORIGIN}/updates/")
+        };
+        let mut categories = String::new();
+        for category in &update.categories {
+            write!(categories, "<category>{}</category>", category.slug())
+                .expect("writing to a String cannot fail");
+        }
+        write!(
+            items,
+            "<item><title>{}</title><description>{}</description><link>{link}</link><guid>{link}</guid><pubDate>{}</pubDate>{categories}</item>",
+            escape_xml(&update.title.en),
+            escape_xml(&update.summary.en),
+            update
+                .announced_on
+                .format("%a, %d %b %Y 00:00:00 +0000"),
+        )
+        .expect("writing to a String cannot fail");
+    }
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\"><channel><title>Ryujin Hatakeyama — Updates</title><description>Research, academic, and writing updates.</description><link>{SITE_ORIGIN}/</link><language>en</language>{items}</channel></rss>\n"
+    )
+}
+
+pub fn sitemap(pages: &[GeneratedPage]) -> (String, String) {
+    let mut urls = String::new();
+    for page in pages.iter().filter(|page| page.include_in_sitemap) {
+        write!(
+            urls,
+            "<url><loc>{SITE_ORIGIN}{}</loc></url>",
+            page.public_path
+        )
+        .expect("writing to a String cannot fail");
+    }
+    let document = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">{urls}</urlset>\n"
+    );
+    let index = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"><sitemap><loc>{SITE_ORIGIN}/sitemap-0.xml</loc></sitemap></sitemapindex>\n"
+    );
+    (document, index)
+}
+
+fn escape_xml(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{escape_xml, format_date};
+    use chrono::NaiveDate;
+
+    #[test]
+    fn formats_dates_like_the_previous_site() {
+        assert_eq!(
+            format_date(NaiveDate::from_ymd_opt(2026, 9, 7).unwrap()),
+            "07 Sep 2026"
+        );
+    }
+
+    #[test]
+    fn escapes_xml_text() {
+        assert_eq!(escape_xml("A & <B>"), "A &amp; &lt;B&gt;");
+    }
+}

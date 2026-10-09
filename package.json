@@ -1,34 +1,22 @@
 {
   "name": "ryujin-hatakeyama-site",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "type": "module",
+  "description": "Rust-first static academic website with an OCaml update validator and minimal browser TypeScript.",
   "scripts": {
-    "dev": "npm run generate && astro dev",
-    "start": "npm run dev",
-    "generate": "dune exec ./ocaml/generate_updates.exe -- content/updates src/data/generated/updates.json",
-    "build": "npm run generate && astro build",
-    "preview": "astro preview",
-    "check": "npm run generate && astro check",
-    "check:dist": "node scripts/check-built-site.mjs",
+    "build:client": "tsc --project tsconfig.browser.json",
+    "check:client": "tsc --project tsconfig.browser.json --noEmit",
+    "generate:updates": "mkdir -p target/generated && dune exec ./ocaml/generate_updates.exe -- content/updates target/generated/updates.json",
+    "build": "./scripts/build-site.sh",
+    "check:dist": "cargo run --locked --release -p site-builder -- check-dist",
     "test:ocaml": "dune runtest",
-    "verify": "npm run test:ocaml && npm run check && npm run build && npm run check:dist"
-  },
-  "dependencies": {
-    "@astrojs/markdown-remark": "^7.3.1",
-    "@astrojs/rss": "^4.0.15",
-    "@astrojs/sitemap": "^3.6.0",
-    "@fontsource/ibm-plex-mono": "^5.3.0",
-    "@fontsource-variable/ibm-plex-sans": "^5.3.0",
-    "@fontsource-variable/newsreader": "^5.3.0",
-    "astro": "^7.3.4",
-    "katex": "^0.16.22",
-    "rehype-katex": "^7.0.1",
-    "remark-math": "^6.0.0"
+    "test:rust": "cargo test --locked --workspace",
+    "verify": "./scripts/verify.sh",
+    "preview": "python3 -m http.server 4321 --directory dist",
+    "dev": "npm run build && npm run preview"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.6",
-    "typescript": "^5.9.3"
+    "typescript": "5.9.3"
   },
   "engines": {
     "node": "24.x"

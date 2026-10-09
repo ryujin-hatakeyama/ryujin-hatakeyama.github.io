@@ -1,19 +1,12 @@
 name: Deploy to GitHub Pages
 
-# Pushes to main deploy automatically; workflow_dispatch remains available for
-# an explicit rebuild of https://ryujin-hatakeyama.github.io/.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-env:
-  ASTRO_TELEMETRY_DISABLED: 1
-
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -22,33 +15,54 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out the repository
         uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - name: Set up the isolated OCaml environment
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: 5.3.x
-          dune-cache: true
-
-      - name: Install OCaml build dependencies
-        run: opam install . --deps-only --with-test --yes
-
-      - name: Test, build, and upload the static site
-        uses: withastro/action@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
         with:
           node-version: 24
-          package-manager: npm
-          build-cmd: opam exec -- npm run verify
+          cache: npm
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.3.0
+          dune-cache: true
+
+      - name: Set up Rust
+        run: rustup toolchain install 1.85.1 --profile minimal --component clippy,rustfmt
+
+      - name: Install OCaml dependencies
+        run: |
+          opam install dune.3.22.2 --yes
+          opam install . --deps-only --with-test --yes
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Verify and build the site
+        run: opam exec -- npm run verify
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
