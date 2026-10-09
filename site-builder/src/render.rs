@@ -150,7 +150,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
     }
 
     for update in content.updates().iter().filter(|update| update.detail) {
-        let path = format!("/updates/item/{}/", update.id);
+        let path = update_detail_path(update);
         pages.push(page_owned(
             format!("updates/item/{}/index.html", update.id),
             path.clone(),
@@ -282,6 +282,7 @@ fn header(current_path: &str) -> Markup {
             nav.primary-nav aria-label="Primary navigation" {
                 (nav_link("/", "Home", current_path == "/"))
                 (nav_link("/research/", "Research", current_path.starts_with("/research/")))
+                (nav_link("/cv/", "CV", current_path.starts_with("/cv/")))
                 (nav_link("/updates/", "Updates", current_path.starts_with("/updates/")))
             }
             div.header-tools {
@@ -382,7 +383,6 @@ fn home(updates: &[Update]) -> Markup {
             section.home-news aria-labelledby="upcoming-heading" {
                 header.home-news-heading {
                     h2 id="upcoming-heading" { "Upcoming" }
-                    a href="/updates/" { "All updates" }
                 }
                 (upcoming_list(&upcoming, true))
             }
@@ -391,11 +391,13 @@ fn home(updates: &[Update]) -> Markup {
             section.home-news aria-labelledby="updates-heading" {
                 header.home-news-heading {
                     h2 id="updates-heading" { "Recent Updates" }
-                    @if upcoming.is_empty() { a href="/updates/" { "All updates" } }
                 }
                 (update_list(&recent, true))
             }
         }
+        // One link to the complete records, after both previews, instead of a
+        // "read more" link on every entry.
+        p.home-all-updates { a href="/updates/" { "All updates" } }
     }
 }
 
@@ -505,7 +507,6 @@ fn research(
                 a href="#publications" { "Publications" }
                 @if !projects.is_empty() { a href="#projects" { "Projects" } }
                 a href="#presentations" { "Talks & Presentations" }
-                a href="#cv" { "CV" }
             }
         }
         div.research-page {
@@ -527,10 +528,6 @@ fn research(
             section id="presentations" class="content-section" {
                 h2 { "Talks & Presentations" }
                 (publication_list(presentations, true))
-            }
-            section id="cv" class="content-section" {
-                h2 { "CV" }
-                p { a href="/cv/" { "CV" } }
             }
         }
     }
@@ -688,22 +685,71 @@ fn upcoming_list(updates: &[&Update], compact: bool) -> Markup {
                             span.category-label { (category_labels(update)) }
                         }
                         div.update-copy {
-                            h3 {
-                                @if update.detail {
-                                    a href=(format!("/updates/item/{}/", update.id)) { (&update.title.en) }
-                                } @else { (&update.title.en) }
-                            }
+                            h3 { (update_title(update, true)) }
                             @if !compact {
                                 p { (update_summary(&update.summary.en)) }
                                 p.event-line {
                                     "Announced "
                                     time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) }
                                 }
-                                @if !update.links.is_empty() { (record_links(&update.links, true)) }
                             }
+                            (update_links(update, !compact, true))
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+fn update_detail_path(update: &Update) -> String {
+    format!("/updates/item/{}/", update.id)
+}
+
+/// An update title as phrasing content. A record's `titleLink` turns only the
+/// event's name into a link to its official page; otherwise a record with a
+/// detail page links its whole title there (when `link_detail` is set). The two
+/// never combine, so anchors are never nested; `update_links` then offers the
+/// detail page separately.
+fn update_title(update: &Update, link_detail: bool) -> Markup {
+    let title = &update.title.en;
+    if let Some(link) = &update.title_link {
+        if let Some((before, after)) = link.split(title) {
+            return html! {
+                (before)
+                a href=(&link.url) lang=[link.lang.map(Language::code)] { (&link.text) }
+                (after)
+            };
+        }
+    }
+    if link_detail && update.detail {
+        html! { a href=(update_detail_path(update)) { (title) } }
+    } else {
+        html! { (title) }
+    }
+}
+
+/// The links beneath an update: its detail page when the title links to the
+/// event instead, then (in full views) its own links, leaving out any that
+/// repeat the title's event link. The underlying records are not changed.
+fn update_links(update: &Update, include_record_links: bool, include_detail: bool) -> Markup {
+    let title_url = update.title_link.as_ref().map(|link| link.url.as_str());
+    let links: Vec<&Link> = update
+        .links
+        .iter()
+        .filter(|link| include_record_links && Some(link.url.as_str()) != title_url)
+        .collect();
+    let detail = include_detail && update.detail && title_url.is_some();
+    html! {
+        @if detail || !links.is_empty() {
+            p.record-links {
+                @if detail {
+                    a href=(update_detail_path(update)) {
+                        "Details"
+                        span.sr-only { ": " (&update.title.en) }
+                    }
+                }
+                @for link in links { (record_link(link, true)) }
             }
         }
     }
@@ -778,16 +824,12 @@ fn update_list(updates: &[&Update], compact: bool) -> Markup {
                             span.category-label { (category_labels(update)) }
                         }
                         div.update-copy {
-                            h3 {
-                                @if update.detail {
-                                    a href=(format!("/updates/item/{}/", update.id)) { (&update.title.en) }
-                                } @else { (&update.title.en) }
-                            }
+                            h3 { (update_title(update, true)) }
                             @if !compact {
                                 p { (update_summary(&update.summary.en)) }
                                 p.event-line { (event_line(update)) }
-                                @if !update.links.is_empty() { (record_links(&update.links, true)) }
                             }
+                            (update_links(update, !compact, true))
                         }
                     }
                 }
@@ -801,7 +843,7 @@ fn update_detail(update: &Update) -> Markup {
         article.detail-sheet.update-detail {
             header {
                 p.longform-kicker { "Update " span aria-hidden="true" { "/" } " " (update.kind.label()) }
-                h1 { (&update.title.en) }
+                h1 { (update_title(update, false)) }
                 p.summary { (update_summary(&update.summary.en)) }
             }
             dl {
@@ -813,7 +855,7 @@ fn update_detail(update: &Update) -> Markup {
                 div.detail-meta { dt { "Categories" } dd { (category_labels(update)) } }
             }
             @if let Some(body) = &update.body { div.prose { p { (&body.en) } } }
-            @if !update.links.is_empty() { (record_links(&update.links, true)) }
+            (update_links(update, true, false))
         }
     }
 }
@@ -838,12 +880,16 @@ fn event_line(update: &Update) -> Markup {
 fn record_links(links: &[Link], include_type: bool) -> Markup {
     html! {
         p.record-links {
-            @for link in links {
-                a href=(&link.url) {
-                    (&link.label)
-                    @if include_type { span.sr-only { " (" (link.link_type.label()) ")" } }
-                }
-            }
+            @for link in links { (record_link(link, include_type)) }
+        }
+    }
+}
+
+fn record_link(link: &Link, include_type: bool) -> Markup {
+    html! {
+        a href=(&link.url) {
+            (&link.label)
+            @if include_type { span.sr-only { " (" (link.link_type.label()) ")" } }
         }
     }
 }
@@ -992,7 +1038,7 @@ fn escape_xml(value: &str) -> String {
 mod tests {
     use super::{
         classification, cv, escape_xml, filterable_publications, format_date, format_date_range,
-        header, home, publication_list, rss, update_detail, update_list, update_summary,
+        header, home, publication_list, research, rss, update_detail, update_list, update_summary,
         updates_page_refs,
     };
     use crate::model::{Category, EventStatus, Publication};
@@ -1397,5 +1443,293 @@ mod tests {
     #[test]
     fn escapes_xml_text() {
         assert_eq!(escape_xml("A & <B>"), "A &amp; &lt;B&gt;");
+    }
+
+    /// A source record as the OCaml generator exports it to the Rust build.
+    fn update_from_source(file: &str) -> crate::model::Update {
+        let mut record = update_source(file);
+        let fields = record.as_object_mut().unwrap();
+        for (from, to) in [
+            ("title_link", "titleLink"),
+            ("end_date", "endDate"),
+            ("announced_on", "announcedOn"),
+            ("event_status", "eventStatus"),
+        ] {
+            if let Some(value) = fields.remove(from) {
+                fields.insert(to.to_owned(), value);
+            }
+        }
+        fields.remove("status");
+        let update: crate::model::Update = serde_json::from_value(record).unwrap();
+        update.validate(file).unwrap();
+        update
+    }
+
+    const LINKED_EVENTS: [(&str, &str); 3] = [
+        (
+            "2026-10-wakate-no-kai.json",
+            r#"<h3>Planned attendance at <a href="https://sites.google.com/view/wakatenokai2026/" lang="ja">数学基礎論若手の会2026</a></h3>"#,
+        ),
+        (
+            "2026-09-ppl-summer-school.json",
+            r#"<h3>Attendance at <a href="https://jssst-ppl.org/wiki/ss2026">PPL Summer School 2026</a></h3>"#,
+        ),
+        (
+            "2026-09-jssst-2026-presentation.json",
+            r#"<h3>Oral presentation at <a href="https://jssst2026.wordpress.com/">the 43rd JSSST Annual Conference</a></h3>"#,
+        ),
+    ];
+
+    /// Fails if any anchor opens before the previous one has closed.
+    fn assert_no_nested_anchors(html: &str) {
+        let mut open = false;
+        let mut rest = html;
+        while let Some(index) = rest.find("<a ").into_iter().chain(rest.find("</a>")).min() {
+            if rest[index..].starts_with("<a ") {
+                assert!(
+                    !open,
+                    "nested anchor near {}",
+                    &rest[index..(index + 80).min(rest.len())]
+                );
+                open = true;
+                rest = &rest[index + 3..];
+            } else {
+                open = false;
+                rest = &rest[index + 4..];
+            }
+        }
+    }
+
+    #[test]
+    fn cv_is_a_primary_navigation_item() {
+        let html = header("/cv/").into_string();
+        let order: Vec<_> = [
+            r#"href="/">Home<"#,
+            r#"href="/research/">Research<"#,
+            r#"href="/cv/""#,
+            r#"href="/updates/">Updates<"#,
+        ]
+        .iter()
+        .map(|needle| html.find(needle).unwrap())
+        .collect();
+        assert!(order.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(html.contains(r#"<a href="/cv/" aria-current="page">CV</a>"#));
+        assert_eq!(html.matches(r#"aria-current="page""#).count(), 1);
+        assert!(
+            header("/research/")
+                .into_string()
+                .contains(r#"<a href="/cv/">CV</a>"#)
+        );
+    }
+
+    #[test]
+    fn research_page_has_no_redundant_cv_section() {
+        let html = research(&[], &[], &[]).into_string();
+        assert!(!html.contains(r##"href="#cv""##));
+        assert!(!html.contains(r#"id="cv""#));
+        assert!(!html.contains(r#"href="/cv/""#));
+    }
+
+    #[test]
+    fn homepage_has_one_all_updates_link_after_both_previews() {
+        let html = home(&mixed_updates()).into_string();
+        assert_eq!(
+            html.matches(r#"<a href="/updates/">All updates</a>"#)
+                .count(),
+            1
+        );
+        let link = html.find("All updates").unwrap();
+        assert!(html.find(r#"id="upcoming-heading""#).unwrap() < link);
+        assert!(html.rfind("</ol>").unwrap() < link);
+        assert!(html.contains(r#"<a href="/cv/">"#), "homepage CV link");
+    }
+
+    #[test]
+    fn event_names_link_to_their_official_pages_everywhere_they_are_listed() {
+        let updates: Vec<_> = LINKED_EVENTS
+            .iter()
+            .map(|(file, _)| update_from_source(file))
+            .collect();
+        let refs: Vec<_> = updates.iter().collect();
+        let research: Vec<_> = refs
+            .iter()
+            .copied()
+            .filter(|u| u.categories.contains(&Category::Research))
+            .collect();
+        let academia: Vec<_> = refs
+            .iter()
+            .copied()
+            .filter(|u| u.categories.contains(&Category::Academia))
+            .collect();
+        let pages = [
+            home(&updates).into_string(),
+            updates_page_refs(&refs, None).into_string(),
+            updates_page_refs(&research, Some(Category::Research)).into_string()
+                + &updates_page_refs(&academia, Some(Category::Academia)).into_string(),
+        ];
+        for page in &pages {
+            for (file, heading) in LINKED_EVENTS {
+                assert_eq!(page.matches(heading).count(), 1, "{file}");
+            }
+            assert_no_nested_anchors(page);
+            assert!(
+                !page.contains("サマースクール")
+                    && !page.contains("日本ソフトウェア科学会第43回大会")
+            );
+        }
+        // Only the event name is linked: the activity phrase stays text.
+        for (_, heading) in LINKED_EVENTS {
+            let before_link = &heading[..heading.find("<a ").unwrap()];
+            assert!(!before_link.contains("href"));
+        }
+        // The same official URL is not repeated as a generic link, while the
+        // distinct JSSST program stays available.
+        let full = &pages[1];
+        assert!(!full.contains("Event website"));
+        assert_eq!(
+            full.matches(r#"href="https://jssst-ppl.org/wiki/ss2026""#)
+                .count(),
+            1
+        );
+        assert_eq!(
+            full.matches(r#"href="https://sites.google.com/view/wakatenokai2026/""#)
+                .count(),
+            1
+        );
+        assert!(full.contains(r#"<a href="https://jssst2026.wordpress.com/program/">Program"#));
+        // The data itself is kept.
+        assert!(updates.iter().all(|u| u.title_link.is_some()));
+        assert_eq!(updates[0].links.len(), 1);
+    }
+
+    #[test]
+    fn titles_without_event_links_remain_escaped_plain_text() {
+        let mut update = test_update("plain", "2026-09-01", "2026-09-02", "completed");
+        update.title.en = "A <b> & \"C\"".to_owned();
+        let html = update_list(&[&update], false).into_string();
+        assert!(html.contains("<h3>A &lt;b&gt; &amp; &quot;C&quot;</h3>"));
+    }
+
+    #[test]
+    fn linked_title_text_is_escaped() {
+        let update: crate::model::Update = serde_json::from_str(
+            r#"{"id":"escaped","title":{"en":"At <Event> & Co"},"titleLink":{"text":"<Event> & Co","url":"https://example.org/?a=1&b=2"},
+            "summary":{"en":"x"},"date":"2026-09-01","announcedOn":"2026-09-02","eventStatus":"completed",
+            "categories":["academia"],"kind":{"type":"participation"},"related":{}}"#,
+        )
+        .unwrap();
+        assert!(update_list(&[&update], true).into_string().contains(
+            r#"<h3>At <a href="https://example.org/?a=1&amp;b=2">&lt;Event&gt; &amp; Co</a></h3>"#
+        ));
+    }
+
+    #[test]
+    fn detail_pages_stay_reachable_beside_event_links() {
+        let source = |title_link: &str| -> crate::model::Update {
+            serde_json::from_str(&format!(
+                r#"{{"id":"talk","title":{{"en":"Talk at Conf 2026"}}{title_link},"summary":{{"en":"x"}},
+                "date":"2026-09-01","announcedOn":"2026-09-02","eventStatus":"completed","categories":["research"],
+                "kind":{{"type":"presentation"}},"related":{{}},"detail":true,
+                "links":[{{"label":"Event website","url":"https://conf.example/","type":"external"}},
+                         {{"label":"Slides","url":"https://example.org/slides.pdf","type":"slides"}}]}}"#
+            ))
+            .unwrap()
+        };
+        let plain = source("");
+        let html = update_list(&[&plain], true).into_string();
+        assert!(html.contains(r#"<h3><a href="/updates/item/talk/">Talk at Conf 2026</a></h3>"#));
+
+        let linked = source(r#","titleLink":{"text":"Conf 2026","url":"https://conf.example/"}"#);
+        for compact in [true, false] {
+            let html = update_list(&[&linked], compact).into_string();
+            assert!(
+                html.contains(r#"<h3>Talk at <a href="https://conf.example/">Conf 2026</a></h3>"#)
+            );
+            assert!(html.contains(r#"<a href="/updates/item/talk/">Details<span class="sr-only">: Talk at Conf 2026</span></a>"#));
+            assert_no_nested_anchors(&html);
+            assert_eq!(html.matches(r#"href="https://conf.example/""#).count(), 1);
+            assert_eq!(html.contains("slides.pdf"), !compact);
+        }
+        let detail = update_detail(&linked).into_string();
+        assert!(
+            detail.contains(r#"<h1>Talk at <a href="https://conf.example/">Conf 2026</a></h1>"#)
+        );
+        assert!(!detail.contains("/updates/item/talk/"));
+        assert!(detail.contains("slides.pdf") && !detail.contains("Event website"));
+        let feed = rss(&[linked]);
+        assert!(feed.contains("<title>Talk at Conf 2026</title>"));
+        assert!(
+            feed.contains("<guid>https://ryujin-hatakeyama.github.io/updates/item/talk/</guid>")
+        );
+    }
+
+    #[test]
+    fn rss_items_keep_plain_titles_and_internal_destinations() {
+        let updates: Vec<_> = LINKED_EVENTS
+            .iter()
+            .map(|(file, _)| update_from_source(file))
+            .chain([update_from_source("2026-01-aie-study-visit.json")])
+            .collect();
+        let feed = rss(&updates);
+        assert!(feed.contains("<item><title>Planned attendance at 数学基礎論若手の会2026</title>"));
+        assert!(feed.contains("<title>Attendance at PPL Summer School 2026</title>"));
+        assert!(
+            feed.contains("<title>Oral presentation at the 43rd JSSST Annual Conference</title>")
+        );
+        for update in &updates {
+            let url = format!(
+                "https://ryujin-hatakeyama.github.io/updates/#update-{}",
+                update.id
+            );
+            assert!(feed.contains(&format!("<link>{url}</link><guid>{url}</guid>")));
+        }
+        for external in [
+            "sites.google.com",
+            "jssst-ppl.org",
+            "jssst2026",
+            "allenai.org",
+            "](",
+            "<a ",
+        ] {
+            assert!(!feed.contains(external), "{external}");
+        }
+        assert!(feed.contains("the Allen Institute for AI (Ai2), and Micron.</description>"));
+    }
+
+    #[test]
+    fn study_visit_institutions_render_as_links() {
+        let update = update_from_source("2026-01-aie-study-visit.json");
+        let html = update_list(&[&update], false).into_string();
+        for (name, url) in [
+            (
+                "University of Washington",
+                "https://www.washington.edu/about/seattle-campus/",
+            ),
+            (
+                "Google",
+                "https://www.google.com/about/careers/applications/locations/seattle-kirkland-bellevue-redmond/",
+            ),
+            ("Amazon", "https://www.amazon.jobs/content/en/locations/hq1"),
+            (
+                "Microsoft",
+                "https://careers.microsoft.com/v2/global/en/locations/seattle-area.html",
+            ),
+            (
+                "Allen Institute for AI (Ai2)",
+                "https://allenai.org/contact",
+            ),
+            ("Micron", "https://www.micron.com/about/careers/idaho"),
+        ] {
+            assert!(
+                html.contains(&format!(r#"<a href="{url}">{name}</a>"#)),
+                "{name}"
+            );
+        }
+        assert!(!html.contains("]("));
+        assert!(html.contains("<h3>AIE study visit to Seattle and Boise</h3>"));
+        let summary = &html[html.find("<p>Selected").unwrap()..];
+        let summary = &summary[..summary.find("</p>").unwrap()];
+        assert_eq!(summary.matches("<a ").count(), 6);
+        assert!(!summary.contains("target="));
     }
 }

@@ -709,6 +709,7 @@ main { min-height: 64vh; }
 .home-news-heading h2 { margin: 0; font-family: var(--sans); font-size: .95rem; font-weight: 600; }
 .home-news-heading a { font-size: .76rem; }
 .home-news + .home-news { margin-top: 1.6rem; }
+.home-all-updates { max-width: 48rem; margin: .9rem 0 0; font-size: .76rem; }
 
 .cv-page { max-width: 50rem; padding: 3.75rem 0 1rem; }
 .cv-header { margin-bottom: 2.4rem; }

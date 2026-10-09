@@ -61,5 +61,23 @@ let () =
   assert (not (Update_model.is_published draft));
   assert (Update_model.announced_on draft = None);
   expect_invalid "published without dates" (undated "published");
+  let linked link = String.concat "" [
+    {|{"id":"linked","title":{"en":"Attendance at PPL Summer School 2026"},"summary":{"en":"x"},|};
+    {|"date":"2026-09-07","announced_on":"2026-10-09","event_status":"completed","categories":["academia"],|};
+    {|"kind":{"type":"participation"},"status":"published","title_link":|}; link; "}"
+  ] in
+  let exported = Json.parse (linked {|{"text":"PPL Summer School 2026","url":"https://jssst-ppl.org/wiki/ss2026"}|})
+    |> Update_model.decode |> Update_model.to_json in
+  assert (exported = String.concat "" [
+    {|{"id":"linked","title":{"en":"Attendance at PPL Summer School 2026"},|};
+    {|"titleLink":{"text":"PPL Summer School 2026","url":"https://jssst-ppl.org/wiki/ss2026"},|};
+    {|"summary":{"en":"x"},"date":"2026-09-07","announcedOn":"2026-10-09","eventStatus":"completed",|};
+    {|"categories":["academia"],"kind":{"type":"participation"},"links":[],|};
+    {|"related":{"publications":[],"projects":[],"writings":[]},"detail":false}|}
+  ]);
+  expect_invalid "title link text absent" (linked {|{"text":"PPL 2026","url":"https://example.org/"}|});
+  expect_invalid "title link text repeated" (linked {|{"text":"n","url":"https://example.org/"}|});
+  expect_invalid "title link not HTTP(S)" (linked {|{"text":"PPL Summer School 2026","url":"/updates/"}|});
+  expect_invalid "title link unknown language" (linked {|{"text":"PPL Summer School 2026","url":"https://example.org/","lang":"fr"}|});
   print_endline "OCaml update model tests passed."
 

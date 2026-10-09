@@ -243,6 +243,7 @@ impl LinkType {
 pub struct Update {
     pub id: String,
     pub title: Localized,
+    pub title_link: Option<TitleLink>,
     pub summary: Localized,
     pub date: NaiveDate,
     pub end_date: Option<NaiveDate>,
@@ -262,6 +263,17 @@ impl Update {
     pub fn validate(&self, source: &str) -> Result<()> {
         validate_slug(&self.id).with_context(|| format!("{source}: invalid update id"))?;
         self.title.validate(source, "title")?;
+        if let Some(link) = &self.title_link {
+            let start = self.title.en.find(&link.text);
+            ensure!(
+                !link.text.is_empty()
+                    && start.is_some()
+                    && start == self.title.en.rfind(&link.text),
+                "{source}: titleLink text must occur exactly once in the title"
+            );
+            validate_http_url(&link.url)
+                .with_context(|| format!("{source}: invalid titleLink URL {:?}", link.url))?;
+        }
         self.summary.validate(source, "summary")?;
         for segment in summary_segments(&self.summary.en) {
             if let SummarySegment::Link { url, .. } = segment {
@@ -323,6 +335,24 @@ impl Update {
 impl Update {
     pub fn last_event_day(&self) -> NaiveDate {
         self.end_date.unwrap_or(self.date)
+    }
+}
+
+/// The part of an update title that names the event, linked to the event's
+/// official page. The title itself stays plain text for metadata and RSS.
+#[derive(Clone, Debug, Deserialize)]
+pub struct TitleLink {
+    pub text: String,
+    pub url: String,
+    pub lang: Option<Language>,
+}
+
+impl TitleLink {
+    /// Splits `title` around the linked text, which validation guarantees
+    /// occurs exactly once.
+    pub fn split<'a>(&self, title: &'a str) -> Option<(&'a str, &'a str)> {
+        let start = title.find(&self.text)?;
+        Some((&title[..start], &title[start + self.text.len()..]))
     }
 }
 
@@ -924,5 +954,57 @@ mod tests {
         ] {
             assert_eq!(summary_segments(literal), [SummarySegment::Text(literal)]);
         }
+    }
+
+    #[test]
+    fn title_links_must_name_a_unique_part_of_the_title_and_use_http() {
+        let with_link = |link: &str| -> Update {
+            serde_json::from_str(&format!(
+                r#"{{"id":"fixture","title":{{"en":"Attendance at PPL Summer School 2026"}},"titleLink":{link},
+                "summary":{{"en":"x"}},"date":"2026-09-07","announcedOn":"2026-10-09","eventStatus":"completed",
+                "categories":["academia"],"kind":{{"type":"participation"}},"related":{{}}}}"#
+            ))
+            .unwrap()
+        };
+        let valid = with_link(
+            r#"{"text":"PPL Summer School 2026","url":"https://jssst-ppl.org/wiki/ss2026"}"#,
+        );
+        assert!(valid.validate("fixture").is_ok());
+        assert_eq!(
+            valid.title_link.as_ref().unwrap().split(&valid.title.en),
+            Some(("Attendance at ", ""))
+        );
+        for invalid in [
+            r#"{"text":"PPL 2026","url":"https://example.org/"}"#,
+            r#"{"text":"n","url":"https://example.org/"}"#,
+            r#"{"text":"","url":"https://example.org/"}"#,
+            r#"{"text":"PPL Summer School 2026","url":"/updates/"}"#,
+            r#"{"text":"PPL Summer School 2026","url":"javascript:alert(1)"}"#,
+        ] {
+            assert!(with_link(invalid).validate("fixture").is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn title_links_split_multibyte_titles_at_character_boundaries() {
+        let update: Update = serde_json::from_str(
+            r#"{"id":"fixture","title":{"en":"Planned attendance at 数学基礎論若手の会2026"},
+            "titleLink":{"text":"数学基礎論若手の会2026","url":"https://sites.google.com/view/wakatenokai2026/","lang":"ja"},
+            "summary":{"en":"x"},"date":"2026-10-16","announcedOn":"2026-10-09","eventStatus":"planned",
+            "categories":["academia"],"kind":{"type":"participation"},"related":{}}"#,
+        )
+        .unwrap();
+        assert!(update.validate("fixture").is_ok());
+        let link = update.title_link.as_ref().unwrap();
+        assert_eq!(link.lang, Some(Language::Ja));
+        assert_eq!(
+            link.split(&update.title.en),
+            Some(("Planned attendance at ", ""))
+        );
+        // A substring that is not in the title (e.g. a partial character
+        // sequence from another script) is rejected rather than sliced.
+        let mut partial = update.clone();
+        partial.title_link.as_mut().unwrap().text = "若手の会2027".to_owned();
+        assert!(partial.validate("fixture").is_err());
     }
 }

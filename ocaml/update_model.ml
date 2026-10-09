@@ -17,10 +17,13 @@ type localized = { en : string; ja : string option }
 type link_kind = External | Pdf | Doi | Preprint | Code | Slides | Bibtex | Audio
 type link = { label : string; url : string; kind : link_kind }
 type related = { publications : string list; projects : string list; writings : string list }
+(* The part of the title naming the event, linked to its official page. *)
+type title_link = { text : string; url : string; lang : string option }
 
 type update = {
   id : string;
   title : localized;
+  title_link : title_link option;
   summary : localized;
   (* Both dates may be left unset only while a record is a draft awaiting
      confirmation; published records always carry them. *)
@@ -148,6 +151,27 @@ let decode_link value =
   let kind = match optional "type" fields with None -> External | Some value -> value |> as_string "link.type" |> decode_link_kind in
   { label; url; kind }
 
+let occurrences needle haystack =
+  let n = String.length needle and h = String.length haystack in
+  let rec loop index count =
+    if index + n > h then count
+    else loop (index + 1) (if String.sub haystack index n = needle then count + 1 else count)
+  in
+  loop 0 0
+
+let decode_title_link (title : localized) value =
+  let fields = as_object "title_link" value in
+  let text = member "text" fields |> as_string "title_link.text" |> nonempty "title_link.text" in
+  if occurrences text title.en <> 1 then error "title_link.text must occur exactly once in title.en";
+  let url = member "url" fields |> as_string "title_link.url" |> nonempty "title_link.url" in
+  if not (String.starts_with ~prefix:"https://" url || String.starts_with ~prefix:"http://" url) then
+    error "title_link.url must begin with https:// or http://";
+  let lang = optional "lang" fields |> Option.map (fun value ->
+    match as_string "title_link.lang" value with
+    | ("en" | "ja") as lang -> lang
+    | lang -> error "invalid title_link.lang %S (expected en or ja)" lang) in
+  { text; url; lang }
+
 let decode_identifier_list field fields =
   match optional field fields with
   | None -> []
@@ -189,6 +213,7 @@ let decode value =
   let fields = as_object "update" value in
   let id = member "id" fields |> as_string "id" |> validate_slug "id" in
   let title = member "title" fields |> decode_localized "title" in
+  let title_link = optional "title_link" fields |> Option.map (decode_title_link title) in
   let summary = member "summary" fields |> decode_localized "summary" in
   let optional_date field = optional field fields |> Option.map (fun value -> value |> as_string field |> validate_date field) in
   let date = optional_date "date" in
@@ -207,7 +232,7 @@ let decode value =
   let related = decode_related (optional "related" fields) in
   let detail = match optional "detail" fields with None -> false | Some value -> as_bool "detail" value in
   let body = optional "body" fields |> Option.map (decode_localized "body") in
-  { id; title; summary; date; end_date; announced_on; event_status; categories; kind; links; related; detail; body; visibility }
+  { id; title; title_link; summary; date; end_date; announced_on; event_status; categories; kind; links; related; detail; body; visibility }
 
 let id update = update.id
 let is_published update = update.visibility = Published
@@ -253,15 +278,19 @@ let link_kind_name = function
   | Code -> "code" | Slides -> "slides" | Bibtex -> "bibtex" | Audio -> "audio"
 
 let link_json link = Printf.sprintf "{\"label\":%s,\"url\":%s,\"type\":%s}" (quote link.label) (quote link.url) (quote (link_kind_name link.kind))
+let title_link_json = function
+  | None -> ""
+  | Some link -> Printf.sprintf ",\"titleLink\":{\"text\":%s,\"url\":%s%s}" (quote link.text) (quote link.url) (option_field "lang" link.lang)
 let array render values = "[" ^ String.concat "," (List.map render values) ^ "]"
 let string_array values = array quote values
 
 let to_json update =
   let body = match update.body with None -> "" | Some value -> ",\"body\":" ^ localized_json value in
   Printf.sprintf
-    "{\"id\":%s,\"title\":%s,\"summary\":%s,\"date\":%s%s,\"announcedOn\":%s,\"eventStatus\":%s,\"categories\":%s,\"kind\":%s,\"links\":%s,\"related\":{\"publications\":%s,\"projects\":%s,\"writings\":%s},\"detail\":%s%s}"
+    "{\"id\":%s,\"title\":%s%s,\"summary\":%s,\"date\":%s%s,\"announcedOn\":%s,\"eventStatus\":%s,\"categories\":%s,\"kind\":%s,\"links\":%s,\"related\":{\"publications\":%s,\"projects\":%s,\"writings\":%s},\"detail\":%s%s}"
     (quote update.id)
     (localized_json update.title)
+    (title_link_json update.title_link)
     (localized_json update.summary)
     (quote (required_date "date" update.date))
     (option_field "endDate" update.end_date)

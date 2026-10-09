@@ -8,6 +8,7 @@ This is a schema example only; it is not read by the build:
 {
   "id": "stable-lowercase-slug",
   "title": { "en": "Required English title", "ja": "Optional Japanese title" },
+  "title_link": { "text": "Event name as it appears in the title", "url": "https://example.org/event", "lang": "ja" },
   "summary": { "en": "Required English summary", "ja": "Optional Japanese summary" },
   "date": "YYYY-MM-DD",
   "end_date": "YYYY-MM-DD",
@@ -25,6 +26,8 @@ This is a schema example only; it is not read by the build:
 ```
 
 `date` is the day the event begins and the optional `end_date` its last day. `announced_on` is the day the update is published on the site and determines its position in Updates and RSS; set it to the actual publication date rather than backdating it.
+
+Event names follow their organizers: use an official English name only when one can be verified, and otherwise keep the original name. The optional `title_link` links the event's name, and only that, to its official page: `text` must occur exactly once in `title.en`, `url` must use HTTP(S), and `lang` (`en` or `ja`) marks the language of the linked text when it differs from English. Omit it when there is no official page for the event itself; never point it at a broader organization's homepage or a program PDF. A record link with the same URL is not shown again beside the title, and a record with a detail page then offers it as a separate "Details" link. RSS and page metadata keep the plain title.
 
 The English summary may contain inline links written as `[text](https://…)`; only HTTP(S) URLs form links, and RSS and meta descriptions show the link text alone. Any other text, including brackets that do not form such a link, is shown verbatim.
 

@@ -599,6 +599,7 @@ mod tests {
                 en: id.to_owned(),
                 ja: None,
             },
+            title_link: None,
             summary: Localized {
                 en: id.to_owned(),
                 ja: None,
@@ -686,6 +687,7 @@ mod tests {
                     en: format!("Synthetic update {index}"),
                     ja: None,
                 },
+                title_link: None,
                 summary: Localized {
                     en: "Synthetic performance fixture".to_owned(),
                     ja: None,
