@@ -3,8 +3,8 @@ use std::fmt::Write as _;
 use chrono::NaiveDate;
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
-use crate::content::{SiteContent, public_english_writings};
-use crate::model::{Category, Language, Link, Project, Publication, Update, Writing};
+use crate::content::{ValidatedSiteContent, ValidatedWriting, public_english_writings};
+use crate::model::{Category, EventStatus, Language, Link, Project, Publication, Update};
 
 const SITE_ORIGIN: &str = "https://ryujin-hatakeyama.github.io";
 const SITE_NAME: &str = "Ryujin Hatakeyama";
@@ -27,23 +27,23 @@ struct PageMetadata<'a> {
     article: bool,
 }
 
-pub fn pages(content: &SiteContent) -> Vec<GeneratedPage> {
+pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
     let public_publications: Vec<_> = content
-        .publications
+        .publications()
         .iter()
-        .filter(|record| !record.draft && !record.is_presentation())
+        .filter(|record| !record.draft && record.is_bibliographic())
         .collect();
     let presentations: Vec<_> = content
-        .publications
+        .publications()
         .iter()
         .filter(|record| !record.draft && record.is_presentation())
         .collect();
     let public_projects: Vec<_> = content
-        .projects
+        .projects()
         .iter()
         .filter(|project| !project.metadata.draft)
         .collect();
-    let writings: Vec<_> = public_english_writings(&content.writings).collect();
+    let writings: Vec<_> = public_english_writings(content.writings()).collect();
 
     let mut pages = vec![
         page(
@@ -57,7 +57,7 @@ pub fn pages(content: &SiteContent) -> Vec<GeneratedPage> {
                 noindex: false,
                 article: false,
             },
-            home(&content.updates),
+            home(content.updates()),
         ),
         page(
             "cv/index.html",
@@ -70,7 +70,7 @@ pub fn pages(content: &SiteContent) -> Vec<GeneratedPage> {
                 noindex: false,
                 article: false,
             },
-            cv(&presentations),
+            cv(&public_publications, &presentations),
         ),
         page(
             "research/index.html",
@@ -96,7 +96,7 @@ pub fn pages(content: &SiteContent) -> Vec<GeneratedPage> {
                 noindex: false,
                 article: false,
             },
-            updates_page(&content.updates, None),
+            updates_page(content.updates(), None),
         ),
         page(
             "writings/index.html",
@@ -128,7 +128,7 @@ pub fn pages(content: &SiteContent) -> Vec<GeneratedPage> {
 
     for category in Category::ALL {
         let category_updates: Vec<_> = content
-            .updates
+            .updates()
             .iter()
             .filter(|update| update.categories.contains(&category))
             .collect();
@@ -146,7 +146,7 @@ pub fn pages(content: &SiteContent) -> Vec<GeneratedPage> {
         ));
     }
 
-    for update in content.updates.iter().filter(|update| update.detail) {
+    for update in content.updates().iter().filter(|update| update.detail) {
         let path = format!("/updates/item/{}/", update.id);
         pages.push(page_owned(
             format!("updates/item/{}/index.html", update.id),
@@ -160,16 +160,16 @@ pub fn pages(content: &SiteContent) -> Vec<GeneratedPage> {
     }
 
     for writing in writings {
-        if writing.metadata.external_url.is_some() {
+        if writing.metadata().external_url.is_some() {
             continue;
         }
-        let path = format!("/writings/{}/", writing.metadata.slug);
+        let path = format!("/writings/{}/", writing.metadata().slug);
         pages.push(page_owned(
-            format!("writings/{}/index.html", writing.metadata.slug),
+            format!("writings/{}/index.html", writing.metadata().slug),
             path.clone(),
             true,
-            &writing.metadata.title,
-            &writing.metadata.description,
+            &writing.metadata().title,
+            &writing.metadata().description,
             &path,
             writing_detail(writing),
         ));
@@ -282,19 +282,20 @@ fn header(current_path: &str) -> Markup {
                 (nav_link("/updates/", "Updates", current_path.starts_with("/updates/")))
             }
             div.header-tools {
-                button.appearance-toggle
+                // A single toggle button with a stable name; aria-pressed and the
+                // knob position both follow the root data-theme attribute.
+                button.theme-toggle
                     id="appearance-toggle"
                     type="button"
-                    aria-label="Switch to dark mode"
-                    title="Switch to dark mode"
-                    data-dark-label="Switch to dark mode"
-                    data-light-label="Switch to light mode" {
-                    svg.theme-icon.theme-icon-moon aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" {
-                        path d="M20.2 15.3A8.5 8.5 0 0 1 8.7 3.8 8.5 8.5 0 1 0 20.2 15.3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" {}
-                    }
-                    svg.theme-icon.theme-icon-sun aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" {
+                    aria-label="Dark mode"
+                    aria-pressed="false" {
+                    span.theme-toggle-knob aria-hidden="true" {}
+                    svg.theme-icon.theme-icon-sun aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" {
                         circle cx="12" cy="12" r="3.6" fill="none" stroke="currentColor" stroke-width="1.7" {}
                         path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" {}
+                    }
+                    svg.theme-icon.theme-icon-moon aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" {
+                        path d="M20.2 15.3A8.5 8.5 0 0 1 8.7 3.8 8.5 8.5 0 1 0 20.2 15.3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" {}
                     }
                 }
             }
@@ -401,7 +402,7 @@ fn email_icon() -> Markup {
     html! { svg.home-link-icon aria-hidden="true" viewBox="0 0 16 16" { path d="M1.5 3.5h13v9h-13zM2 4l6 4.5L14 4" {} } }
 }
 
-fn cv(presentations: &[&Publication]) -> Markup {
+fn cv(publications: &[&Publication], presentations: &[&Publication]) -> Markup {
     html! {
         article.cv-page {
             header.cv-header {
@@ -427,9 +428,34 @@ fn cv(presentations: &[&Publication]) -> Markup {
                     p { "Selected participant, " a href="https://www.aie.tohoku.ac.jp/english/" { "WISE Program for AI Electronics (AIE)" } ", Tohoku University." }
                 }
             }
+            section aria-labelledby="research-experience-heading" {
+                h2 id="research-experience-heading" { "Research experience" }
+                div.cv-entry {
+                    time datetime="2022-10" { "Oct 2022 – Mar 2023" }
+                    div {
+                        p { strong { "Tohoku NLP Group, Tohoku University" } }
+                        p { "Undergraduate research participant, Step-QI School, Advanced Creative Engineering I and II." }
+                        p { a href="https://www.nlp.ecei.tohoku.ac.jp/about-us/former-members/" { "Laboratory record" } }
+                    }
+                }
+            }
+            section aria-labelledby="publications-heading" {
+                h2 id="publications-heading" { "Publications" }
+                (filterable_publications(publications))
+            }
             section aria-labelledby="presentations-heading" {
                 h2 id="presentations-heading" { "Presentations" }
                 (publication_list(presentations, true))
+            }
+            section aria-labelledby="awards-heading" {
+                h2 id="awards-heading" { "Honors and awards" }
+                div.cv-entry {
+                    time datetime="2023" { "2023" }
+                    div {
+                        p { strong { "Best Award" } }
+                        p { "2022 academic-year Advanced Creative Engineering Training Poster Session, Step-QI School, Tohoku University." }
+                    }
+                }
             }
         }
     }
@@ -453,7 +479,7 @@ fn research(
         div.research-page {
             section id="publications" class="content-section" {
                 h2 { "Publications" }
-                @if !publications.is_empty() { (publication_list(publications, false)) }
+                (filterable_publications(publications))
             }
             @if !projects.is_empty() {
                 section id="projects" class="content-section" {
@@ -478,18 +504,47 @@ fn research(
     }
 }
 
-fn publication_list(publications: &[&Publication], presentations: bool) -> Markup {
+/// All bibliographic publications in one newest-first list, preceded by a
+/// language filter. The filter is hidden until the browser script enables it,
+/// so the complete list remains visible without JavaScript and in print.
+fn filterable_publications(publications: &[&Publication]) -> Markup {
     if publications.is_empty() {
         return html! { p.empty-state { "No publications yet." } };
     }
     html! {
-        ol.publication-list {
+        div.publication-filter hidden data-publication-filter {
+            label for="publication-language" { "Language" }
+            select id="publication-language" autocomplete="off" aria-controls="publication-list" {
+                option value="all" selected { "All" }
+                option value="en" { "English" }
+                option value="ja" { "Japanese" }
+            }
+            p.sr-only aria-live="polite" data-publication-filter-status {}
+        }
+        (publication_entries(publications, false, Some("publication-list")))
+    }
+}
+
+fn publication_list(publications: &[&Publication], presentations: bool) -> Markup {
+    if publications.is_empty() {
+        return html! { p.empty-state { "No publications yet." } };
+    }
+    publication_entries(publications, presentations, None)
+}
+
+fn publication_entries(
+    publications: &[&Publication],
+    presentations: bool,
+    filterable_id: Option<&str>,
+) -> Markup {
+    html! {
+        ol.publication-list id=[filterable_id] {
             @for publication in publications {
-                li {
+                li data-language=[filterable_id.map(|_| publication.language.code())] {
                     article {
                         p.publication-index { (publication.year) }
                         div {
-                            h3 { (&publication.title) }
+                            h3 lang=(publication.language.code()) { (&publication.title) }
                             p.authors { (publication.authors.join(", ")) }
                             p.venue {
                                 @if let Some(venue) = &publication.venue { span { (venue) ". " } }
@@ -506,6 +561,15 @@ fn publication_list(publications: &[&Publication], presentations: bool) -> Marku
 }
 
 fn classification(publication: &Publication, presentations: bool) -> String {
+    if !presentations {
+        if let Some(review) = publication
+            .presentation
+            .as_ref()
+            .and_then(|metadata| metadata.proceedings_review)
+        {
+            return review.label().to_owned();
+        }
+    }
     if presentations {
         if let Some(metadata) = &publication.presentation {
             let mut format = metadata.format.label().to_owned();
@@ -581,10 +645,15 @@ fn update_list(updates: &[&Update], compact: bool) -> Markup {
         ol class=(class) {
             @for update in updates {
                 li {
-                    article {
+                    article id=[(!compact).then(|| format!("update-{}", update.id))] {
                         div.update-meta {
-                            time datetime=(update.date.format("%Y-%m-%d")) { (format_date(update.date)) }
+                            time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) }
                             span.kind-label { (update.kind.label()) }
+                            // Categories are plain, muted metadata rather than
+                            // links; the category filters provide navigation.
+                            span.category-label {
+                                (update.categories.iter().map(|category| category.label()).collect::<Vec<_>>().join(" · "))
+                            }
                         }
                         div.update-copy {
                             h3 {
@@ -592,12 +661,10 @@ fn update_list(updates: &[&Update], compact: bool) -> Markup {
                                     a href=(format!("/updates/item/{}/", update.id)) { (&update.title.en) }
                                 } @else { (&update.title.en) }
                             }
-                            @if !compact { p { (&update.summary.en) } }
-                            p.category-line {
-                                @for (index, category) in update.categories.iter().enumerate() {
-                                    a href=(format!("/updates/{}/", category.slug())) { (category.label()) }
-                                    @if index + 1 < update.categories.len() { span aria-hidden="true" { " · " } }
-                                }
+                            @if !compact {
+                                p { (&update.summary.en) }
+                                p.event-line { (event_line(update)) }
+                                @if !update.links.is_empty() { (record_links(&update.links, true)) }
                             }
                         }
                     }
@@ -609,20 +676,38 @@ fn update_list(updates: &[&Update], compact: bool) -> Markup {
 
 fn update_detail(update: &Update) -> Markup {
     html! {
-        article.detail-sheet {
+        article.detail-sheet.update-detail {
             header {
                 p.longform-kicker { "Update " span aria-hidden="true" { "/" } " " (update.kind.label()) }
                 h1 { (&update.title.en) }
                 p.summary { (&update.summary.en) }
             }
             dl {
-                div.detail-meta { dt { "Event date" } dd { time datetime=(update.date.format("%Y-%m-%d")) { (format_date(update.date)) } } }
+                div.detail-meta { dt { "Event date" } dd { (event_dates(update)) } }
+                div.detail-meta { dt { "Event status" } dd { (update.event_status.label()) } }
                 div.detail-meta { dt { "Announced" } dd { time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) } } }
                 div.detail-meta { dt { "Categories" } dd { (update.categories.iter().map(|category| category.label()).collect::<Vec<_>>().join(" · ")) } }
             }
             @if let Some(body) = &update.body { div.prose { p { (&body.en) } } }
-            @if !update.links.is_empty() { (record_links(&update.links, false)) }
+            @if !update.links.is_empty() { (record_links(&update.links, true)) }
         }
+    }
+}
+
+fn event_dates(update: &Update) -> Markup {
+    let start = update.date.format("%Y-%m-%d").to_string();
+    match update.end_date {
+        Some(end) if end != update.date => html! {
+            time datetime=(start) { (format_date_range(update.date, end)) }
+        },
+        _ => html! { time datetime=(start) { (format_date(update.date)) } },
+    }
+}
+
+fn event_line(update: &Update) -> Markup {
+    html! {
+        "Event: " (event_dates(update))
+        @if update.event_status == EventStatus::Planned { " · Planned" }
     }
 }
 
@@ -639,7 +724,7 @@ fn record_links(links: &[Link], include_type: bool) -> Markup {
     }
 }
 
-fn writings_page(writings: &[&Writing]) -> Markup {
+fn writings_page(writings: &[&ValidatedWriting]) -> Markup {
     html! {
         (page_intro("Writings"))
         @if writings.is_empty() {
@@ -652,44 +737,45 @@ fn writings_page(writings: &[&Writing]) -> Markup {
     }
 }
 
-fn writing_list_item(writing: &Writing) -> Markup {
-    let href = writing
-        .metadata
+fn writing_list_item(writing: &ValidatedWriting) -> Markup {
+    let metadata = writing.metadata();
+    let href = metadata
         .external_url
         .clone()
-        .unwrap_or_else(|| format!("/writings/{}/", writing.metadata.slug));
+        .unwrap_or_else(|| format!("/writings/{}/", metadata.slug));
     html! {
         li {
             article {
                 p.writing-meta {
-                    span { (writing.metadata.kind.label()) }
-                    time datetime=(writing.metadata.date.format("%Y-%m-%d")) { (format_date(writing.metadata.date)) }
+                    span { (metadata.kind.label()) }
+                    time datetime=(metadata.date.format("%Y-%m-%d")) { (format_date(metadata.date)) }
                 }
-                h3 { a href=(href) lang=(writing.metadata.lang.code()) { (&writing.metadata.title) } }
-                p { (&writing.metadata.description) }
+                h3 { a href=(href) lang=(metadata.lang.code()) { (&metadata.title) } }
+                p { (&metadata.description) }
             }
         }
     }
 }
 
-fn writing_detail(writing: &Writing) -> Markup {
-    let class = if writing.metadata.lang == Language::Ja {
+fn writing_detail(writing: &ValidatedWriting) -> Markup {
+    let metadata = writing.metadata();
+    let class = if metadata.lang == Language::Ja {
         "longform longform-ja"
     } else {
         "longform"
     };
     html! {
-        article class=(class) lang=(writing.metadata.lang.code()) {
+        article class=(class) lang=(metadata.lang.code()) {
             header.longform-header {
                 p.longform-kicker {
-                    (writing.metadata.kind.label()) " " span aria-hidden="true" { "/" } " "
-                    time datetime=(writing.metadata.date.format("%Y-%m-%d")) { (format_date(writing.metadata.date)) }
+                    (metadata.kind.label()) " " span aria-hidden="true" { "/" } " "
+                    time datetime=(metadata.date.format("%Y-%m-%d")) { (format_date(metadata.date)) }
                 }
-                h1 { (&writing.metadata.title) }
-                p.dek { (&writing.metadata.description) }
-                @if let Some(publication) = &writing.metadata.publication { p.publication-context { (publication) } }
+                h1 { (&metadata.title) }
+                p.dek { (&metadata.description) }
+                @if let Some(publication) = &metadata.publication { p.publication-context { (publication) } }
             }
-            div.prose { (PreEscaped(&writing.rendered_body)) }
+            div.prose { (PreEscaped(writing.rendered_body())) }
         }
     }
 }
@@ -709,17 +795,29 @@ fn format_date(date: NaiveDate) -> String {
     date.format("%d %b %Y").to_string()
 }
 
+fn format_date_range(start: NaiveDate, end: NaiveDate) -> String {
+    if start.format("%Y-%m").to_string() == end.format("%Y-%m").to_string() {
+        format!("{}–{}", start.format("%d"), format_date(end))
+    } else if start.format("%Y").to_string() == end.format("%Y").to_string() {
+        format!("{} – {}", start.format("%d %b"), format_date(end))
+    } else {
+        format!("{} – {}", format_date(start), format_date(end))
+    }
+}
+
 pub fn rss(updates: &[Update]) -> String {
     let mut items = String::new();
     for update in updates {
         let link = if update.detail {
             format!("{SITE_ORIGIN}/updates/item/{}/", update.id)
         } else {
-            format!("{SITE_ORIGIN}/updates/")
+            // Each item needs a distinct link and guid; the anchor names the
+            // update's entry on the full Updates page.
+            format!("{SITE_ORIGIN}/updates/#update-{}", update.id)
         };
         let mut categories = String::new();
         for category in &update.categories {
-            write!(categories, "<category>{}</category>", category.slug())
+            write!(categories, "<category>{}</category>", category.label())
                 .expect("writing to a String cannot fail");
         }
         write!(
@@ -768,8 +866,141 @@ fn escape_xml(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{escape_xml, format_date};
+    use super::{
+        classification, cv, escape_xml, filterable_publications, format_date, format_date_range,
+        header, publication_list, rss, update_detail, update_list,
+    };
+    use crate::model::Publication;
     use chrono::NaiveDate;
+
+    fn publication(slug: &str, year: i32, language: &str, kind: &str) -> Publication {
+        serde_json::from_str(&format!(
+            r#"{{"slug":"{slug}","title":"{slug}","authors":["A"],"year":{year},"language":"{language}"{kind}}}"#
+        ))
+        .unwrap()
+    }
+
+    const PAPER: &str = r#","type":"workshop-paper","status":"published""#;
+    const POSTER: &str =
+        r#","type":"poster","status":"presented","presentation":{"format":"poster"}"#;
+    const PROCEEDINGS_TALK: &str = r#","type":"presentation","status":"presented","presentation":{"format":"oral","proceedingsReview":"unrefereed"}"#;
+
+    #[test]
+    fn publications_form_one_newest_first_list_with_a_language_filter() {
+        let records = [
+            publication("jssst", 2026, "ja", PROCEEDINGS_TALK),
+            publication("semeval", 2023, "en", PAPER),
+        ];
+        let refs: Vec<_> = records.iter().collect();
+        let html = filterable_publications(&refs).into_string();
+        assert!(!html.contains("In English") && !html.contains("In Japanese"));
+        assert_eq!(html.matches("<ol").count(), 1);
+        let jssst = html.find(r#"<li data-language="ja"><article><p class="publication-index">2026</p><div><h3 lang="ja">jssst</h3>"#).unwrap();
+        let semeval = html.find(r#"<li data-language="en"><article><p class="publication-index">2023</p><div><h3 lang="en">semeval</h3>"#).unwrap();
+        assert!(jssst < semeval);
+        // Hidden until the script enables it; "All" is the default selection.
+        assert!(
+            html.contains(r#"<div class="publication-filter" hidden data-publication-filter>"#)
+        );
+        assert!(html.contains(r#"<label for="publication-language">Language</label>"#));
+        assert!(html.contains(r#"<option value="all" selected>All</option>"#));
+        assert!(html.contains(r#"aria-controls="publication-list""#));
+        assert!(html.contains(r#"<ol class="publication-list" id="publication-list">"#));
+    }
+
+    #[test]
+    fn talks_are_not_filterable() {
+        let records = [publication("ppl", 2025, "ja", POSTER)];
+        let refs: Vec<_> = records.iter().collect();
+        let html = publication_list(&refs, true).into_string();
+        assert!(!html.contains("data-language") && !html.contains("publication-filter"));
+    }
+
+    #[test]
+    fn proceedings_talks_are_unrefereed_papers_among_publications() {
+        let record = publication("jssst", 2026, "ja", PROCEEDINGS_TALK);
+        assert_eq!(
+            classification(&record, false),
+            "Unrefereed proceedings paper"
+        );
+        assert_eq!(
+            classification(&record, true),
+            "Oral presentation · Unrefereed proceedings paper"
+        );
+    }
+
+    #[test]
+    fn cv_lists_the_corrected_award_separately_from_publications() {
+        let html = cv(&[], &[]).into_string();
+        assert!(html.contains("<strong>Best Award</strong>"));
+        assert!(!html.contains("Excellence Award"));
+        assert!(
+            html.find("Research experience").unwrap() < html.find("Honors and awards").unwrap()
+        );
+    }
+
+    #[test]
+    fn theme_toggle_has_a_stable_name_and_decorative_icons() {
+        let html = header("/").into_string();
+        assert!(html.contains(r#"aria-label="Dark mode" aria-pressed="false""#));
+        assert_eq!(html.matches(r#"aria-hidden="true""#).count(), 3);
+        assert!(html.find("theme-icon-sun").unwrap() < html.find("theme-icon-moon").unwrap());
+    }
+
+    #[test]
+    fn rss_items_without_detail_pages_have_distinct_guids() {
+        let updates: Vec<crate::model::Update> = ["first", "second"]
+            .iter()
+            .map(|id| {
+                serde_json::from_str(&format!(
+                    r#"{{"id":"{id}","title":{{"en":"x"}},"summary":{{"en":"x"}},"date":"2026-10-09",
+                    "announcedOn":"2026-10-09","eventStatus":"completed","categories":["academia"],
+                    "kind":{{"type":"presentation"}},"related":{{}}}}"#
+                ))
+                .unwrap()
+            })
+            .collect();
+        let feed = rss(&updates);
+        assert!(
+            feed.contains("<guid>https://ryujin-hatakeyama.github.io/updates/#update-first</guid>")
+        );
+        assert!(
+            feed.contains(
+                "<guid>https://ryujin-hatakeyama.github.io/updates/#update-second</guid>"
+            )
+        );
+        assert!(feed.contains("<category>Activities</category>"));
+    }
+
+    #[test]
+    fn update_links_are_shown_in_the_full_list_and_detail_pages() {
+        let update: crate::model::Update = serde_json::from_str(
+            r#"{"id":"poster","title":{"en":"Poster"},"summary":{"en":"x"},"date":"2026-10-09",
+            "announcedOn":"2026-10-09","eventStatus":"completed","categories":["academia"],
+            "kind":{"type":"presentation"},"related":{},
+            "links":[{"label":"Program","url":"https://example.org/program.pdf","type":"pdf"}]}"#,
+        )
+        .unwrap();
+        let link = r#"<a href="https://example.org/program.pdf">Program"#;
+        assert!(update_list(&[&update], false).into_string().contains(link));
+        assert!(!update_list(&[&update], true).into_string().contains(link));
+        let detail = update_detail(&update).into_string();
+        assert!(detail.contains(link));
+        assert!(detail.contains(r#"<article class="detail-sheet update-detail">"#));
+    }
+
+    #[test]
+    fn formats_event_date_ranges() {
+        let day = |month, day| NaiveDate::from_ymd_opt(2026, month, day).unwrap();
+        assert_eq!(
+            format_date_range(day(10, 16), day(10, 18)),
+            "16–18 Oct 2026"
+        );
+        assert_eq!(
+            format_date_range(day(9, 30), day(10, 2)),
+            "30 Sep – 02 Oct 2026"
+        );
+    }
 
     #[test]
     fn formats_dates_like_the_previous_site() {

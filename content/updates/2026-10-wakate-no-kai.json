@@ -1,0 +1,17 @@
+{
+  "id": "wakate-no-kai-2026-attendance",
+  "title": { "en": "Planned attendance at 数学基礎論若手の会 2026" },
+  "summary": { "en": "I plan to attend 数学基礎論若手の会 2026 in Sendai, October 16–18." },
+  "date": "2026-10-16",
+  "end_date": "2026-10-18",
+  "announced_on": "2026-10-09",
+  "event_status": "planned",
+  "categories": ["academia"],
+  "kind": { "type": "participation" },
+  "links": [
+    { "label": "Event information", "url": "https://www.mathsoc.jp/section/logic_and_history/Wakatenokai.html", "type": "external" }
+  ],
+  "related": { "publications": [], "projects": [], "writings": [] },
+  "detail": false,
+  "status": "published"
+}

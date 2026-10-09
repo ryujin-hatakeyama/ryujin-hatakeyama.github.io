@@ -1,150 +1,216 @@
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, ensure};
+use chrono::{Days, NaiveDate};
 
-use crate::content;
+use anyhow::{Context, Result, bail, ensure};
+
+use crate::artifact::ArtifactSet;
+use crate::content::{self, ValidatedSiteContent};
+use crate::publish::{self, StagedOutput};
 use crate::render::{self, GeneratedPage};
-use crate::validate;
 
 pub fn build(root: &Path, output_relative: &Path) -> Result<()> {
-    validate_output_path(output_relative)?;
-    let output = root.join(output_relative);
-    clean_output(&output)?;
-    fs::create_dir_all(&output)
-        .with_context(|| format!("failed to create {}", output.display()))?;
+    let output = publish::prepare_destination(root, output_relative)?;
+    let total_started = Instant::now();
 
+    let started = Instant::now();
     let content = content::load(root)?;
+    let content_time = started.elapsed();
+    if let Some(today) = utc_today() {
+        for update in content::planned_updates_needing_review(content.updates(), today) {
+            eprintln!(
+                "site-builder warning: update {:?} announces planned attendance, but the event began on {}; review it and set its status to draft or record the actual outcome",
+                update.id, update.date
+            );
+        }
+    }
+
+    let started = Instant::now();
     let pages = render::pages(&content);
-    write_pages(&output, &pages)?;
-    write_site_files(root, &output, &content.updates, &pages)?;
-    validate::dist(&output, root)?;
+    let render_time = started.elapsed();
+    let route_count = pages.len();
+
+    let started = Instant::now();
+    let plan = BuildPlan::new(root, &content, pages)?;
+    let plan_time = started.elapsed();
+
+    let started = Instant::now();
+    let staged = StagedOutput::generate(&output, plan.artifacts)?;
+    let stage_time = started.elapsed();
+
+    let started = Instant::now();
+    let verified = staged.verify(root)?;
+    let validation_time = started.elapsed();
+
+    let started = Instant::now();
+    let report = verified.install()?;
+    let install_time = started.elapsed();
 
     println!(
-        "Built and validated {} public HTML routes in {}.",
-        pages.len(),
+        "Built and validated {route_count} public HTML routes in {}.",
         output.display()
     );
-    Ok(())
-}
-
-fn validate_output_path(path: &Path) -> Result<()> {
-    ensure!(
-        !path.as_os_str().is_empty(),
-        "output path must not be empty"
-    );
-    ensure!(
-        !path.is_absolute(),
-        "output path must be relative to the repository"
-    );
-    ensure!(
-        path.components()
-            .all(|component| matches!(component, Component::Normal(_))),
-        "output path must not contain parent, root, or current-directory components"
-    );
-    ensure!(
-        path == Path::new("dist") || path.starts_with("target/"),
-        "output path must be dist or a directory below target"
-    );
-    Ok(())
-}
-
-fn clean_output(output: &Path) -> Result<()> {
-    if output.exists() {
-        ensure!(
-            output.is_dir(),
-            "output path {} is not a directory",
-            output.display()
+    if let Some(warning) = report.warning {
+        eprintln!("site-builder warning: {warning}");
+    }
+    if std::env::var_os("SITE_BUILDER_TIMINGS").is_some() {
+        print_timings(
+            content_time,
+            render_time,
+            plan_time,
+            stage_time,
+            validation_time,
+            install_time,
+            total_started.elapsed(),
         );
-        fs::remove_dir_all(output)
-            .with_context(|| format!("failed to clean {}", output.display()))?;
     }
     Ok(())
 }
 
-fn write_pages(output: &Path, pages: &[GeneratedPage]) -> Result<()> {
+/// Today's UTC date, used only for review warnings so that generated output
+/// never depends on the build date.
+fn utc_today() -> Option<NaiveDate> {
+    let seconds = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+    NaiveDate::from_ymd_opt(1970, 1, 1)?.checked_add_days(Days::new(seconds / 86_400))
+}
+
+fn print_timings(
+    content: Duration,
+    render: Duration,
+    plan: Duration,
+    stage: Duration,
+    validation: Duration,
+    install: Duration,
+    total: Duration,
+) {
+    eprintln!(
+        "site-builder timings: content={:.3}ms render={:.3}ms plan={:.3}ms stage={:.3}ms validation={:.3}ms install={:.3}ms total={:.3}ms",
+        milliseconds(content),
+        milliseconds(render),
+        milliseconds(plan),
+        milliseconds(stage),
+        milliseconds(validation),
+        milliseconds(install),
+        milliseconds(total),
+    );
+}
+
+fn milliseconds(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1_000.0
+}
+
+struct BuildPlan {
+    artifacts: ArtifactSet,
+}
+
+impl BuildPlan {
+    fn new(root: &Path, content: &ValidatedSiteContent, pages: Vec<GeneratedPage>) -> Result<Self> {
+        let page_artifacts = page_artifacts(&pages)?;
+        let public_assets = read_tree(&root.join("assets/public"), Path::new(""))?;
+        let font_assets = read_tree(&root.join("assets/fonts"), Path::new("assets/fonts"))?;
+        let generated = generated_site_files(root, content, &pages)?;
+
+        let artifacts = page_artifacts
+            .compose(public_assets)?
+            .compose(font_assets)?
+            .compose(generated)?;
+        Ok(Self { artifacts })
+    }
+}
+
+fn page_artifacts(pages: &[GeneratedPage]) -> Result<ArtifactSet> {
+    let mut artifacts = ArtifactSet::new();
     for page in pages {
-        write(output, &page.output_path, &format!("{}\n", page.html))?;
+        artifacts.insert(&page.output_path, format!("{}\n", page.html).into_bytes())?;
     }
-    Ok(())
+    Ok(artifacts)
 }
 
-fn write_site_files(
+fn generated_site_files(
     root: &Path,
-    output: &Path,
-    updates: &[crate::model::Update],
+    content: &ValidatedSiteContent,
     pages: &[GeneratedPage],
-) -> Result<()> {
-    copy_tree(&root.join("assets/public"), output)?;
-    copy_tree(&root.join("assets/fonts"), &output.join("assets/fonts"))?;
-
+) -> Result<ArtifactSet> {
     let fonts = read_required(&root.join("assets/styles/fonts.css"))?;
     let site = read_required(&root.join("assets/styles/site.css"))?;
     let katex = read_required(&root.join("assets/styles/katex.min.css"))?;
-    write(
-        output,
-        "assets/site.css",
-        &format!("{fonts}\n{site}\n{katex}\n"),
-    )?;
-
     let client = read_required(&root.join("target/client/site.js"))?;
-    write(output, "assets/site.js", &client)?;
-
-    write(output, "rss.xml", &render::rss(updates))?;
     let (sitemap, sitemap_index) = render::sitemap(pages);
-    write(output, "sitemap-0.xml", &sitemap)?;
-    write(output, "sitemap-index.xml", &sitemap_index)?;
-    write(
-        output,
-        "robots.txt",
-        "User-agent: *\nAllow: /\n\nSitemap: https://ryujin-hatakeyama.github.io/sitemap-index.xml\n",
+
+    let mut artifacts = ArtifactSet::new();
+    artifacts.insert(
+        "assets/site.css",
+        format!("{fonts}\n{site}\n{katex}\n").into_bytes(),
     )?;
-    write(output, ".nojekyll", "")?;
-    Ok(())
+    artifacts.insert("assets/site.js", client.into_bytes())?;
+    artifacts.insert("rss.xml", render::rss(content.updates()).into_bytes())?;
+    artifacts.insert("sitemap-0.xml", sitemap.into_bytes())?;
+    artifacts.insert("sitemap-index.xml", sitemap_index.into_bytes())?;
+    artifacts.insert(
+        "robots.txt",
+        b"User-agent: *\nAllow: /\n\nSitemap: https://ryujin-hatakeyama.github.io/sitemap-index.xml\n".to_vec(),
+    )?;
+    artifacts.insert(".nojekyll", Vec::new())?;
+    Ok(artifacts)
 }
 
 fn read_required(path: &Path) -> Result<String> {
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("missing or unreadable asset {}", path.display()))?;
+    ensure!(
+        metadata.is_file() && !metadata.file_type().is_symlink(),
+        "asset must be a real file: {}",
+        path.display()
+    );
     fs::read_to_string(path)
         .with_context(|| format!("missing or unreadable asset {}", path.display()))
 }
 
-fn write(output: &Path, relative: impl AsRef<Path>, contents: &str) -> Result<()> {
-    let path = output.join(relative.as_ref());
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    fs::write(&path, contents).with_context(|| format!("failed to write {}", path.display()))
-}
-
-fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
+fn read_tree(source: &Path, destination: &Path) -> Result<ArtifactSet> {
+    let metadata = fs::symlink_metadata(source)
+        .with_context(|| format!("missing asset directory {}", source.display()))?;
     ensure!(
-        source.is_dir(),
-        "missing asset directory {}",
+        metadata.is_dir() && !metadata.file_type().is_symlink(),
+        "asset source must be a real directory: {}",
         source.display()
     );
-    fs::create_dir_all(destination)
-        .with_context(|| format!("failed to create {}", destination.display()))?;
-    let mut entries = fs::read_dir(source)
-        .with_context(|| format!("failed to read {}", source.display()))?
+    let mut artifacts = ArtifactSet::new();
+    collect_tree(source, source, destination, &mut artifacts)?;
+    Ok(artifacts)
+}
+
+fn collect_tree(
+    root: &Path,
+    directory: &Path,
+    destination: &Path,
+    artifacts: &mut ArtifactSet,
+) -> Result<()> {
+    let mut entries = fs::read_dir(directory)
+        .with_context(|| format!("failed to read {}", directory.display()))?
         .collect::<std::io::Result<Vec<_>>>()?;
     entries.sort_by_key(std::fs::DirEntry::file_name);
     for entry in entries {
         let source_path = entry.path();
-        let destination_path = destination.join(entry.file_name());
-        let metadata = entry
-            .metadata()
+        let file_type = entry
+            .file_type()
             .with_context(|| format!("failed to inspect {}", source_path.display()))?;
-        if metadata.is_dir() {
-            copy_tree(&source_path, &destination_path)?;
-        } else if metadata.is_file() {
-            fs::copy(&source_path, &destination_path).with_context(|| {
-                format!(
-                    "failed to copy {} to {}",
-                    source_path.display(),
-                    destination_path.display()
-                )
-            })?;
+        ensure!(
+            !file_type.is_symlink(),
+            "asset tree must not contain symbolic links: {}",
+            source_path.display()
+        );
+        if file_type.is_dir() {
+            collect_tree(root, &source_path, destination, artifacts)?;
+        } else if file_type.is_file() {
+            let relative = source_path.strip_prefix(root)?;
+            let output_path = destination.join(relative);
+            let contents = fs::read(&source_path)
+                .with_context(|| format!("failed to read {}", source_path.display()))?;
+            artifacts.insert(output_path, contents)?;
+        } else {
+            bail!("unsupported asset type: {}", source_path.display());
         }
     }
     Ok(())
@@ -170,15 +236,34 @@ pub fn compare_directories(left: &Path, right: &Path) -> Result<()> {
 }
 
 fn relative_files(root: &Path) -> Result<Vec<PathBuf>> {
+    let metadata = fs::symlink_metadata(root)
+        .with_context(|| format!("failed to inspect {}", root.display()))?;
+    ensure!(
+        metadata.is_dir() && !metadata.file_type().is_symlink(),
+        "comparison root must be a real directory: {}",
+        root.display()
+    );
+
     fn collect(root: &Path, directory: &Path, output: &mut Vec<PathBuf>) -> Result<()> {
         let mut entries = fs::read_dir(directory)?.collect::<std::io::Result<Vec<_>>>()?;
         entries.sort_by_key(std::fs::DirEntry::file_name);
         for entry in entries {
             let path = entry.path();
-            if entry.file_type()?.is_dir() {
+            let file_type = entry.file_type()?;
+            ensure!(
+                !file_type.is_symlink(),
+                "comparison tree contains symbolic link {}",
+                path.display()
+            );
+            if file_type.is_dir() {
                 collect(root, &path, output)?;
-            } else {
+            } else if file_type.is_file() {
                 output.push(path.strip_prefix(root)?.to_owned());
+            } else {
+                bail!(
+                    "comparison tree contains unsupported entry {}",
+                    path.display()
+                );
             }
         }
         Ok(())
@@ -192,15 +277,97 @@ fn relative_files(root: &Path) -> Result<Vec<PathBuf>> {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_output_path;
-    use std::path::Path;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::build;
+
+    static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new(label: &str) -> Self {
+            let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "site-builder-{label}-{}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write(path: &Path, contents: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+    }
+
+    fn minimal_content(root: &Path) {
+        fs::create_dir_all(root.join("content/publications")).unwrap();
+        fs::create_dir_all(root.join("content/writings")).unwrap();
+        fs::create_dir_all(root.join("content/projects")).unwrap();
+        write(&root.join("target/generated/updates.json"), "[]");
+    }
+
+    fn previous_output(root: &Path) {
+        write(&root.join("dist/previous.txt"), "previous valid output");
+    }
 
     #[test]
-    fn limits_cleanable_output_paths() {
-        assert!(validate_output_path(Path::new("dist")).is_ok());
-        assert!(validate_output_path(Path::new("target/determinism-dist")).is_ok());
-        assert!(validate_output_path(Path::new(".")).is_err());
-        assert!(validate_output_path(Path::new("../outside")).is_err());
-        assert!(validate_output_path(Path::new("content")).is_err());
+    fn invalid_content_preserves_previous_output() {
+        let root = TestDirectory::new("invalid-content");
+        minimal_content(root.path());
+        write(
+            &root.path().join("content/publications/invalid.json"),
+            "{not JSON}",
+        );
+        previous_output(root.path());
+
+        assert!(build(root.path(), Path::new("dist")).is_err());
+        assert_eq!(
+            fs::read_to_string(root.path().join("dist/previous.txt")).unwrap(),
+            "previous valid output"
+        );
+    }
+
+    #[test]
+    fn missing_assets_preserve_previous_output() {
+        let root = TestDirectory::new("missing-assets");
+        minimal_content(root.path());
+        previous_output(root.path());
+
+        let error = build(root.path(), Path::new("dist")).unwrap_err();
+        assert!(format!("{error:#}").contains("missing asset directory"));
+        assert_eq!(
+            fs::read_to_string(root.path().join("dist/previous.txt")).unwrap(),
+            "previous valid output"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn asset_symlinks_are_rejected_without_reading_the_target() {
+        use std::os::unix::fs::symlink;
+
+        let root = TestDirectory::new("asset-symlink");
+        let assets = root.path().join("assets");
+        fs::create_dir(&assets).unwrap();
+        write(&root.path().join("private.txt"), "not a public asset");
+        symlink(root.path().join("private.txt"), assets.join("leak.txt")).unwrap();
+
+        let error = super::read_tree(&assets, Path::new("")).unwrap_err();
+        assert!(format!("{error:#}").contains("must not contain symbolic links"));
     }
 }

@@ -11,6 +11,9 @@ pub struct Publication {
     pub title: String,
     pub authors: Vec<String>,
     pub year: i32,
+    /// Language of the publication's own text, stated explicitly rather than
+    /// inferred from its title, authors, or venue.
+    pub language: Language,
     #[serde(rename = "type")]
     pub record_type: PublicationType,
     pub status: PublicationStatus,
@@ -71,6 +74,17 @@ impl Publication {
         Ok(())
     }
 
+    /// Whether the record is listed among bibliographic publications. A talk or
+    /// poster is listed there only when it declares an accompanying
+    /// proceedings paper; the review status is then shown with it.
+    pub fn is_bibliographic(&self) -> bool {
+        !self.is_presentation()
+            || self
+                .presentation
+                .as_ref()
+                .is_some_and(|metadata| metadata.proceedings_review.is_some())
+    }
+
     pub const fn is_presentation(&self) -> bool {
         matches!(
             self.record_type,
@@ -86,6 +100,7 @@ pub enum PublicationType {
     JournalArticle,
     Preprint,
     ExtendedAbstract,
+    WorkshopPaper,
     WorkshopContribution,
     StudentResearchCompetition,
     Presentation,
@@ -100,6 +115,7 @@ impl PublicationType {
             Self::JournalArticle => "Journal article",
             Self::Preprint => "Preprint",
             Self::ExtendedAbstract => "Extended abstract",
+            Self::WorkshopPaper => "Workshop paper",
             Self::WorkshopContribution => "Workshop contribution",
             Self::StudentResearchCompetition => "Student research competition",
             Self::Presentation => "Presentation",
@@ -187,14 +203,8 @@ impl Link {
             !self.label.trim().is_empty(),
             "{source}: link label must not be empty"
         );
-        ensure!(
-            self.url.starts_with("https://")
-                || self.url.starts_with("http://")
-                || self.url.starts_with('/')
-                || self.url.starts_with("mailto:"),
-            "{source}: link URL must be absolute or root-relative: {}",
-            self.url
-        );
+        validate_record_url(&self.url)
+            .with_context(|| format!("{source}: invalid link URL {:?}", self.url))?;
         Ok(())
     }
 }
@@ -235,7 +245,9 @@ pub struct Update {
     pub title: Localized,
     pub summary: Localized,
     pub date: NaiveDate,
+    pub end_date: Option<NaiveDate>,
     pub announced_on: NaiveDate,
+    pub event_status: EventStatus,
     pub categories: Vec<Category>,
     pub kind: EventKind,
     #[serde(default)]
@@ -264,6 +276,20 @@ impl Update {
             link.validate(source)?;
         }
         self.related.validate(source)?;
+        ensure!(
+            self.last_event_day() >= self.date,
+            "{source}: endDate must not precede date"
+        );
+        match self.event_status {
+            EventStatus::Planned => ensure!(
+                self.announced_on < self.date,
+                "{source}: a planned event must be announced before it begins"
+            ),
+            EventStatus::Completed => ensure!(
+                self.announced_on >= self.last_event_day(),
+                "{source}: a completed event must not be announced before it ends"
+            ),
+        }
         if let Some(body) = &self.body {
             body.validate(source, "body")?;
         }
@@ -285,6 +311,31 @@ impl Update {
             _ => {}
         }
         Ok(())
+    }
+}
+
+impl Update {
+    pub fn last_event_day(&self) -> NaiveDate {
+        self.end_date.unwrap_or(self.date)
+    }
+}
+
+/// Whether the reported activity had taken place when the update was
+/// announced. This is independent of the record's draft/published visibility
+/// and is never derived from the current date.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum EventStatus {
+    Planned,
+    Completed,
+}
+
+impl EventStatus {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Planned => "Planned",
+            Self::Completed => "Completed",
+        }
     }
 }
 
@@ -332,7 +383,9 @@ impl Category {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Research => "Research",
-            Self::Academia => "Academia",
+            // Displayed as "Activities"; the slug stays "academia" so routes
+            // and source records are unchanged.
+            Self::Academia => "Activities",
             Self::Writing => "Writing",
         }
     }
@@ -359,7 +412,20 @@ impl EventKind {
             Self::Publication => "Publication",
             Self::Participation => "Participation",
             Self::Visit => "Visit",
-            Self::Award { .. } => "Award",
+            // The outcome is part of the label so that a nomination is never
+            // presented as an award won.
+            Self::Award {
+                outcome: AwardOutcome::Nominated,
+                ..
+            } => "Award nomination",
+            Self::Award {
+                outcome: AwardOutcome::Shortlisted,
+                ..
+            } => "Award shortlist",
+            Self::Award {
+                outcome: AwardOutcome::Won,
+                ..
+            } => "Award",
             Self::Release => "Release",
             Self::Other { .. } => "Other",
         }
@@ -416,12 +482,6 @@ pub struct WritingFrontMatter {
     pub draft: bool,
 }
 
-#[derive(Clone, Debug)]
-pub struct Writing {
-    pub metadata: WritingFrontMatter,
-    pub rendered_body: String,
-}
-
 impl WritingFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
         validate_slug(&self.slug).with_context(|| format!("{source}: invalid writing slug"))?;
@@ -437,10 +497,8 @@ impl WritingFrontMatter {
             validate_slug(key).with_context(|| format!("{source}: invalid translationKey"))?;
         }
         if let Some(url) = &self.external_url {
-            ensure!(
-                url.starts_with("https://") || url.starts_with("http://"),
-                "{source}: externalUrl must be HTTP(S)"
-            );
+            validate_http_url(url)
+                .with_context(|| format!("{source}: invalid externalUrl {url:?}"))?;
         }
         Ok(())
     }
@@ -546,9 +604,168 @@ pub fn validate_slug(value: &str) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn validate_markdown_url(value: &str) -> Result<()> {
+    validate_url_characters(value)?;
+    if is_http_url(value)
+        || is_mailto_url(value)
+        || is_safe_root_relative(value)
+        || value.starts_with('#')
+    {
+        return Ok(());
+    }
+
+    let scheme_candidate = value.split(['/', '?', '#']).next().unwrap_or_default();
+    ensure!(!scheme_candidate.contains(':'), "URL scheme is not allowed");
+    ensure!(
+        !value.starts_with("//"),
+        "network-path URLs are not allowed"
+    );
+    Ok(())
+}
+
+fn validate_record_url(value: &str) -> Result<()> {
+    validate_url_characters(value)?;
+    ensure!(
+        is_http_url(value) || is_mailto_url(value) || is_safe_root_relative(value),
+        "link URL must use HTTP(S), mailto, or a root-relative path"
+    );
+    Ok(())
+}
+
+fn validate_http_url(value: &str) -> Result<()> {
+    validate_url_characters(value)?;
+    ensure!(is_http_url(value), "URL must use HTTP(S)");
+    Ok(())
+}
+
+fn validate_url_characters(value: &str) -> Result<()> {
+    ensure!(!value.is_empty(), "URL must not be empty");
+    ensure!(value.trim() == value, "URL must not have surrounding space");
+    ensure!(
+        !value.chars().any(char::is_control),
+        "URL must not contain control characters"
+    );
+    ensure!(
+        !value.chars().any(char::is_whitespace),
+        "URL must not contain whitespace"
+    );
+    ensure!(!value.contains('\\'), "URL must not contain backslashes");
+    Ok(())
+}
+
+fn is_http_url(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    for prefix in ["https://", "http://"] {
+        if let Some(remainder) = lower.strip_prefix(prefix) {
+            let authority = remainder.split(['/', '?', '#']).next().unwrap_or_default();
+            return !authority.is_empty();
+        }
+    }
+    false
+}
+
+fn is_mailto_url(value: &str) -> bool {
+    value
+        .get(..7)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("mailto:"))
+        && value.len() > 7
+}
+
+fn is_safe_root_relative(value: &str) -> bool {
+    value.starts_with('/') && !value.starts_with("//")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::validate_slug;
+    use super::{
+        Category, EventKind, EventStatus, Language, Link, LinkType, Publication, Update,
+        validate_markdown_url, validate_slug,
+    };
+
+    fn publication(extra: &str) -> serde_json::Result<Publication> {
+        serde_json::from_str(&format!(
+            r#"{{"slug":"fixture","title":"Fixture","authors":["A"],"year":2026{extra}}}"#
+        ))
+    }
+
+    fn update(date: &str, end: Option<&str>, announced: &str, status: &str) -> Update {
+        let end = end.map_or(String::new(), |end| format!(r#","endDate":"{end}""#));
+        serde_json::from_str(&format!(
+            r#"{{"id":"fixture","title":{{"en":"x"}},"summary":{{"en":"x"}},"date":"{date}"{end},
+            "announcedOn":"{announced}","eventStatus":"{status}","categories":["academia"],
+            "kind":{{"type":"participation"}},"related":{{}}}}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn academia_is_displayed_as_activities_at_its_original_route() {
+        assert_eq!(Category::Academia.label(), "Activities");
+        assert_eq!(Category::Academia.slug(), "academia");
+        assert_eq!(Category::Research.label(), "Research");
+        assert_eq!(Category::Writing.label(), "Writing");
+    }
+
+    #[test]
+    fn award_labels_distinguish_nominations_from_awards_won() {
+        let kind = |outcome| -> EventKind {
+            serde_json::from_str(&format!(
+                r#"{{"type":"award","outcome":"{outcome}","name":"Fixture"}}"#
+            ))
+            .unwrap()
+        };
+        assert_eq!(kind("nominated").label(), "Award nomination");
+        assert_eq!(kind("shortlisted").label(), "Award shortlist");
+        assert_eq!(kind("won").label(), "Award");
+    }
+
+    #[test]
+    fn publication_language_is_explicit_and_typed() {
+        assert!(publication(r#","type":"workshop-paper","status":"published""#).is_err());
+        assert!(
+            publication(r#","language":"fr","type":"workshop-paper","status":"published""#)
+                .is_err()
+        );
+        let record =
+            publication(r#","language":"ja","type":"workshop-paper","status":"published""#)
+                .unwrap();
+        assert_eq!(record.language, Language::Ja);
+        assert_eq!(record.record_type.label(), "Workshop paper");
+    }
+
+    #[test]
+    fn only_presentations_with_proceedings_are_bibliographic() {
+        let paper = r#","language":"ja","type":"presentation","status":"presented","presentation":{"format":"oral","proceedingsReview":"unrefereed"}"#;
+        let poster = r#","language":"ja","type":"poster","status":"presented","presentation":{"format":"poster"}"#;
+        let workshop = r#","language":"en","type":"workshop-paper","status":"published""#;
+        assert!(publication(paper).unwrap().is_bibliographic());
+        assert!(!publication(poster).unwrap().is_bibliographic());
+        assert!(publication(workshop).unwrap().is_bibliographic());
+    }
+
+    #[test]
+    fn event_status_constrains_announcement_dates() {
+        let planned = update("2026-10-16", Some("2026-10-18"), "2026-10-09", "planned");
+        assert_eq!(planned.event_status, EventStatus::Planned);
+        assert!(planned.validate("fixture").is_ok());
+        for (date, end, announced, status) in [
+            ("2026-10-16", Some("2026-10-18"), "2026-10-16", "planned"),
+            ("2026-10-16", Some("2026-10-18"), "2026-10-17", "completed"),
+            ("2026-10-18", Some("2026-10-16"), "2026-10-19", "completed"),
+        ] {
+            assert!(
+                update(date, end, announced, status)
+                    .validate("fixture")
+                    .is_err(),
+                "{date} {end:?} {announced} {status}"
+            );
+        }
+        assert!(
+            update("2026-09-25", None, "2026-10-09", "completed")
+                .validate("fixture")
+                .is_ok()
+        );
+    }
 
     #[test]
     fn accepts_stable_slugs() {
@@ -562,6 +779,64 @@ mod tests {
                 validate_slug(value).is_err(),
                 "{value:?} should be rejected"
             );
+        }
+    }
+
+    #[test]
+    fn markdown_urls_reject_active_and_ambiguous_schemes() {
+        for value in [
+            "javascript:alert(1)",
+            "JaVaScRiPt:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "vbscript:msgbox(1)",
+            "//example.com/path",
+            "https://example.com/with space",
+        ] {
+            assert!(
+                validate_markdown_url(value).is_err(),
+                "{value:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_urls_allow_normal_links() {
+        for value in [
+            "https://example.com/path?q=1#part",
+            "mailto:person@example.com",
+            "/research/",
+            "notes/page.html",
+            "#section",
+        ] {
+            assert!(
+                validate_markdown_url(value).is_ok(),
+                "{value:?} should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn content_record_links_reject_dangerous_schemes() {
+        for url in [
+            "javascript:alert(1)",
+            "data:text/html,boom",
+            "//example.com",
+        ] {
+            let link = Link {
+                label: "unsafe".to_owned(),
+                url: url.to_owned(),
+                link_type: LinkType::External,
+            };
+            assert!(link.validate("fixture").is_err(), "{url:?}");
+        }
+
+        for url in ["https://example.com", "/research/", "mailto:a@example.com"] {
+            let link = Link {
+                label: "safe".to_owned(),
+                url: url.to_owned(),
+                link_type: LinkType::External,
+            };
+            assert!(link.validate("fixture").is_ok(), "{url:?}");
         }
     }
 }

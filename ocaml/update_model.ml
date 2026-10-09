@@ -12,6 +12,7 @@ type event_kind =
   | Release
   | Other of string option
 type visibility = Draft | Published
+type event_status = Planned | Completed
 type localized = { en : string; ja : string option }
 type link_kind = External | Pdf | Doi | Preprint | Code | Slides | Bibtex | Audio
 type link = { label : string; url : string; kind : link_kind }
@@ -21,8 +22,12 @@ type update = {
   id : string;
   title : localized;
   summary : localized;
-  date : string;
-  announced_on : string;
+  (* Both dates may be left unset only while a record is a draft awaiting
+     confirmation; published records always carry them. *)
+  date : string option;
+  end_date : string option;
+  announced_on : string option;
+  event_status : event_status;
   categories : category list;
   kind : event_kind;
   links : link list;
@@ -162,25 +167,55 @@ let decode_visibility = function
   | String value -> error "invalid status %S (expected draft or published)" value
   | _ -> error "status must be a string"
 
+let decode_event_status = function
+  | String "planned" -> Planned
+  | String "completed" -> Completed
+  | String value -> error "invalid event_status %S (expected planned or completed)" value
+  | _ -> error "event_status must be a string"
+
+(* ISO dates compare chronologically as strings once validated. *)
+let validate_event_dates ~date ~end_date ~announced_on event_status =
+  let last_day = Option.value end_date ~default:date in
+  if String.compare last_day date < 0 then error "end_date must not precede date";
+  match event_status with
+  | Planned ->
+      if String.compare announced_on date >= 0 then
+        error "a planned event must be announced before it begins; review the record instead of publishing it as planned"
+  | Completed ->
+      if String.compare announced_on last_day < 0 then
+        error "a completed event must not be announced before it ends"
+
 let decode value =
   let fields = as_object "update" value in
   let id = member "id" fields |> as_string "id" |> validate_slug "id" in
   let title = member "title" fields |> decode_localized "title" in
   let summary = member "summary" fields |> decode_localized "summary" in
-  let date = member "date" fields |> as_string "date" |> validate_date "date" in
-  let announced_on = member "announced_on" fields |> as_string "announced_on" |> validate_date "announced_on" in
+  let optional_date field = optional field fields |> Option.map (fun value -> value |> as_string field |> validate_date field) in
+  let date = optional_date "date" in
+  let end_date = optional_date "end_date" in
+  let announced_on = optional_date "announced_on" in
+  let event_status = member "event_status" fields |> decode_event_status in
+  let visibility = member "status" fields |> decode_visibility in
+  (match date, announced_on with
+   | Some date, Some announced_on -> validate_event_dates ~date ~end_date ~announced_on event_status
+   | _ when visibility = Published -> error "a published update requires date and announced_on"
+   | None, _ when end_date <> None -> error "end_date requires date"
+   | _ -> ());
   let categories = member "categories" fields |> decode_categories in
   let kind = member "kind" fields |> decode_kind in
   let links = match optional "links" fields with None -> [] | Some value -> as_array "links" value |> List.map decode_link in
   let related = decode_related (optional "related" fields) in
   let detail = match optional "detail" fields with None -> false | Some value -> as_bool "detail" value in
   let body = optional "body" fields |> Option.map (decode_localized "body") in
-  let visibility = member "status" fields |> decode_visibility in
-  { id; title; summary; date; announced_on; categories; kind; links; related; detail; body; visibility }
+  { id; title; summary; date; end_date; announced_on; event_status; categories; kind; links; related; detail; body; visibility }
 
 let id update = update.id
 let is_published update = update.visibility = Published
 let announced_on update = update.announced_on
+
+let required_date field = function
+  | Some value -> value
+  | None -> error "%s is required to export an update" field
 
 let escape value =
   let buffer = Buffer.create (String.length value + 8) in
@@ -200,6 +235,7 @@ let option_field key = function None -> "" | Some value -> Printf.sprintf ",\"%s
 
 let localized_json value = Printf.sprintf "{\"en\":%s%s}" (quote value.en) (option_field "ja" value.ja)
 
+let event_status_name = function Planned -> "planned" | Completed -> "completed"
 let category_name = function Research -> "research" | Academia -> "academia" | Writing -> "writing"
 let outcome_name = function Nominated -> "nominated" | Shortlisted -> "shortlisted" | Won -> "won"
 let kind_json = function
@@ -223,12 +259,14 @@ let string_array values = array quote values
 let to_json update =
   let body = match update.body with None -> "" | Some value -> ",\"body\":" ^ localized_json value in
   Printf.sprintf
-    "{\"id\":%s,\"title\":%s,\"summary\":%s,\"date\":%s,\"announcedOn\":%s,\"categories\":%s,\"kind\":%s,\"links\":%s,\"related\":{\"publications\":%s,\"projects\":%s,\"writings\":%s},\"detail\":%s%s}"
+    "{\"id\":%s,\"title\":%s,\"summary\":%s,\"date\":%s%s,\"announcedOn\":%s,\"eventStatus\":%s,\"categories\":%s,\"kind\":%s,\"links\":%s,\"related\":{\"publications\":%s,\"projects\":%s,\"writings\":%s},\"detail\":%s%s}"
     (quote update.id)
     (localized_json update.title)
     (localized_json update.summary)
-    (quote update.date)
-    (quote update.announced_on)
+    (quote (required_date "date" update.date))
+    (option_field "endDate" update.end_date)
+    (quote (required_date "announced_on" update.announced_on))
+    (quote (event_status_name update.event_status))
     (array (fun category -> quote (category_name category)) update.categories)
     (kind_json update.kind)
     (array link_json update.links)

@@ -3,6 +3,7 @@
   "title": "代数的操作を用いた有限確率モデルの記述と多段階計算による推論コード生成",
   "authors": ["Ryujin Hatakeyama"],
   "year": 2026,
+  "language": "ja",
   "type": "presentation",
   "status": "presented",
   "venue": "The 43rd Annual Conference of the Japan Society for Software Science and Technology (JSSST 2026)",

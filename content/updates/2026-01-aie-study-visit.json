@@ -1,0 +1,17 @@
+{
+  "id": "aie-study-visit-2026",
+  "title": { "en": "AIE study visit to Seattle and Boise" },
+  "summary": { "en": "Selected by the AIE program to take part in a study visit to Seattle, Washington, and Boise, Idaho, which included visits to the University of Washington, Google, Amazon, Microsoft, and Micron." },
+  "date": "2026-01-11",
+  "end_date": "2026-01-18",
+  "announced_on": "2026-10-09",
+  "event_status": "completed",
+  "categories": ["academia"],
+  "kind": { "type": "visit" },
+  "links": [
+    { "label": "AIE program", "url": "https://www.aie.tohoku.ac.jp/english/", "type": "external" }
+  ],
+  "related": { "publications": [], "projects": [], "writings": [] },
+  "detail": false,
+  "status": "published"
+}

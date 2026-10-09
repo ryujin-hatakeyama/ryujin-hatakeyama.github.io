@@ -10,6 +10,7 @@ type event_kind =
   | Release
   | Other of string option
 type visibility = Draft | Published
+type event_status = Planned | Completed
 
 type update
 
@@ -18,6 +19,6 @@ exception Validation_error of string
 val decode : Json.t -> update
 val id : update -> string
 val is_published : update -> bool
-val announced_on : update -> string
+val announced_on : update -> string option
 val to_json : update -> string
 

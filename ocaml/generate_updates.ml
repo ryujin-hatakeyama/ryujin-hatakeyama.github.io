@@ -48,7 +48,7 @@ let () =
     let public_updates =
       updates
       |> List.filter Update_model.is_published
-      |> List.sort (fun left right -> String.compare (Update_model.announced_on right) (Update_model.announced_on left))
+      |> List.sort (fun left right -> compare (Update_model.announced_on right) (Update_model.announced_on left))
     in
     let json = "[" ^ String.concat "," (List.map Update_model.to_json public_updates) ^ "]" in
     write_atomically output json;

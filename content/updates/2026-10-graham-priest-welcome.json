@@ -1,0 +1,16 @@
+{
+  "id": "welcome-graham-priest-2026",
+  "title": { "en": "Workshop welcoming Graham Priest to Sendai" },
+  "summary": { "en": "I plan to attend a workshop welcoming Graham Priest to Sendai at Tohoku University on October 11." },
+  "date": "2026-10-11",
+  "announced_on": "2026-10-09",
+  "event_status": "planned",
+  "categories": ["academia"],
+  "kind": { "type": "participation" },
+  "links": [
+    { "label": "Event information", "url": "https://sites.google.com/view/welcome-graham", "type": "external" }
+  ],
+  "related": { "publications": [], "projects": [], "writings": [] },
+  "detail": false,
+  "status": "published"
+}

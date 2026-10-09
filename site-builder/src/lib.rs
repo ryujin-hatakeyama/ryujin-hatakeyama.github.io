@@ -1,5 +1,7 @@
+mod artifact;
 pub mod build;
-pub mod content;
+mod content;
 pub mod model;
-pub mod render;
+mod publish;
+mod render;
 pub mod validate;

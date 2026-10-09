@@ -6,6 +6,8 @@ use anyhow::{Context, Result, ensure};
 use png::ColorType;
 use regex::Regex;
 
+use crate::model::validate_markdown_url;
+
 const REQUIRED_FILES: &[&str] = &[
     "index.html",
     "cv/index.html",
@@ -31,8 +33,10 @@ const REQUIRED_FILES: &[&str] = &[
 const PROTECTED_EMAIL: &str = "hatakeyama.ryujin.q7@dc.tohoku.ac.jp";
 
 pub fn dist(root: &Path, source_root: &Path) -> Result<()> {
+    let metadata = fs::symlink_metadata(root)
+        .with_context(|| format!("failed to inspect built-site directory {}", root.display()))?;
     ensure!(
-        root.is_dir(),
+        metadata.is_dir() && !metadata.file_type().is_symlink(),
         "built-site directory {} does not exist",
         root.display()
     );
@@ -183,8 +187,13 @@ fn validate_html(root: &Path, files: &[PathBuf]) -> Result<()> {
         );
         ensure!(
             html.contains("id=\"appearance-toggle\"")
-                && html.contains("aria-label=\"Switch to dark mode\""),
+                && html.contains("aria-label=\"Dark mode\" aria-pressed=\"false\""),
             "{} has no accessible appearance control",
+            relative.display()
+        );
+        ensure!(
+            !html.contains("Academia"),
+            "{} shows the retired category label Academia instead of Activities",
             relative.display()
         );
         ensure!(
@@ -216,10 +225,12 @@ fn validate_reference(
     reference: &str,
     ids: &HashMap<PathBuf, HashSet<String>>,
 ) -> Result<()> {
-    if reference.starts_with("http://")
-        || reference.starts_with("https://")
-        || reference.starts_with("mailto:")
-        || reference.starts_with("data:")
+    validate_markdown_url(reference)
+        .with_context(|| format!("{} contains unsafe URL {reference:?}", current.display()))?;
+    let lower_reference = reference.to_ascii_lowercase();
+    if lower_reference.starts_with("http://")
+        || lower_reference.starts_with("https://")
+        || lower_reference.starts_with("mailto:")
     {
         return Ok(());
     }
@@ -233,6 +244,13 @@ fn validate_reference(
         current.to_owned()
     } else {
         let normalized = path_part.strip_prefix('/').unwrap_or(path_part);
+        ensure!(
+            Path::new(normalized)
+                .components()
+                .all(|component| matches!(component, std::path::Component::Normal(_))),
+            "{} contains a local reference which escapes the output root: {reference}",
+            current.display()
+        );
         if normalized.ends_with('/') || normalized.is_empty() {
             PathBuf::from(normalized).join("index.html")
         } else {
@@ -264,6 +282,12 @@ fn validate_css(root: &Path) -> Result<()> {
         if reference.starts_with("data:") || reference.starts_with("http") {
             continue;
         }
+        ensure!(
+            Path::new(reference)
+                .components()
+                .all(|component| matches!(component, std::path::Component::Normal(_))),
+            "stylesheet reference escapes the output root: {reference}"
+        );
         ensure!(
             path.parent().unwrap().join(reference).is_file(),
             "stylesheet references missing asset {reference}"
@@ -353,6 +377,46 @@ fn validate_expected_content(root: &Path) -> Result<()> {
         .context("missing JSSST record")?;
     let ppl = research.find("Applicative").context("missing PPL record")?;
     ensure!(jssst < ppl, "presentations are not ordered newest first");
+    validate_publication_list(&research, "research page")?;
+
+    let cv = fs::read_to_string(root.join("cv/index.html"))?;
+    validate_publication_list(&cv, "CV")?;
+    for phrase in [
+        "Tohoku NLP Group, Tohoku University",
+        "Undergraduate research participant, Step-QI School, Advanced Creative Engineering I and II.",
+        "<strong>Best Award</strong>",
+        "2022 academic-year Advanced Creative Engineering Training Poster Session, Step-QI School, Tohoku University.",
+        "Nominated for Best System Paper at SemEval-2023.",
+    ] {
+        ensure!(
+            cv.contains(phrase),
+            "CV is missing required content: {phrase}"
+        );
+    }
+    ensure!(
+        !cv.contains("Excellence Award"),
+        "CV uses the superseded award wording"
+    );
+
+    for (page, html) in [("research page", &research), ("CV", &cv)] {
+        for activity in ["LLAL@GSIS", "Graham Priest"] {
+            ensure!(
+                !html.contains(activity),
+                "{page} lists the activity report {activity} as a publication or presentation"
+            );
+        }
+    }
+    let activities = fs::read_to_string(root.join("updates/academia/index.html"))?;
+    ensure!(
+        activities.contains("<h1>Activities</h1>"),
+        "the academia category page is not titled Activities"
+    );
+
+    let research_updates = fs::read_to_string(root.join("updates/research/index.html"))?;
+    ensure!(
+        !research_updates.contains("AIE English Training Session"),
+        "the AIE English Training Session poster must be listed under Activities only"
+    );
 
     let sitemap = fs::read_to_string(root.join("sitemap-0.xml"))?;
     ensure!(!sitemap.contains("/404/"), "sitemap includes the 404 page");
@@ -368,6 +432,49 @@ fn validate_expected_content(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Publications must form one newest-first list, with a language filter that
+/// stays hidden until the script enables it, so every entry is shown without
+/// JavaScript. The unrefereed JSSST proceedings paper precedes the SemEval
+/// workshop paper, and the PPL poster remains a presentation only.
+fn validate_publication_list(html: &str, page: &str) -> Result<()> {
+    let section = html
+        .split_once(">Publications</h2>")
+        .and_then(|(_, rest)| rest.split_once("</section>"))
+        .map(|(section, _)| section)
+        .with_context(|| format!("{page} has no Publications section"))?;
+    ensure!(
+        section
+            .matches("<ol class=\"publication-list\" id=\"publication-list\">")
+            .count()
+            == 1
+            && !section.contains("In English")
+            && !section.contains("In Japanese"),
+        "{page} publications are not a single list"
+    );
+    ensure!(
+        section.contains("<div class=\"publication-filter\" hidden data-publication-filter>")
+            && section.contains("<option value=\"all\" selected>All</option>"),
+        "{page} publication filter must be hidden by default and select All"
+    );
+    let jssst = section
+        .find("<li data-language=\"ja\"><article><p class=\"publication-index\">2026</p><div><h3 lang=\"ja\">代数的操作")
+        .with_context(|| format!("{page} is missing the JSSST 2026 proceedings paper"))?;
+    let semeval = section
+        .find("<li data-language=\"en\"><article><p class=\"publication-index\">2023</p><div><h3 lang=\"en\">TohokuNLP at SemEval-2023 Task 5")
+        .with_context(|| format!("{page} is missing the SemEval-2023 paper"))?;
+    ensure!(
+        jssst < semeval,
+        "{page} publications are not ordered newest first"
+    );
+    ensure!(
+        section.contains("Unrefereed proceedings paper")
+            && section.contains("Workshop paper · Published")
+            && !section.contains("Applicative"),
+        "{page} misclassifies publication records"
+    );
+    Ok(())
+}
+
 fn collect_files(root: &Path) -> Result<Vec<PathBuf>> {
     fn collect(directory: &Path, output: &mut Vec<PathBuf>) -> Result<()> {
         let mut entries = fs::read_dir(directory)
@@ -376,10 +483,18 @@ fn collect_files(root: &Path) -> Result<Vec<PathBuf>> {
         entries.sort_by_key(std::fs::DirEntry::file_name);
         for entry in entries {
             let path = entry.path();
-            if entry.file_type()?.is_dir() {
+            let file_type = entry.file_type()?;
+            ensure!(
+                !file_type.is_symlink(),
+                "built site contains symbolic link {}",
+                path.display()
+            );
+            if file_type.is_dir() {
                 collect(&path, output)?;
-            } else {
+            } else if file_type.is_file() {
                 output.push(path);
+            } else {
+                anyhow::bail!("built site contains unsupported entry {}", path.display());
             }
         }
         Ok(())
