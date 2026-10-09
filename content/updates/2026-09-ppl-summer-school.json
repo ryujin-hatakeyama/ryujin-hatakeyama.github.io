@@ -4,13 +4,10 @@
   "title_link": { "text": "PPL Summer School 2026", "url": "https://jssst-ppl.org/wiki/ss2026" },
   "summary": { "en": "Attended PPL Summer School 2026, a summer school on quantum program compilation." },
   "date": "2026-09-07",
-  "announced_on": "2026-10-09",
   "event_status": "completed",
   "categories": ["academia"],
   "kind": { "type": "participation" },
-  "links": [
-    { "label": "Event website", "url": "https://jssst-ppl.org/wiki/ss2026", "type": "external" }
-  ],
+  "links": [],
   "related": { "publications": [], "projects": [], "writings": [] },
   "detail": false,
   "status": "published"

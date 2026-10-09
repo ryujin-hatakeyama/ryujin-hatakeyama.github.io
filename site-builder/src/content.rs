@@ -165,16 +165,12 @@ fn load_updates(path: &Path) -> Result<Vec<Update>> {
     Ok(records)
 }
 
-/// Orders updates by announcement, newest first. Updates announced on the same
-/// day are ordered by event date, newest first, then by id for determinism.
+/// Orders updates by event date, most recently held first (see
+/// `Update::most_recent_first`). This deterministic order is the RSS feed's;
+/// pages separate planned from completed records and put Upcoming soonest
+/// first (see `render::split_upcoming`).
 fn sort_updates(records: &mut [Update]) {
-    records.sort_by(|left, right| {
-        right
-            .announced_on
-            .cmp(&left.announced_on)
-            .then_with(|| right.date.cmp(&left.date))
-            .then_with(|| left.id.cmp(&right.id))
-    });
+    records.sort_by(Update::most_recent_first);
 }
 
 fn load_writings(directory: &Path) -> Result<Vec<ValidatedWriting>> {
@@ -589,7 +585,7 @@ mod tests {
     fn dated_update(
         id: &str,
         date: (u32, u32),
-        announced: (u32, u32),
+        end: Option<(u32, u32)>,
         status: EventStatus,
     ) -> Update {
         let day = |(month, day)| NaiveDate::from_ymd_opt(2026, month, day).unwrap();
@@ -605,8 +601,7 @@ mod tests {
                 ja: None,
             },
             date: day(date),
-            end_date: None,
-            announced_on: day(announced),
+            end_date: end.map(day),
             event_status: status,
             categories: vec![Category::Academia],
             kind: EventKind::Participation,
@@ -622,23 +617,25 @@ mod tests {
     }
 
     #[test]
-    fn updates_are_ordered_by_announcement_then_event_date() {
+    fn updates_are_ordered_by_final_event_day_then_start_then_id() {
         let mut updates = vec![
-            dated_update("pbl", (9, 25), (10, 9), EventStatus::Completed),
-            dated_update("older", (8, 1), (8, 2), EventStatus::Completed),
-            dated_update("wakate", (10, 16), (10, 9), EventStatus::Planned),
-            dated_update("poster", (10, 9), (10, 9), EventStatus::Completed),
+            dated_update("pbl", (9, 25), None, EventStatus::Completed),
+            dated_update("older", (8, 1), None, EventStatus::Completed),
+            dated_update("wakate", (10, 16), Some((10, 18)), EventStatus::Planned),
+            dated_update("camp", (9, 20), Some((9, 25)), EventStatus::Completed),
+            dated_update("alpha", (9, 25), None, EventStatus::Completed),
+            dated_update("poster", (10, 9), None, EventStatus::Completed),
         ];
         sort_updates(&mut updates);
         let ids: Vec<_> = updates.iter().map(|update| update.id.as_str()).collect();
-        assert_eq!(ids, ["wakate", "poster", "pbl", "older"]);
+        assert_eq!(ids, ["wakate", "poster", "alpha", "pbl", "camp", "older"]);
     }
 
     #[test]
     fn planned_updates_are_flagged_once_the_event_begins_without_being_changed() {
         let updates = vec![
-            dated_update("wakate", (10, 16), (10, 9), EventStatus::Planned),
-            dated_update("poster", (10, 9), (10, 9), EventStatus::Completed),
+            dated_update("wakate", (10, 16), None, EventStatus::Planned),
+            dated_update("poster", (10, 9), None, EventStatus::Completed),
         ];
         let day = |day| NaiveDate::from_ymd_opt(2026, 10, day).unwrap();
         assert_eq!(planned_updates_needing_review(&updates, day(15)).count(), 0);
@@ -694,7 +691,6 @@ mod tests {
                 },
                 date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
                 end_date: None,
-                announced_on: NaiveDate::from_ymd_opt(2026, 1, 2).unwrap(),
                 event_status: EventStatus::Completed,
                 categories: vec![Category::Research],
                 kind: EventKind::Other { detail: None },

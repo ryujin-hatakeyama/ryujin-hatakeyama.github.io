@@ -25,11 +25,10 @@ type update = {
   title : localized;
   title_link : title_link option;
   summary : localized;
-  (* Both dates may be left unset only while a record is a draft awaiting
-     confirmation; published records always carry them. *)
+  (* The event dates may be left unset only while a record is a draft awaiting
+     confirmation; published records always carry a start date. *)
   date : string option;
   end_date : string option;
-  announced_on : string option;
   event_status : event_status;
   categories : category list;
   kind : event_kind;
@@ -198,16 +197,9 @@ let decode_event_status = function
   | _ -> error "event_status must be a string"
 
 (* ISO dates compare chronologically as strings once validated. *)
-let validate_event_dates ~date ~end_date ~announced_on event_status =
+let validate_event_dates ~date ~end_date =
   let last_day = Option.value end_date ~default:date in
-  if String.compare last_day date < 0 then error "end_date must not precede date";
-  match event_status with
-  | Planned ->
-      if String.compare announced_on date >= 0 then
-        error "a planned event must be announced before it begins; review the record instead of publishing it as planned"
-  | Completed ->
-      if String.compare announced_on last_day < 0 then
-        error "a completed event must not be announced before it ends"
+  if String.compare last_day date < 0 then error "end_date must not precede date"
 
 let decode value =
   let fields = as_object "update" value in
@@ -218,25 +210,23 @@ let decode value =
   let optional_date field = optional field fields |> Option.map (fun value -> value |> as_string field |> validate_date field) in
   let date = optional_date "date" in
   let end_date = optional_date "end_date" in
-  let announced_on = optional_date "announced_on" in
   let event_status = member "event_status" fields |> decode_event_status in
   let visibility = member "status" fields |> decode_visibility in
-  (match date, announced_on with
-   | Some date, Some announced_on -> validate_event_dates ~date ~end_date ~announced_on event_status
-   | _ when visibility = Published -> error "a published update requires date and announced_on"
-   | None, _ when end_date <> None -> error "end_date requires date"
-   | _ -> ());
+  (match date with
+   | Some date -> validate_event_dates ~date ~end_date
+   | None when visibility = Published -> error "a published update requires date"
+   | None when end_date <> None -> error "end_date requires date"
+   | None -> ());
   let categories = member "categories" fields |> decode_categories in
   let kind = member "kind" fields |> decode_kind in
   let links = match optional "links" fields with None -> [] | Some value -> as_array "links" value |> List.map decode_link in
   let related = decode_related (optional "related" fields) in
   let detail = match optional "detail" fields with None -> false | Some value -> as_bool "detail" value in
   let body = optional "body" fields |> Option.map (decode_localized "body") in
-  { id; title; title_link; summary; date; end_date; announced_on; event_status; categories; kind; links; related; detail; body; visibility }
+  { id; title; title_link; summary; date; end_date; event_status; categories; kind; links; related; detail; body; visibility }
 
 let id update = update.id
 let is_published update = update.visibility = Published
-let announced_on update = update.announced_on
 
 let required_date field = function
   | Some value -> value
@@ -287,14 +277,13 @@ let string_array values = array quote values
 let to_json update =
   let body = match update.body with None -> "" | Some value -> ",\"body\":" ^ localized_json value in
   Printf.sprintf
-    "{\"id\":%s,\"title\":%s%s,\"summary\":%s,\"date\":%s%s,\"announcedOn\":%s,\"eventStatus\":%s,\"categories\":%s,\"kind\":%s,\"links\":%s,\"related\":{\"publications\":%s,\"projects\":%s,\"writings\":%s},\"detail\":%s%s}"
+    "{\"id\":%s,\"title\":%s%s,\"summary\":%s,\"date\":%s%s,\"eventStatus\":%s,\"categories\":%s,\"kind\":%s,\"links\":%s,\"related\":{\"publications\":%s,\"projects\":%s,\"writings\":%s},\"detail\":%s%s}"
     (quote update.id)
     (localized_json update.title)
     (title_link_json update.title_link)
     (localized_json update.summary)
     (quote (required_date "date" update.date))
     (option_field "endDate" update.end_date)
-    (quote (required_date "announced_on" update.announced_on))
     (quote (event_status_name update.event_status))
     (array (fun category -> quote (category_name category)) update.categories)
     (kind_json update.kind)

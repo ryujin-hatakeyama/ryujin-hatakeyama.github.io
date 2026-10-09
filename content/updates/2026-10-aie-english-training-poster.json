@@ -1,15 +1,13 @@
 {
   "id": "aie-english-training-poster-2026",
-  "title": { "en": "Effective Presentation & Communication in English" },
+  "title": { "en": "Presented at Effective Presentation & Communication in English" },
+  "title_link": { "text": "Effective Presentation & Communication in English", "url": "https://www.aie.tohoku.ac.jp/data/news/20261009_english.pdf" },
   "summary": { "en": "Presented a research poster on compositional hidden Markov models and staged inference at the AIE English Training Session." },
   "date": "2026-10-09",
-  "announced_on": "2026-10-09",
   "event_status": "completed",
   "categories": ["academia"],
   "kind": { "type": "presentation" },
-  "links": [
-    { "label": "Program", "url": "https://www.aie.tohoku.ac.jp/data/news/20261009_english.pdf", "type": "pdf" }
-  ],
+  "links": [],
   "related": { "publications": [], "projects": [], "writings": [] },
   "detail": false,
   "status": "published"

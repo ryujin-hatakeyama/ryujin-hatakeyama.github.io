@@ -247,7 +247,6 @@ pub struct Update {
     pub summary: Localized,
     pub date: NaiveDate,
     pub end_date: Option<NaiveDate>,
-    pub announced_on: NaiveDate,
     pub event_status: EventStatus,
     pub categories: Vec<Category>,
     pub kind: EventKind,
@@ -292,22 +291,22 @@ impl Update {
         );
         for link in &self.links {
             link.validate(source)?;
+            // The title link is the event's primary resource; `links` holds
+            // only additional, distinct ones.
+            if let Some(title_link) = &self.title_link {
+                ensure!(
+                    !same_page(&link.url, &title_link.url),
+                    "{source}: link {:?} duplicates the titleLink destination {:?}",
+                    link.label,
+                    title_link.url
+                );
+            }
         }
         self.related.validate(source)?;
         ensure!(
             self.last_event_day() >= self.date,
             "{source}: endDate must not precede date"
         );
-        match self.event_status {
-            EventStatus::Planned => ensure!(
-                self.announced_on < self.date,
-                "{source}: a planned event must be announced before it begins"
-            ),
-            EventStatus::Completed => ensure!(
-                self.announced_on >= self.last_event_day(),
-                "{source}: a completed event must not be announced before it ends"
-            ),
-        }
         if let Some(body) = &self.body {
             body.validate(source, "body")?;
         }
@@ -336,10 +335,27 @@ impl Update {
     pub fn last_event_day(&self) -> NaiveDate {
         self.end_date.unwrap_or(self.date)
     }
+
+    /// Most recently held first: by the event's final day, then its first day,
+    /// both newest first, then by id for determinism.
+    pub fn most_recent_first(left: &Self, right: &Self) -> std::cmp::Ordering {
+        right
+            .last_event_day()
+            .cmp(&left.last_event_day())
+            .then_with(|| right.date.cmp(&left.date))
+            .then_with(|| left.id.cmp(&right.id))
+    }
+}
+
+/// Whether two URLs name the same page; a trailing slash does not make a
+/// different page.
+fn same_page(left: &str, right: &str) -> bool {
+    left.trim_end_matches('/') == right.trim_end_matches('/')
 }
 
 /// The part of an update title that names the event, linked to the event's
-/// official page. The title itself stays plain text for metadata and RSS.
+/// primary official resource. The title itself stays plain text for metadata
+/// and RSS.
 #[derive(Clone, Debug, Deserialize)]
 pub struct TitleLink {
     pub text: String,
@@ -408,9 +424,10 @@ pub fn summary_plain_text(summary: &str) -> String {
         .collect()
 }
 
-/// Whether the reported activity had taken place when the update was
-/// announced. This is independent of the record's draft/published visibility
-/// and is never derived from the current date.
+/// The record's editorial status: whether the recorded activity has taken place
+/// or is still intended. This is independent of the record's draft/published
+/// visibility and is never derived from the current date; a planned record
+/// whose event has begun stops the build for editorial review instead.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum EventStatus {
@@ -776,11 +793,11 @@ mod tests {
         ))
     }
 
-    fn update(date: &str, end: Option<&str>, announced: &str, status: &str) -> Update {
+    fn update(date: &str, end: Option<&str>, status: &str) -> Update {
         let end = end.map_or(String::new(), |end| format!(r#","endDate":"{end}""#));
         serde_json::from_str(&format!(
             r#"{{"id":"fixture","title":{{"en":"x"}},"summary":{{"en":"x"}},"date":"{date}"{end},
-            "announcedOn":"{announced}","eventStatus":"{status}","categories":["academia"],
+            "eventStatus":"{status}","categories":["academia"],
             "kind":{{"type":"participation"}},"related":{{}}}}"#
         ))
         .unwrap()
@@ -832,27 +849,67 @@ mod tests {
     }
 
     #[test]
-    fn event_status_constrains_announcement_dates() {
-        let planned = update("2026-10-16", Some("2026-10-18"), "2026-10-09", "planned");
+    fn event_dates_must_not_end_before_they_begin() {
+        let planned = update("2026-10-16", Some("2026-10-18"), "planned");
         assert_eq!(planned.event_status, EventStatus::Planned);
         assert!(planned.validate("fixture").is_ok());
-        for (date, end, announced, status) in [
-            ("2026-10-16", Some("2026-10-18"), "2026-10-16", "planned"),
-            ("2026-10-16", Some("2026-10-18"), "2026-10-17", "completed"),
-            ("2026-10-18", Some("2026-10-16"), "2026-10-19", "completed"),
-        ] {
+        for status in ["planned", "completed"] {
             assert!(
-                update(date, end, announced, status)
+                update("2026-10-18", Some("2026-10-16"), status)
                     .validate("fixture")
                     .is_err(),
-                "{date} {end:?} {announced} {status}"
+                "{status}"
+            );
+            assert!(
+                update("2026-10-16", Some("2026-10-16"), status)
+                    .validate("fixture")
+                    .is_ok(),
+                "{status}"
             );
         }
         assert!(
-            update("2026-09-25", None, "2026-10-09", "completed")
+            update("2026-09-25", None, "completed")
                 .validate("fixture")
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn links_must_not_duplicate_the_title_link_destination() {
+        let with_links = |links: &str| -> Update {
+            serde_json::from_str(&format!(
+                r#"{{"id":"fixture","title":{{"en":"Attendance at LLAL@GSIS (XIII)"}},
+                "titleLink":{{"text":"LLAL@GSIS (XIII)","url":"https://example.org/llal/"}},
+                "summary":{{"en":"x"}},"date":"2026-03-23","eventStatus":"completed",
+                "categories":["academia"],"kind":{{"type":"participation"}},"related":{{}},
+                "links":{links}}}"#
+            ))
+            .unwrap()
+        };
+        for duplicate in ["https://example.org/llal/", "https://example.org/llal"] {
+            let error = with_links(&format!(
+                r#"[{{"label":"Program","url":"{duplicate}","type":"external"}}]"#
+            ))
+            .validate("fixture")
+            .unwrap_err()
+            .to_string();
+            assert!(
+                error.contains("duplicates the titleLink destination"),
+                "{error}"
+            );
+        }
+        // Distinct resources, and records without a title link, are accepted.
+        assert!(
+            with_links(
+                r#"[{"label":"Program","url":"https://example.org/llal/program/","type":"external"},
+                    {"label":"Slides","url":"https://example.org/slides.pdf","type":"slides"}]"#
+            )
+            .validate("fixture")
+            .is_ok()
+        );
+        let mut untitled = with_links(r#"[{"label":"Program","url":"https://example.org/llal/"}]"#);
+        untitled.title_link = None;
+        assert!(untitled.validate("fixture").is_ok());
     }
 
     #[test]
@@ -961,7 +1018,7 @@ mod tests {
         let with_link = |link: &str| -> Update {
             serde_json::from_str(&format!(
                 r#"{{"id":"fixture","title":{{"en":"Attendance at PPL Summer School 2026"}},"titleLink":{link},
-                "summary":{{"en":"x"}},"date":"2026-09-07","announcedOn":"2026-10-09","eventStatus":"completed",
+                "summary":{{"en":"x"}},"date":"2026-09-07","eventStatus":"completed",
                 "categories":["academia"],"kind":{{"type":"participation"}},"related":{{}}}}"#
             ))
             .unwrap()
@@ -990,7 +1047,7 @@ mod tests {
         let update: Update = serde_json::from_str(
             r#"{"id":"fixture","title":{"en":"Planned attendance at 数学基礎論若手の会2026"},
             "titleLink":{"text":"数学基礎論若手の会2026","url":"https://sites.google.com/view/wakatenokai2026/","lang":"ja"},
-            "summary":{"en":"x"},"date":"2026-10-16","announcedOn":"2026-10-09","eventStatus":"planned",
+            "summary":{"en":"x"},"date":"2026-10-16","eventStatus":"planned",
             "categories":["academia"],"kind":{"type":"participation"},"related":{}}"#,
         )
         .unwrap();

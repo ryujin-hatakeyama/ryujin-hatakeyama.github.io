@@ -12,7 +12,6 @@ This is a schema example only; it is not read by the build:
   "summary": { "en": "Required English summary", "ja": "Optional Japanese summary" },
   "date": "YYYY-MM-DD",
   "end_date": "YYYY-MM-DD",
-  "announced_on": "YYYY-MM-DD",
   "event_status": "completed",
   "categories": ["research", "writing"],
   "kind": { "type": "presentation" },
@@ -25,15 +24,15 @@ This is a schema example only; it is not read by the build:
 }
 ```
 
-`date` is the day the event begins and the optional `end_date` its last day. `announced_on` is the day the update is published on the site and determines its position in Updates and RSS; set it to the actual publication date rather than backdating it.
+`date` is the day the activity begins and the optional `end_date` its last day. These are the only dates a record carries: Updates is a record of when activities took place, not a publication timeline, and every view shows and orders records by these dates.
 
-Event names follow their organizers: use an official English name only when one can be verified, and otherwise keep the original name. The optional `title_link` links the event's name, and only that, to its official page: `text` must occur exactly once in `title.en`, `url` must use HTTP(S), and `lang` (`en` or `ja`) marks the language of the linked text when it differs from English. Omit it when there is no official page for the event itself; never point it at a broader organization's homepage or a program PDF. A record link with the same URL is not shown again beside the title, and a record with a detail page then offers it as a separate "Details" link. RSS and page metadata keep the plain title.
+Event names follow their organizers: use an official English name only when one can be verified, and otherwise keep the original name. The optional `title_link` links the event's name, and only that, to the event's primary official resource, such as its official page or official flyer: `text` must occur exactly once in `title.en`, `url` must use HTTP(S), and `lang` (`en` or `ja`) marks the language of the linked text when it differs from English. Omit it when the event itself has no official resource; never point it at a broader organization's homepage. `links` then holds only additional, distinct resources: a link to the title link's destination (a trailing slash makes no difference) fails validation. A record with a detail page offers it as a separate "Details" link. RSS and page metadata keep the plain title.
 
 The English summary may contain inline links written as `[text](https://…)`; only HTTP(S) URLs form links, and RSS and meta descriptions show the link text alone. Any other text, including brackets that do not form such a link, is shown verbatim.
 
-While a record is a draft awaiting confirmation, `date` and `announced_on` may be omitted rather than guessed; a published record must have both.
+While a record is a draft awaiting confirmation, `date` may be omitted rather than guessed; a published record must have it.
 
-`event_status` is required and is either `completed` or `planned`. It records whether the activity had taken place when the update was announced; it is unrelated to `status`, which only controls whether the record is a draft. A `planned` record must be announced before `date` and should be worded as an intention ("I plan to attend …"); a `completed` record must not be announced before the event ends. Planned records are listed under "Upcoming", soonest event first, and completed records under "Recent Updates", newest announcement first; the homepage previews each section with its own limit. Planned records are never converted automatically. Once a planned event has begun, the Rust build stops with an editorial-review error rather than publish a past event as upcoming; then either set the record to `draft` or, if you attended, reword it and set `event_status` to `completed`.
+`event_status` is required and is either `completed` or `planned`. It is the record's editorial status: whether the recorded activity has taken place (`completed`) or is still intended (`planned`). It is unrelated to `status`, which only controls whether the record is a draft. A `planned` record should be worded as an intention ("I plan to attend …"). Planned records are listed under "Upcoming", soonest start first, and completed records under "Recent Updates", most recently ended first (then latest start, then `id`); the homepage previews each section with its own limit. Planned records are never converted automatically. Once a planned event has begun, the Rust build stops with an editorial-review error rather than publish a past event as upcoming; then either set the record to `draft` or, if you attended, reword it and set `event_status` to `completed`.
 
 Allowed categories are exactly `research`, `academia`, and `writing`; `academia` is displayed as "Activities" and keeps its `/updates/academia/` route. Classify each record by its actual context:
 

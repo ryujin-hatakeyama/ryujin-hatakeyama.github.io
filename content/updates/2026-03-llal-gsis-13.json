@@ -1,17 +1,14 @@
 {
   "id": "llal-gsis-13-attendance",
-  "title": { "en": "LLAL@GSIS (XIII)" },
+  "title": { "en": "Attendance at LLAL@GSIS (XIII)" },
   "title_link": { "text": "LLAL@GSIS (XIII)", "url": "https://sites.google.com/view/llal-at-gsis/meetings/llalgsis-13" },
   "summary": { "en": "Attended LLAL@GSIS (XIII), a workshop on nonclassical and philosophical logic at Tohoku University." },
   "date": "2026-03-23",
   "end_date": "2026-03-24",
-  "announced_on": "2026-10-09",
   "event_status": "completed",
   "categories": ["academia"],
   "kind": { "type": "participation" },
-  "links": [
-    { "label": "Program", "url": "https://sites.google.com/view/llal-at-gsis/meetings/llalgsis-13", "type": "external" }
-  ],
+  "links": [],
   "related": { "publications": [], "projects": [], "writings": [] },
   "detail": false,
   "status": "published"

@@ -45,11 +45,8 @@ let () =
       |> List.map (read_update directory)
     in
     reject_duplicate_ids updates;
-    let public_updates =
-      updates
-      |> List.filter Update_model.is_published
-      |> List.sort (fun left right -> compare (Update_model.announced_on right) (Update_model.announced_on left))
-    in
+    (* Exported in file-name order; the site builder orders records by event date. *)
+    let public_updates = List.filter Update_model.is_published updates in
     let json = "[" ^ String.concat "," (List.map Update_model.to_json public_updates) ^ "]" in
     write_atomically output json;
     Printf.printf "Validated %d update record(s); exported %d published record(s).\n"

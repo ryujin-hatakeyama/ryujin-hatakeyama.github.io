@@ -817,7 +817,6 @@ main { min-height: 64vh; }
 .publication-filter[hidden] { display: none; }
 .publication-filter select:hover { border-color: var(--rule-strong); }
 .authors, .venue, .publication-note { font-size: .82rem; }
-.update-list .event-line { margin-top: .2rem; color: var(--ink-soft); font-size: .82rem; }
 
 /* Updates use the same restrained scale as the Research and CV pages. */
 .update-list:not(.compact) article { padding: 1rem 0 1.15rem; }

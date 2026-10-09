@@ -661,12 +661,12 @@ fn updates_page_refs(updates: &[&Update], active: Option<Category>) -> Markup {
 }
 
 /// Separates planned events (Upcoming), soonest first, from completed ones
-/// (Recent Updates), which keep their newest-first announcement order. The
-/// split depends only on each record's stated status, never on the build date;
-/// a planned record whose event has begun stops the build for editorial review
-/// instead.
+/// (Recent Updates), most recently held first: by the event's final day, then
+/// its first day, then id. Both orders use when the activity takes place. The split depends only on each record's stated
+/// status, never on the build date; a planned record whose event has begun
+/// stops the build for editorial review instead.
 fn split_upcoming<'a>(updates: &[&'a Update]) -> (Vec<&'a Update>, Vec<&'a Update>) {
-    let (mut upcoming, recent): (Vec<&Update>, Vec<&Update>) = updates
+    let (mut upcoming, mut recent): (Vec<&Update>, Vec<&Update>) = updates
         .iter()
         .copied()
         .partition(|update| update.event_status == EventStatus::Planned);
@@ -675,11 +675,11 @@ fn split_upcoming<'a>(updates: &[&'a Update]) -> (Vec<&'a Update>, Vec<&'a Updat
             .cmp(&right.date)
             .then_with(|| left.id.cmp(&right.id))
     });
+    recent.sort_by(|left, right| Update::most_recent_first(left, right));
     (upcoming, recent)
 }
 
-/// Planned events lead with their event date; the announcement date is
-/// secondary because it does not say when the event takes place.
+/// Planned events lead with their event date.
 fn upcoming_list(updates: &[&Update], compact: bool) -> Markup {
     let class = if compact {
         "update-list upcoming-list compact"
@@ -700,10 +700,6 @@ fn upcoming_list(updates: &[&Update], compact: bool) -> Markup {
                             h3 { (update_title(update, true)) }
                             @if !compact {
                                 p { (update_summary(&update.summary.en)) }
-                                p.event-line {
-                                    "Announced "
-                                    time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) }
-                                }
                             }
                             (update_links(update, !compact, true))
                         }
@@ -742,21 +738,15 @@ fn update_title(update: &Update, link_detail: bool) -> Markup {
 }
 
 /// The links beneath an update: its detail page when the title links to the
-/// event instead, then (in full views) its own links, leaving out any that
-/// repeat the title's event link. The underlying records are not changed.
+/// event instead, then (in full views) its own links. Validation guarantees
+/// these are distinct from the title's event link, so all are shown.
 fn update_links(update: &Update, include_record_links: bool, include_detail: bool) -> Markup {
-    // A trailing slash does not make a different page.
-    let same_page =
-        |left: &str, right: &str| left.trim_end_matches('/') == right.trim_end_matches('/');
-    let title_url = update.title_link.as_ref().map(|link| link.url.as_str());
-    let links: Vec<&Link> = update
-        .links
-        .iter()
-        .filter(|link| {
-            include_record_links && !title_url.is_some_and(|url| same_page(&link.url, url))
-        })
-        .collect();
-    let detail = include_detail && update.detail && title_url.is_some();
+    let links: &[Link] = if include_record_links {
+        &update.links
+    } else {
+        &[]
+    };
+    let detail = include_detail && update.detail && update.title_link.is_some();
     html! {
         @if detail || !links.is_empty() {
             p.record-links {
@@ -834,7 +824,7 @@ fn update_list(updates: &[&Update], compact: bool) -> Markup {
                 li {
                     article id=[(!compact).then(|| format!("update-{}", update.id))] {
                         div.update-meta {
-                            time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) }
+                            (event_dates(update))
                             span.kind-label { (update.kind.label()) }
                             // Categories are plain, muted metadata rather than
                             // links; the category filters provide navigation.
@@ -844,7 +834,6 @@ fn update_list(updates: &[&Update], compact: bool) -> Markup {
                             h3 { (update_title(update, true)) }
                             @if !compact {
                                 p { (update_summary(&update.summary.en)) }
-                                p.event-line { (event_line(update)) }
                             }
                             (update_links(update, !compact, true))
                         }
@@ -868,7 +857,6 @@ fn update_detail(update: &Update) -> Markup {
                 @if update.event_status == EventStatus::Planned {
                     div.detail-meta { dt { "Status" } dd { "Planned" } }
                 }
-                div.detail-meta { dt { "Announced" } dd { time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) } } }
                 div.detail-meta { dt { "Categories" } dd { (category_labels(update)) } }
             }
             @if let Some(body) = &update.body { div.prose { p { (&body.en) } } }
@@ -884,13 +872,6 @@ fn event_dates(update: &Update) -> Markup {
             time datetime=(start) { (format_date_range(update.date, end)) }
         },
         _ => html! { time datetime=(start) { (format_date(update.date)) } },
-    }
-}
-
-fn event_line(update: &Update) -> Markup {
-    html! {
-        "Event: " (event_dates(update))
-        @if update.event_status == EventStatus::Planned { " · Planned" }
     }
 }
 
@@ -994,8 +975,8 @@ fn format_date_range(start: NaiveDate, end: NaiveDate) -> String {
 
 pub fn rss(updates: &[Update]) -> String {
     let mut items = String::new();
-    // Items carry no pubDate: records hold only an announcement day, and a
-    // synthetic midnight timestamp would misstate when they were published.
+    // Items carry no pubDate: records hold only event dates, which are not
+    // publication dates, and a synthetic timestamp would misstate either.
     for update in updates {
         let link = if update.detail {
             format!("{SITE_ORIGIN}/updates/item/{}/", update.id)
@@ -1160,7 +1141,7 @@ mod tests {
             .map(|id| {
                 serde_json::from_str(&format!(
                     r#"{{"id":"{id}","title":{{"en":"x"}},"summary":{{"en":"x"}},"date":"2026-10-09",
-                    "announcedOn":"2026-10-09","eventStatus":"completed","categories":["academia"],
+                    "eventStatus":"completed","categories":["academia"],
                     "kind":{{"type":"presentation"}},"related":{{}}}}"#
                 ))
                 .unwrap()
@@ -1182,7 +1163,7 @@ mod tests {
     fn update_links_are_shown_in_the_full_list_and_detail_pages() {
         let update: crate::model::Update = serde_json::from_str(
             r#"{"id":"poster","title":{"en":"Poster"},"summary":{"en":"x"},"date":"2026-10-09",
-            "announcedOn":"2026-10-09","eventStatus":"completed","categories":["academia"],
+            "eventStatus":"completed","categories":["academia"],
             "kind":{"type":"presentation"},"related":{},
             "links":[{"label":"Program","url":"https://example.org/program.pdf","type":"pdf"}]}"#,
         )
@@ -1195,37 +1176,35 @@ mod tests {
         assert!(detail.contains(r#"<article class="detail-sheet update-detail">"#));
     }
 
-    fn test_update(id: &str, date: &str, announced: &str, status: &str) -> crate::model::Update {
-        test_update_in(id, date, "", announced, status, "academia")
+    fn test_update(id: &str, date: &str, status: &str) -> crate::model::Update {
+        test_update_in(id, date, "", status, "academia")
     }
 
     fn test_update_in(
         id: &str,
         date: &str,
         end: &str,
-        announced: &str,
         status: &str,
         category: &str,
     ) -> crate::model::Update {
         serde_json::from_str(&format!(
             r#"{{"id":"{id}","title":{{"en":"title-{id}"}},"summary":{{"en":"x"}},"date":"{date}"{end},
-            "announcedOn":"{announced}","eventStatus":"{status}","categories":["{category}"],
+            "eventStatus":"{status}","categories":["{category}"],
             "kind":{{"type":"participation"}},"related":{{}}}}"#
         ))
         .unwrap()
     }
 
-    /// Records in the loader's newest-announcement-first order, with more
-    /// planned records than the homepage shows and the planned ones announced
-    /// last, so that limiting the combined list before separating it would
-    /// leave no completed record in the preview.
+    /// Records in the loader's most-recent-event-first order, with more
+    /// planned records than the homepage shows and the planned ones first, so
+    /// that limiting the combined list before separating it would leave no
+    /// completed record in the preview.
     fn mixed_updates() -> Vec<crate::model::Update> {
         let mut updates: Vec<_> = (1..=4)
             .map(|n| {
                 test_update(
                     &format!("planned-{n}"),
                     &format!("2026-11-{:02}", 10 - n),
-                    "2026-10-09",
                     "planned",
                 )
             })
@@ -1234,7 +1213,6 @@ mod tests {
             test_update(
                 &format!("completed-{n}"),
                 &format!("2026-09-{:02}", 20 - n),
-                &format!("2026-10-{:02}", 9 - n),
                 "completed",
             )
         }));
@@ -1267,8 +1245,8 @@ mod tests {
             start..end
         }];
 
-        // Each section has its own limit, applied after the split; Upcoming
-        // is ordered by event date, Recent Updates by announcement.
+        // Each section has its own limit, applied after the split; both are
+        // ordered by event date.
         assert_eq!(upcoming.matches("<li>").count(), 3);
         assert_eq!(recent.matches("<li>").count(), 5);
         let at = |section: &str, id: &str| section.find(format!(">title-{id}<").as_str());
@@ -1278,8 +1256,9 @@ mod tests {
         assert!(at(recent, "completed-1").unwrap() < at(recent, "completed-5").unwrap());
         assert!(at(recent, "completed-6").is_none());
         assert!(!upcoming.contains("completed-") && !recent.contains("planned-"));
-        // Planned events lead with their event date, not the announcement.
+        // Planned events lead with their event date.
         assert!(upcoming.contains(r#"<time datetime="2026-11-06">06 Nov 2026</time>"#));
+        assert!(!html.contains("Announced"));
 
         // No standalone Writings entry point on the homepage.
         assert!(!html.contains(r#"href="/writings/""#) && !html.contains("Writings"));
@@ -1321,12 +1300,12 @@ mod tests {
                 assert!(recent_start < at && at < recent_end, "{}", update.id);
             }
         }
-        // Upcoming is soonest event first; the announcement date is secondary.
+        // Upcoming is soonest event first.
         assert!(
             html.find(r#"id="update-planned-4""#).unwrap()
                 < html.find(r#"id="update-planned-1""#).unwrap()
         );
-        assert!(html.contains(r#"Announced <time datetime="2026-10-09">09 Oct 2026</time>"#));
+        assert!(!html.contains("Announced"));
         assert!(!html.contains("Completed") && !html.contains("· Planned"));
 
         let completed: Vec<_> = refs[4..].to_vec();
@@ -1345,18 +1324,10 @@ mod tests {
             "meeting",
             "2026-10-16",
             r#","endDate":"2026-10-18""#,
-            "2026-10-09",
             "planned",
             "research",
         );
-        let talk = test_update_in(
-            "talk",
-            "2026-09-10",
-            "",
-            "2026-10-09",
-            "completed",
-            "research",
-        );
+        let talk = test_update_in("talk", "2026-09-10", "", "completed", "research");
         let html = updates_page_refs(&[&ranged, &talk], Some(Category::Research)).into_string();
         assert!(html.contains("<h1>Research</h1>"));
         assert!(html.contains(r#"<a href="/updates/research/" aria-current="page">Research</a>"#));
@@ -1373,6 +1344,108 @@ mod tests {
         );
     }
 
+    /// Completed records in an order unrelated to when the activities took
+    /// place.
+    fn completed_out_of_order() -> Vec<crate::model::Update> {
+        vec![
+            test_update_in("talk", "2026-09-07", "", "completed", "research"),
+            test_update_in(
+                "visit",
+                "2026-01-10",
+                r#","endDate":"2026-01-18""#,
+                "completed",
+                "academia",
+            ),
+            test_update_in(
+                "camp",
+                "2026-09-01",
+                r#","endDate":"2026-09-07""#,
+                "completed",
+                "research",
+            ),
+            test_update_in("poster", "2026-10-09", "", "completed", "academia"),
+            test_update_in("seminar", "2026-03-24", "", "completed", "research"),
+            test_update_in("alpha", "2026-09-07", "", "completed", "research"),
+        ]
+    }
+
+    fn ids_in_order(html: &str) -> Vec<&str> {
+        html.split(r#"<h3>title-"#)
+            .skip(1)
+            .map(|rest| &rest[..rest.find('<').unwrap()])
+            .collect()
+    }
+
+    #[test]
+    fn completed_updates_show_and_sort_by_event_date() {
+        let updates = completed_out_of_order();
+        let refs: Vec<_> = updates.iter().collect();
+        // Newest final event day first; a range ending on the same day as a
+        // one-day event follows it (earlier start), and remaining ties go by id.
+        let expected = ["poster", "alpha", "talk", "camp", "seminar", "visit"];
+
+        let full = updates_page_refs(&refs, None).into_string();
+        assert_eq!(ids_in_order(&full), expected);
+        let home_html = home(&updates).into_string();
+        let (start, end) = section_bounds(&home_html, "updates-heading");
+        assert_eq!(ids_in_order(&home_html[start..end]), expected[..5]);
+        let research: Vec<_> = refs
+            .iter()
+            .copied()
+            .filter(|update| update.categories.contains(&Category::Research))
+            .collect();
+        let category = updates_page_refs(&research, Some(Category::Research)).into_string();
+        assert_eq!(
+            ids_in_order(&category),
+            ["alpha", "talk", "camp", "seminar"]
+        );
+
+        for html in [&full, &home_html, &category] {
+            assert!(!html.contains("Announced") && !html.contains("Event: "));
+        }
+        assert!(full.contains(
+            r#"<article id="update-talk"><div class="update-meta"><time datetime="2026-09-07">07 Sep 2026</time>"#
+        ));
+        // Ranges are rendered whole, in both full and compact lists.
+        for html in [&full, &home_html] {
+            assert!(html.contains(r#"<time datetime="2026-09-01">01–07 Sep 2026</time>"#));
+        }
+        assert!(full.contains(r#"<time datetime="2026-01-10">10–18 Jan 2026</time>"#));
+        // Each entry shows its date once, in the metadata.
+        assert_eq!(full.matches("<time ").count(), updates.len());
+    }
+
+    #[test]
+    fn detail_pages_show_the_event_date() {
+        let mut update = test_update_in(
+            "meeting",
+            "2026-10-16",
+            r#","endDate":"2026-10-18""#,
+            "planned",
+            "research",
+        );
+        update.detail = true;
+        let html = update_detail(&update).into_string();
+        assert!(html.contains(
+            r#"<dt>Event date</dt><dd><time datetime="2026-10-16">16–18 Oct 2026</time></dd>"#
+        ));
+        assert!(html.contains("<dt>Status</dt><dd>Planned</dd>"));
+        assert!(!html.contains("Announced"));
+        assert_eq!(html.matches("<time ").count(), 1);
+    }
+
+    #[test]
+    fn rss_keeps_the_given_order_without_dates() {
+        let updates = completed_out_of_order();
+        let feed = rss(&updates);
+        assert!(!feed.contains("pubDate") && !feed.contains("<time"));
+        let positions: Vec<_> = updates
+            .iter()
+            .map(|update| feed.find(&format!("#update-{}</guid>", update.id)).unwrap())
+            .collect();
+        assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
     #[test]
     fn rss_lists_planned_and_completed_updates() {
         let updates = mixed_updates();
@@ -1387,35 +1460,90 @@ mod tests {
         serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
     }
 
-    /// The October 9 record is titled with the event's official name, verbatim
-    /// from the AIE program, not with a description of the poster session.
+    /// The AIE and LLAL records: the activity phrase stays text, only the
+    /// event's name links to its primary resource, the link appears once, and
+    /// the event dates (not any publication date) are shown.
     #[test]
-    fn english_training_event_name_is_preserved_verbatim() {
-        const NAME: &str = "Effective Presentation & Communication in English";
-        let record = update_source("2026-10-aie-english-training-poster.json");
-        assert_eq!(record["title"]["en"], NAME);
+    fn aie_and_llal_titles_link_only_the_event_name_in_every_view() {
+        const AIE_PDF: &str = "https://www.aie.tohoku.ac.jp/data/news/20261009_english.pdf";
+        const LLAL_PAGE: &str = "https://sites.google.com/view/llal-at-gsis/meetings/llalgsis-13";
+        let aie = update_from_source("2026-10-aie-english-training-poster.json");
+        let llal = update_from_source("2026-03-llal-gsis-13.json");
+        for (update, title, text, url) in [
+            (
+                &aie,
+                "Presented at Effective Presentation & Communication in English",
+                "Effective Presentation & Communication in English",
+                AIE_PDF,
+            ),
+            (
+                &llal,
+                "Attendance at LLAL@GSIS (XIII)",
+                "LLAL@GSIS (XIII)",
+                LLAL_PAGE,
+            ),
+        ] {
+            assert_eq!(update.title.en, title);
+            let link = update.title_link.as_ref().unwrap();
+            assert_eq!((link.text.as_str(), link.url.as_str()), (text, url));
+            assert!(update.links.is_empty(), "{}", update.id);
+        }
+        assert_eq!(
+            aie.summary.en,
+            "Presented a research poster on compositional hidden Markov models and staged inference at the AIE English Training Session."
+        );
+        assert_eq!(
+            llal.summary.en,
+            "Attended LLAL@GSIS (XIII), a workshop on nonclassical and philosophical logic at Tohoku University."
+        );
 
-        let mut update = test_update(
-            "aie-english-training-poster-2026",
-            "2026-10-09",
-            "2026-10-09",
-            "completed",
+        let aie_heading = format!(
+            r#"<h3>Presented at <a href="{AIE_PDF}">Effective Presentation &amp; Communication in English</a></h3>"#
         );
-        update.title.en = NAME.to_owned();
-        let updates = [update];
-        let escaped = "Effective Presentation &amp; Communication in English";
-        assert!(
-            home(&updates)
-                .into_string()
-                .contains(&format!("<h3>{escaped}</h3>"))
-        );
+        let llal_heading =
+            format!(r#"<h3>Attendance at <a href="{LLAL_PAGE}">LLAL@GSIS (XIII)</a></h3>"#);
+        let updates = [aie, llal];
         let refs: Vec<_> = updates.iter().collect();
-        assert!(
-            updates_page_refs(&refs, None)
-                .into_string()
-                .contains(&format!("<h3>{escaped}</h3>"))
-        );
-        assert!(rss(&updates).contains(&format!("<item><title>{escaped}</title>")));
+        let views = [
+            ("home", home(&updates).into_string()),
+            ("updates", updates_page_refs(&refs, None).into_string()),
+            (
+                "activities",
+                updates_page_refs(&refs, Some(Category::Academia)).into_string(),
+            ),
+        ];
+        for (view, html) in &views {
+            for (heading, url, dates) in [
+                (
+                    &aie_heading,
+                    AIE_PDF,
+                    r#"<time datetime="2026-10-09">09 Oct 2026</time>"#,
+                ),
+                (
+                    &llal_heading,
+                    LLAL_PAGE,
+                    r#"<time datetime="2026-03-23">23–24 Mar 2026</time>"#,
+                ),
+            ] {
+                assert_eq!(html.matches(heading.as_str()).count(), 1, "{view}");
+                assert_eq!(
+                    html.matches(&format!(r#"href="{url}""#)).count(),
+                    1,
+                    "{view}"
+                );
+                assert_eq!(html.matches(dates).count(), 1, "{view}");
+            }
+            // The AIE record lists first: its event is the more recent.
+            assert!(html.find(&aie_heading).unwrap() < html.find(&llal_heading).unwrap());
+            assert!(!html.contains(">Program<"), "{view}");
+            assert_no_nested_anchors(html);
+        }
+        let feed = rss(&updates);
+        assert!(feed.contains(
+            "<item><title>Presented at Effective Presentation &amp; Communication in English</title>"
+        ));
+        assert!(feed.contains("<title>Attendance at LLAL@GSIS (XIII)</title>"));
+        assert!(!feed.contains("<a ") && !feed.contains("](") && !feed.contains("aie.tohoku"));
     }
 
     #[test]
@@ -1468,7 +1596,6 @@ mod tests {
         for (from, to) in [
             ("title_link", "titleLink"),
             ("end_date", "endDate"),
-            ("announced_on", "announcedOn"),
             ("event_status", "eventStatus"),
         ] {
             if let Some(value) = fields.remove(from) {
@@ -1481,7 +1608,15 @@ mod tests {
         update
     }
 
-    const LINKED_EVENTS: [(&str, &str); 4] = [
+    const LINKED_EVENTS: [(&str, &str); 6] = [
+        (
+            "2026-10-aie-english-training-poster.json",
+            r#"<h3>Presented at <a href="https://www.aie.tohoku.ac.jp/data/news/20261009_english.pdf">Effective Presentation &amp; Communication in English</a></h3>"#,
+        ),
+        (
+            "2026-03-llal-gsis-13.json",
+            r#"<h3>Attendance at <a href="https://sites.google.com/view/llal-at-gsis/meetings/llalgsis-13">LLAL@GSIS (XIII)</a></h3>"#,
+        ),
         (
             "2026-10-graham-priest-welcome.json",
             r#"<h3>Planned attendance at the <a href="https://sites.google.com/view/welcome-graham/">workshop welcoming Graham Priest to Sendai</a></h3>"#,
@@ -1602,35 +1737,31 @@ mod tests {
             let before_link = &heading[..heading.find("<a ").unwrap()];
             assert!(!before_link.contains("href"));
         }
-        // The same official URL is not repeated as a generic link, while the
-        // distinct JSSST program stays available.
+        // Each primary resource is linked once, from the title: the records
+        // no longer repeat it as a resource link. The distinct JSSST program
+        // stays available, and every record link is rendered.
         let full = &pages[1];
         assert!(!full.contains("Event website") && !full.contains("Event information"));
-        // The record link lacks the trailing slash but is the same page.
-        assert_eq!(
-            full.matches("sites.google.com/view/welcome-graham").count(),
-            1
-        );
+        for update in &updates {
+            let url = &update.title_link.as_ref().unwrap().url;
+            assert_eq!(
+                full.matches(&format!(r#"href="{url}""#)).count(),
+                1,
+                "{url}"
+            );
+            for link in &update.links {
+                assert!(full.contains(&format!(r#"<a href="{}">{}"#, link.url, link.label)));
+            }
+        }
         assert!(!full.contains("Workshop welcoming"));
-        assert_eq!(
-            full.matches(r#"href="https://jssst-ppl.org/wiki/ss2026""#)
-                .count(),
-            1
-        );
-        assert_eq!(
-            full.matches(r#"href="https://sites.google.com/view/wakatenokai2026/""#)
-                .count(),
-            1
-        );
         assert!(full.contains(r#"<a href="https://jssst2026.wordpress.com/program/">Program"#));
-        // The data itself is kept.
-        assert!(updates.iter().all(|u| u.title_link.is_some()));
-        assert_eq!(updates[0].links.len(), 1);
+        let resource_links: usize = updates.iter().map(|u| u.links.len()).sum();
+        assert_eq!(resource_links, 1);
     }
 
     #[test]
     fn titles_without_event_links_remain_escaped_plain_text() {
-        let mut update = test_update("plain", "2026-09-01", "2026-09-02", "completed");
+        let mut update = test_update("plain", "2026-09-01", "completed");
         update.title.en = "A <b> & \"C\"".to_owned();
         let html = update_list(&[&update], false).into_string();
         assert!(html.contains("<h3>A &lt;b&gt; &amp; &quot;C&quot;</h3>"));
@@ -1640,7 +1771,7 @@ mod tests {
     fn linked_title_text_is_escaped() {
         let update: crate::model::Update = serde_json::from_str(
             r#"{"id":"escaped","title":{"en":"At <Event> & Co"},"titleLink":{"text":"<Event> & Co","url":"https://example.org/?a=1&b=2"},
-            "summary":{"en":"x"},"date":"2026-09-01","announcedOn":"2026-09-02","eventStatus":"completed",
+            "summary":{"en":"x"},"date":"2026-09-01","eventStatus":"completed",
             "categories":["academia"],"kind":{"type":"participation"},"related":{}}"#,
         )
         .unwrap();
@@ -1654,9 +1785,9 @@ mod tests {
         let source = |title_link: &str| -> crate::model::Update {
             serde_json::from_str(&format!(
                 r#"{{"id":"talk","title":{{"en":"Talk at Conf 2026"}}{title_link},"summary":{{"en":"x"}},
-                "date":"2026-09-01","announcedOn":"2026-09-02","eventStatus":"completed","categories":["research"],
+                "date":"2026-09-01","eventStatus":"completed","categories":["research"],
                 "kind":{{"type":"presentation"}},"related":{{}},"detail":true,
-                "links":[{{"label":"Event website","url":"https://conf.example/","type":"external"}},
+                "links":[{{"label":"Program","url":"https://conf.example/program/","type":"external"}},
                          {{"label":"Slides","url":"https://example.org/slides.pdf","type":"slides"}}]}}"#
             ))
             .unwrap()
@@ -1666,6 +1797,7 @@ mod tests {
         assert!(html.contains(r#"<h3><a href="/updates/item/talk/">Talk at Conf 2026</a></h3>"#));
 
         let linked = source(r#","titleLink":{"text":"Conf 2026","url":"https://conf.example/"}"#);
+        assert!(linked.validate("fixture").is_ok());
         for compact in [true, false] {
             let html = update_list(&[&linked], compact).into_string();
             assert!(
@@ -1675,13 +1807,17 @@ mod tests {
             assert_no_nested_anchors(&html);
             assert_eq!(html.matches(r#"href="https://conf.example/""#).count(), 1);
             assert_eq!(html.contains("slides.pdf"), !compact);
+            assert_eq!(
+                html.contains(r#"<a href="https://conf.example/program/">Program"#),
+                !compact
+            );
         }
         let detail = update_detail(&linked).into_string();
         assert!(
             detail.contains(r#"<h1>Talk at <a href="https://conf.example/">Conf 2026</a></h1>"#)
         );
         assert!(!detail.contains("/updates/item/talk/"));
-        assert!(detail.contains("slides.pdf") && !detail.contains("Event website"));
+        assert!(detail.contains("slides.pdf") && detail.contains("conf.example/program/"));
         let feed = rss(&[linked]);
         assert!(feed.contains("<title>Talk at Conf 2026</title>"));
         assert!(
