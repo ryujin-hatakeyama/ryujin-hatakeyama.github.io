@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "lib": ["DOM", "DOM.Iterable", "ES2020"],
+    "types": [],
+    "rootDir": "client",
+    "outDir": "target/client",
+    "strict": true,
+    "noEmitOnError": true,
+    "removeComments": true,
+    "sourceMap": false
+  },
+  "include": ["client/**/*.ts"]
+}

@@ -1,17 +1,12 @@
 node_modules/
 dist/
-.astro/
+target/
 _opam/
 _build/
 .DS_Store
 *.install
 
-# Deterministic output from the OCaml content generator.
-src/data/generated/*.json
-src/data/generated/*.tmp
-!src/data/generated/.gitkeep
-
-# Local configuration, credentials, and intentionally private material.
+# Local configuration, credentials, and unpublished material.
 .env
 .env.*
 !.env.example

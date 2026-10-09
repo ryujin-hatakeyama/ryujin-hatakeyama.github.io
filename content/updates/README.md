@@ -1,6 +1,6 @@
 # Update records
 
-Each `*.json` file in this directory is a single update. The OCaml generator validates every record before Astro sees it. Drafts are validated but omitted from `src/data/generated/updates.json`.
+Each `*.json` file in this directory is a single update. The OCaml generator validates every record before Rust sees it. Drafts are validated but omitted from `target/generated/updates.json`.
 
 This is a schema example only; it is not read by the build:
 
