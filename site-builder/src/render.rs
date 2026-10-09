@@ -11,6 +11,14 @@ use crate::model::{
 
 const SITE_ORIGIN: &str = "https://ryujin-hatakeyama.github.io";
 const SITE_NAME: &str = "Ryujin Hatakeyama";
+/// The date of the last substantive content revision, shown in the footer.
+/// It is editorial metadata maintained by hand: change it deliberately with
+/// each such revision. It is never taken from the clock, Git, or deployment,
+/// so builds stay reproducible.
+const LAST_UPDATED: NaiveDate = match NaiveDate::from_ymd_opt(2026, 10, 10) {
+    Some(date) => date,
+    None => panic!("LAST_UPDATED must be a real date"),
+};
 const HOME_DESCRIPTION: &str = "Ryujin Hatakeyama is a second-year master's student at Tohoku University studying programming language theory and staged computation.";
 
 #[derive(Debug)]
@@ -319,7 +327,11 @@ fn footer() -> Markup {
     html! {
         footer.site-footer {
             p.footer-name { "© 2026 Ryujin Hatakeyama" }
-            p.footer-meta { a href="/rss.xml" { "RSS" } }
+            // The feed stays discoverable through the <head> link.
+            p.footer-updated {
+                "Last updated "
+                time datetime=(LAST_UPDATED.format("%Y-%m-%d")) { (LAST_UPDATED.format("%-d %B %Y")) }
+            }
         }
     }
 }
@@ -977,6 +989,8 @@ fn format_date_range(start: NaiveDate, end: NaiveDate) -> String {
 
 pub fn rss(updates: &[Update]) -> String {
     let mut items = String::new();
+    // Items carry no pubDate: records hold only an announcement day, and a
+    // synthetic midnight timestamp would misstate when they were published.
     for update in updates {
         let link = if update.detail {
             format!("{SITE_ORIGIN}/updates/item/{}/", update.id)
@@ -992,12 +1006,9 @@ pub fn rss(updates: &[Update]) -> String {
         }
         write!(
             items,
-            "<item><title>{}</title><description>{}</description><link>{link}</link><guid>{link}</guid><pubDate>{}</pubDate>{categories}</item>",
+            "<item><title>{}</title><description>{}</description><link>{link}</link><guid>{link}</guid>{categories}</item>",
             escape_xml(&update.title.en),
             escape_xml(&summary_plain_text(&update.summary.en)),
-            update
-                .announced_on
-                .format("%a, %d %b %Y 00:00:00 +0000"),
         )
         .expect("writing to a String cannot fail");
     }
@@ -1037,9 +1048,9 @@ fn escape_xml(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        classification, cv, escape_xml, filterable_publications, format_date, format_date_range,
-        header, home, publication_list, research, rss, update_detail, update_list, update_summary,
-        updates_page_refs,
+        classification, cv, escape_xml, filterable_publications, footer, format_date,
+        format_date_range, header, home, publication_list, research, rss, update_detail,
+        update_list, update_summary, updates_page_refs,
     };
     use crate::model::{Category, EventStatus, Publication};
     use chrono::NaiveDate;
@@ -1731,5 +1742,26 @@ mod tests {
         let summary = &summary[..summary.find("</p>").unwrap()];
         assert_eq!(summary.matches("<a ").count(), 6);
         assert!(!summary.contains("target="));
+    }
+
+    #[test]
+    fn footer_shows_the_editorial_last_updated_date_and_no_rss_link() {
+        let html = footer().into_string();
+        assert!(html.contains(r#"<p class="footer-name">© 2026 Ryujin Hatakeyama</p>"#));
+        assert!(html.contains(
+            r#"<p class="footer-updated">Last updated <time datetime="2026-10-10">10 October 2026</time></p>"#
+        ));
+        assert!(!html.contains("rss.xml") && !html.contains(">RSS<"));
+    }
+
+    #[test]
+    fn rss_items_have_no_synthetic_publication_dates() {
+        let updates = mixed_updates();
+        let feed = rss(&updates);
+        assert!(!feed.contains("pubDate") && !feed.contains("00:00:00"));
+        assert_eq!(feed.matches("<guid>").count(), updates.len());
+        assert!(feed.contains(
+            "<link>https://ryujin-hatakeyama.github.io/updates/#update-completed-1</link><guid>https://ryujin-hatakeyama.github.io/updates/#update-completed-1</guid><category>Activities</category></item>"
+        ));
     }
 }
