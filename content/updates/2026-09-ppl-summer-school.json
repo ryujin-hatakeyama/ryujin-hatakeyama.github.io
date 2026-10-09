@@ -1,0 +1,16 @@
+{
+  "id": "ppl-summer-school-2026-attendance",
+  "title": { "en": "Attendance at PPLサマースクール2026" },
+  "summary": { "en": "Attended PPLサマースクール2026, a summer school on quantum program compilation." },
+  "date": "2026-09-07",
+  "announced_on": "2026-10-09",
+  "event_status": "completed",
+  "categories": ["academia"],
+  "kind": { "type": "participation" },
+  "links": [
+    { "label": "Event website", "url": "https://jssst-ppl.org/wiki/ss2026", "type": "external" }
+  ],
+  "related": { "publications": [], "projects": [], "writings": [] },
+  "detail": false,
+  "status": "published"
+}
