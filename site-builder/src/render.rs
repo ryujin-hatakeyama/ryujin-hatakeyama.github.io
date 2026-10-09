@@ -745,11 +745,16 @@ fn update_title(update: &Update, link_detail: bool) -> Markup {
 /// event instead, then (in full views) its own links, leaving out any that
 /// repeat the title's event link. The underlying records are not changed.
 fn update_links(update: &Update, include_record_links: bool, include_detail: bool) -> Markup {
+    // A trailing slash does not make a different page.
+    let same_page =
+        |left: &str, right: &str| left.trim_end_matches('/') == right.trim_end_matches('/');
     let title_url = update.title_link.as_ref().map(|link| link.url.as_str());
     let links: Vec<&Link> = update
         .links
         .iter()
-        .filter(|link| include_record_links && Some(link.url.as_str()) != title_url)
+        .filter(|link| {
+            include_record_links && !title_url.is_some_and(|url| same_page(&link.url, url))
+        })
         .collect();
     let detail = include_detail && update.detail && title_url.is_some();
     html! {
@@ -1476,7 +1481,11 @@ mod tests {
         update
     }
 
-    const LINKED_EVENTS: [(&str, &str); 3] = [
+    const LINKED_EVENTS: [(&str, &str); 4] = [
+        (
+            "2026-10-graham-priest-welcome.json",
+            r#"<h3>Planned attendance at the <a href="https://sites.google.com/view/welcome-graham/">workshop welcoming Graham Priest to Sendai</a></h3>"#,
+        ),
         (
             "2026-10-wakate-no-kai.json",
             r#"<h3>Planned attendance at <a href="https://sites.google.com/view/wakatenokai2026/" lang="ja">数学基礎論若手の会2026</a></h3>"#,
@@ -1596,7 +1605,13 @@ mod tests {
         // The same official URL is not repeated as a generic link, while the
         // distinct JSSST program stays available.
         let full = &pages[1];
-        assert!(!full.contains("Event website"));
+        assert!(!full.contains("Event website") && !full.contains("Event information"));
+        // The record link lacks the trailing slash but is the same page.
+        assert_eq!(
+            full.matches("sites.google.com/view/welcome-graham").count(),
+            1
+        );
+        assert!(!full.contains("Workshop welcoming"));
         assert_eq!(
             full.matches(r#"href="https://jssst-ppl.org/wiki/ss2026""#)
                 .count(),
@@ -1684,6 +1699,12 @@ mod tests {
         let feed = rss(&updates);
         assert!(feed.contains("<item><title>Planned attendance at 数学基礎論若手の会2026</title>"));
         assert!(feed.contains("<title>Attendance at PPL Summer School 2026</title>"));
+        assert!(feed.contains(
+            "<title>Planned attendance at the workshop welcoming Graham Priest to Sendai</title>"
+        ));
+        assert!(feed.contains(
+            "<description>Attended PPL Summer School 2026, a summer school on quantum program compilation.</description>"
+        ));
         assert!(
             feed.contains("<title>Oral presentation at the 43rd JSSST Annual Conference</title>")
         );
