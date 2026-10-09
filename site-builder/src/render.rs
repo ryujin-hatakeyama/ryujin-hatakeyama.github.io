@@ -722,7 +722,13 @@ fn update_list(updates: &[&Update], compact: bool) -> Markup {
                             span.kind-label { (update.kind.label()) }
                             // Categories are plain, muted metadata rather than
                             // links; the category filters provide navigation.
+<<<<<<< HEAD
                             span.category-label { (category_labels(update)) }
+=======
+                            span.category-label {
+                                (update.categories.iter().map(|category| category.label()).collect::<Vec<_>>().join(" · "))
+                            }
+>>>>>>> refactor/verified-site-builder
                         }
                         div.update-copy {
                             h3 {
@@ -753,9 +759,13 @@ fn update_detail(update: &Update) -> Markup {
             }
             dl {
                 div.detail-meta { dt { "Event date" } dd { (event_dates(update)) } }
+<<<<<<< HEAD
                 @if update.event_status == EventStatus::Planned {
                     div.detail-meta { dt { "Status" } dd { "Planned" } }
                 }
+=======
+                div.detail-meta { dt { "Event status" } dd { (update.event_status.label()) } }
+>>>>>>> refactor/verified-site-builder
                 div.detail-meta { dt { "Announced" } dd { time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) } } }
                 div.detail-meta { dt { "Categories" } dd { (category_labels(update)) } }
             }
@@ -939,7 +949,11 @@ fn escape_xml(value: &str) -> String {
 mod tests {
     use super::{
         classification, cv, escape_xml, filterable_publications, format_date, format_date_range,
+<<<<<<< HEAD
         header, publication_list, rss, update_detail, update_list, updates_page_refs,
+=======
+        header, publication_list, rss, update_detail, update_list,
+>>>>>>> refactor/verified-site-builder
     };
     use crate::model::Publication;
     use chrono::NaiveDate;
@@ -1061,6 +1075,7 @@ mod tests {
     }
 
     #[test]
+<<<<<<< HEAD
     fn planned_events_are_listed_as_upcoming_by_event_date() {
         let update = |id: &str, date: &str, end: &str, status: &str| -> crate::model::Update {
             serde_json::from_str(&format!(
@@ -1102,6 +1117,8 @@ mod tests {
     }
 
     #[test]
+=======
+>>>>>>> refactor/verified-site-builder
     fn formats_event_date_ranges() {
         let day = |month, day| NaiveDate::from_ymd_opt(2026, month, day).unwrap();
         assert_eq!(

@@ -28,7 +28,11 @@ This is a schema example only; it is not read by the build:
 
 While a record is a draft awaiting confirmation, `date` and `announced_on` may be omitted rather than guessed; a published record must have both.
 
+<<<<<<< HEAD
 `event_status` is required and is either `completed` or `planned`. It records whether the activity had taken place when the update was announced; it is unrelated to `status`, which only controls whether the record is a draft. A `planned` record must be announced before `date` and should be worded as an intention ("I plan to attend …"); a `completed` record must not be announced before the event ends. Planned records are listed under "Upcoming" on the Updates pages, soonest event first, and every other record follows in announcement order. Planned records are never converted automatically. Once a planned event has begun, the Rust build stops with an editorial-review error rather than publish a past event as upcoming; then either set the record to `draft` or, if you attended, reword it and set `event_status` to `completed`.
+=======
+`event_status` is required and is either `completed` or `planned`. It records whether the activity had taken place when the update was announced; it is unrelated to `status`, which only controls whether the record is a draft. A `planned` record must be announced before `date` and should be worded as an intention ("I plan to attend …"); a `completed` record must not be announced before the event ends. Planned records are never converted automatically. Once a planned event has begun, the Rust build prints a review warning; then either set the record to `draft` or add a separate record for what actually happened.
+>>>>>>> refactor/verified-site-builder
 
 Allowed categories are exactly `research`, `academia`, and `writing`; `academia` is displayed as "Activities" and keeps its `/updates/academia/` route. Classify each record by its actual context:
 

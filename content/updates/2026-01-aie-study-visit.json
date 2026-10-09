@@ -8,9 +8,7 @@
   "event_status": "completed",
   "categories": ["academia"],
   "kind": { "type": "visit" },
-  "links": [
-    { "label": "AIE program", "url": "https://www.aie.tohoku.ac.jp/english/", "type": "external" }
-  ],
+  "links": [],
   "related": { "publications": [], "projects": [], "writings": [] },
   "detail": false,
   "status": "published"
