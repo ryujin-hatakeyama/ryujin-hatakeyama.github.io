@@ -320,8 +320,16 @@ fn footer() -> Markup {
     }
 }
 
+/// The homepage previews each section separately, so a busy Upcoming section
+/// can never crowd completed updates out of Recent Updates.
+const HOME_UPCOMING_LIMIT: usize = 3;
+const HOME_RECENT_LIMIT: usize = 5;
+
 fn home(updates: &[Update]) -> Markup {
-    let recent: Vec<_> = updates.iter().take(5).collect();
+    let refs: Vec<_> = updates.iter().collect();
+    let (mut upcoming, mut recent) = split_upcoming(&refs);
+    upcoming.truncate(HOME_UPCOMING_LIMIT);
+    recent.truncate(HOME_RECENT_LIMIT);
     let email = "hatakeyama.ryujin.q7@dc.tohoku.ac.jp";
     let encoded_email = email
         .chars()
@@ -367,14 +375,24 @@ fn home(updates: &[Update]) -> Markup {
                 }
             }
         }
-        section.home-news aria-labelledby="updates-heading" {
-            header.home-news-heading {
-                h2 id="updates-heading" { "Recent Updates" }
-                a href="/updates/" { "All updates" }
+        @if !upcoming.is_empty() {
+            section.home-news aria-labelledby="upcoming-heading" {
+                header.home-news-heading {
+                    h2 id="upcoming-heading" { "Upcoming" }
+                    a href="/updates/" { "All updates" }
+                }
+                (upcoming_list(&upcoming, true))
             }
-            @if !recent.is_empty() { (update_list(&recent, true)) }
         }
-        p.home-writings-link { a href="/writings/" { "Writings" } }
+        @if !recent.is_empty() || upcoming.is_empty() {
+            section.home-news aria-labelledby="updates-heading" {
+                header.home-news-heading {
+                    h2 id="updates-heading" { "Recent Updates" }
+                    @if upcoming.is_empty() { a href="/updates/" { "All updates" } }
+                }
+                (update_list(&recent, true))
+            }
+        }
     }
 }
 
@@ -598,31 +616,34 @@ fn updates_page(updates: &[Update], active: Option<Category>) -> Markup {
 }
 
 fn updates_page_refs(updates: &[&Update], active: Option<Category>) -> Markup {
-    let (upcoming, reported) = split_upcoming(updates);
+    let (upcoming, recent) = split_upcoming(updates);
     html! {
         (page_intro(active.map_or("Updates", Category::label)))
         (update_filters(active))
-        @if upcoming.is_empty() {
-            (update_list(&reported, false))
-        } @else {
-            section.upcoming-updates aria-labelledby="upcoming-heading" {
+        @if !upcoming.is_empty() {
+            section.update-section.upcoming-updates aria-labelledby="upcoming-heading" {
                 h2 id="upcoming-heading" { "Upcoming" }
-                (upcoming_list(&upcoming))
+                (upcoming_list(&upcoming, false))
             }
-            section aria-labelledby="reported-heading" {
-                h2.sr-only id="reported-heading" { "Other updates" }
-                (update_list(&reported, false))
+        }
+        @if !recent.is_empty() {
+            section.update-section aria-labelledby="recent-heading" {
+                h2 id="recent-heading" { "Recent Updates" }
+                (update_list(&recent, false))
             }
+        } @else if upcoming.is_empty() {
+            (update_list(&recent, false))
         }
     }
 }
 
-/// Separates planned events, soonest first, from the remaining updates, which
-/// keep their newest-first announcement order. The split depends only on each
-/// record's stated status, never on the build date; a planned record whose
-/// event has begun stops the build for editorial review instead.
+/// Separates planned events (Upcoming), soonest first, from completed ones
+/// (Recent Updates), which keep their newest-first announcement order. The
+/// split depends only on each record's stated status, never on the build date;
+/// a planned record whose event has begun stops the build for editorial review
+/// instead.
 fn split_upcoming<'a>(updates: &[&'a Update]) -> (Vec<&'a Update>, Vec<&'a Update>) {
-    let (mut upcoming, reported): (Vec<&Update>, Vec<&Update>) = updates
+    let (mut upcoming, recent): (Vec<&Update>, Vec<&Update>) = updates
         .iter()
         .copied()
         .partition(|update| update.event_status == EventStatus::Planned);
@@ -631,17 +652,22 @@ fn split_upcoming<'a>(updates: &[&'a Update]) -> (Vec<&'a Update>, Vec<&'a Updat
             .cmp(&right.date)
             .then_with(|| left.id.cmp(&right.id))
     });
-    (upcoming, reported)
+    (upcoming, recent)
 }
 
 /// Planned events lead with their event date; the announcement date is
 /// secondary because it does not say when the event takes place.
-fn upcoming_list(updates: &[&Update]) -> Markup {
+fn upcoming_list(updates: &[&Update], compact: bool) -> Markup {
+    let class = if compact {
+        "update-list upcoming-list compact"
+    } else {
+        "update-list upcoming-list"
+    };
     html! {
-        ol.update-list.upcoming-list {
+        ol class=(class) {
             @for update in updates {
                 li {
-                    article id=(format!("update-{}", update.id)) {
+                    article id=[(!compact).then(|| format!("update-{}", update.id))] {
                         div.update-meta {
                             (event_dates(update))
                             span.kind-label { (update.kind.label()) }
@@ -653,12 +679,14 @@ fn upcoming_list(updates: &[&Update]) -> Markup {
                                     a href=(format!("/updates/item/{}/", update.id)) { (&update.title.en) }
                                 } @else { (&update.title.en) }
                             }
-                            p { (&update.summary.en) }
-                            p.event-line {
-                                "Announced "
-                                time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) }
+                            @if !compact {
+                                p { (&update.summary.en) }
+                                p.event-line {
+                                    "Announced "
+                                    time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) }
+                                }
+                                @if !update.links.is_empty() { (record_links(&update.links, true)) }
                             }
-                            @if !update.links.is_empty() { (record_links(&update.links, true)) }
                         }
                     }
                 }
@@ -939,9 +967,9 @@ fn escape_xml(value: &str) -> String {
 mod tests {
     use super::{
         classification, cv, escape_xml, filterable_publications, format_date, format_date_range,
-        header, publication_list, rss, update_detail, update_list, updates_page_refs,
+        header, home, publication_list, rss, update_detail, update_list, updates_page_refs,
     };
-    use crate::model::Publication;
+    use crate::model::{Category, EventStatus, Publication};
     use chrono::NaiveDate;
 
     fn publication(slug: &str, year: i32, language: &str, kind: &str) -> Publication {
@@ -1060,45 +1088,244 @@ mod tests {
         assert!(detail.contains(r#"<article class="detail-sheet update-detail">"#));
     }
 
-    #[test]
-    fn planned_events_are_listed_as_upcoming_by_event_date() {
-        let update = |id: &str, date: &str, end: &str, status: &str| -> crate::model::Update {
-            serde_json::from_str(&format!(
-                r#"{{"id":"{id}","title":{{"en":"{id}"}},"summary":{{"en":"x"}},"date":"{date}"{end},
-                "announcedOn":"2026-10-09","eventStatus":"{status}","categories":["academia"],
-                "kind":{{"type":"participation"}},"related":{{}}}}"#
-            ))
-            .unwrap()
-        };
-        let later = update(
-            "later",
-            "2026-10-16",
-            r#","endDate":"2026-10-18""#,
-            "planned",
-        );
-        let sooner = update("sooner", "2026-10-11", "", "planned");
-        let past = update("past", "2026-09-25", "", "completed");
-        let html = updates_page_refs(&[&later, &sooner, &past], None).into_string();
+    fn test_update(id: &str, date: &str, announced: &str, status: &str) -> crate::model::Update {
+        test_update_in(id, date, "", announced, status, "academia")
+    }
 
-        let upcoming = html
-            .find(r#"<h2 id="upcoming-heading">Upcoming</h2>"#)
+    fn test_update_in(
+        id: &str,
+        date: &str,
+        end: &str,
+        announced: &str,
+        status: &str,
+        category: &str,
+    ) -> crate::model::Update {
+        serde_json::from_str(&format!(
+            r#"{{"id":"{id}","title":{{"en":"title-{id}"}},"summary":{{"en":"x"}},"date":"{date}"{end},
+            "announcedOn":"{announced}","eventStatus":"{status}","categories":["{category}"],
+            "kind":{{"type":"participation"}},"related":{{}}}}"#
+        ))
+        .unwrap()
+    }
+
+    /// Records in the loader's newest-announcement-first order, with more
+    /// planned records than the homepage shows and the planned ones announced
+    /// last, so that limiting the combined list before separating it would
+    /// leave no completed record in the preview.
+    fn mixed_updates() -> Vec<crate::model::Update> {
+        let mut updates: Vec<_> = (1..=4)
+            .map(|n| {
+                test_update(
+                    &format!("planned-{n}"),
+                    &format!("2026-11-{:02}", 10 - n),
+                    "2026-10-09",
+                    "planned",
+                )
+            })
+            .collect();
+        updates.extend((1..=7).map(|n| {
+            test_update(
+                &format!("completed-{n}"),
+                &format!("2026-09-{:02}", 20 - n),
+                &format!("2026-10-{:02}", 9 - n),
+                "completed",
+            )
+        }));
+        updates
+    }
+
+    /// Byte offsets of a section's start and end in the rendered HTML.
+    fn section_bounds(html: &str, heading_id: &str) -> (usize, usize) {
+        let start = html
+            .find(format!(r#"aria-labelledby="{heading_id}""#).as_str())
             .unwrap();
-        let other = html.find(r#"id="reported-heading""#).unwrap();
-        let sooner_at = html.find(r#"id="update-sooner""#).unwrap();
-        let later_at = html.find(r#"id="update-later""#).unwrap();
-        let past_at = html.find(r#"id="update-past""#).unwrap();
+        let end = start + html[start..].find("</section>").unwrap();
+        (start, end)
+    }
+
+    #[test]
+    fn homepage_previews_upcoming_and_recent_updates_separately() {
+        let updates = mixed_updates();
+        let html = home(&updates).into_string();
+
+        assert!(html.contains(r#"<h2 id="upcoming-heading">Upcoming</h2>"#));
+        assert!(html.contains(r#"<h2 id="updates-heading">Recent Updates</h2>"#));
+        assert!(!html.contains(r#"<h2 class="sr-only""#));
+        let upcoming = &html[{
+            let (start, end) = section_bounds(&html, "upcoming-heading");
+            start..end
+        }];
+        let recent = &html[{
+            let (start, end) = section_bounds(&html, "updates-heading");
+            start..end
+        }];
+
+        // Each section has its own limit, applied after the split; Upcoming
+        // is ordered by event date, Recent Updates by announcement.
+        assert_eq!(upcoming.matches("<li>").count(), 3);
+        assert_eq!(recent.matches("<li>").count(), 5);
+        let at = |section: &str, id: &str| section.find(format!(">title-{id}<").as_str());
+        assert!(at(upcoming, "planned-4").unwrap() < at(upcoming, "planned-3").unwrap());
+        assert!(at(upcoming, "planned-3").unwrap() < at(upcoming, "planned-2").unwrap());
+        assert!(at(upcoming, "planned-1").is_none());
+        assert!(at(recent, "completed-1").unwrap() < at(recent, "completed-5").unwrap());
+        assert!(at(recent, "completed-6").is_none());
+        assert!(!upcoming.contains("completed-") && !recent.contains("planned-"));
+        // Planned events lead with their event date, not the announcement.
+        assert!(upcoming.contains(r#"<time datetime="2026-11-06">06 Nov 2026</time>"#));
+
+        // No standalone Writings entry point on the homepage.
+        assert!(!html.contains(r#"href="/writings/""#) && !html.contains("Writings"));
+    }
+
+    #[test]
+    fn homepage_keeps_recent_updates_without_upcoming_events() {
+        let updates: Vec<_> = mixed_updates()
+            .into_iter()
+            .filter(|update| update.id.starts_with("completed-"))
+            .collect();
+        let html = home(&updates).into_string();
+        assert!(!html.contains("Upcoming"));
+        assert!(html.contains(r#"<h2 id="updates-heading">Recent Updates</h2>"#));
+        assert!(html.contains(r#"<a href="/updates/">All updates</a>"#));
+        let (start, end) = section_bounds(&html, "updates-heading");
+        assert_eq!(html[start..end].matches("<li>").count(), 5);
+    }
+
+    #[test]
+    fn updates_page_shows_upcoming_and_recent_updates_in_full() {
+        let updates = mixed_updates();
+        let refs: Vec<_> = updates.iter().collect();
+        let html = updates_page_refs(&refs, None).into_string();
+
+        assert!(html.contains(r#"<h2 id="upcoming-heading">Upcoming</h2>"#));
+        assert!(html.contains(r#"<h2 id="recent-heading">Recent Updates</h2>"#));
+        assert!(!html.contains(r#"<h2 class="sr-only""#) && !html.contains("Other updates"));
+        let (upcoming_start, upcoming_end) = section_bounds(&html, "upcoming-heading");
+        let (recent_start, recent_end) = section_bounds(&html, "recent-heading");
+        assert!(upcoming_end < recent_start);
+        for update in &updates {
+            let at = html
+                .find(format!(r#"id="update-{}""#, update.id).as_str())
+                .unwrap();
+            if update.event_status == EventStatus::Planned {
+                assert!(upcoming_start < at && at < upcoming_end, "{}", update.id);
+            } else {
+                assert!(recent_start < at && at < recent_end, "{}", update.id);
+            }
+        }
+        // Upcoming is soonest event first; the announcement date is secondary.
         assert!(
-            upcoming < sooner_at && sooner_at < later_at && later_at < other && other < past_at
+            html.find(r#"id="update-planned-4""#).unwrap()
+                < html.find(r#"id="update-planned-1""#).unwrap()
         );
-        // The event date leads; the announcement date is secondary.
-        assert!(html.contains(
-            r#"<div class="update-meta"><time datetime="2026-10-16">16–18 Oct 2026</time>"#
-        ));
         assert!(html.contains(r#"Announced <time datetime="2026-10-09">09 Oct 2026</time>"#));
         assert!(!html.contains("Completed") && !html.contains("· Planned"));
 
-        let without_plans = updates_page_refs(&[&past], None).into_string();
+        let completed: Vec<_> = refs[4..].to_vec();
+        let without_plans = updates_page_refs(&completed, None).into_string();
         assert!(!without_plans.contains("Upcoming"));
+        assert!(without_plans.contains(r#"<h2 id="recent-heading">Recent Updates</h2>"#));
+        assert_eq!(without_plans.matches(r#"<article id="update-"#).count(), 7);
+
+        let without_records = updates_page_refs(&[], None).into_string();
+        assert!(without_records.contains("No updates yet.") && !without_records.contains("<h2"));
+    }
+
+    #[test]
+    fn category_pages_keep_both_sections_and_the_event_date_range() {
+        let ranged = test_update_in(
+            "meeting",
+            "2026-10-16",
+            r#","endDate":"2026-10-18""#,
+            "2026-10-09",
+            "planned",
+            "research",
+        );
+        let talk = test_update_in(
+            "talk",
+            "2026-09-10",
+            "",
+            "2026-10-09",
+            "completed",
+            "research",
+        );
+        let html = updates_page_refs(&[&ranged, &talk], Some(Category::Research)).into_string();
+        assert!(html.contains("<h1>Research</h1>"));
+        assert!(html.contains(r#"<a href="/updates/research/" aria-current="page">Research</a>"#));
+        assert!(html.contains(r#"<h2 id="upcoming-heading">Upcoming</h2>"#));
+        assert!(html.contains(r#"<h2 id="recent-heading">Recent Updates</h2>"#));
+        assert!(html.contains(
+            r#"<div class="update-meta"><time datetime="2026-10-16">16–18 Oct 2026</time>"#
+        ));
+
+        // A filter that leaves only planned records shows no empty Recent Updates.
+        let only_planned = updates_page_refs(&[&ranged], Some(Category::Research)).into_string();
+        assert!(
+            !only_planned.contains("Recent Updates") && !only_planned.contains("No updates yet.")
+        );
+    }
+
+    #[test]
+    fn rss_lists_planned_and_completed_updates() {
+        let updates = mixed_updates();
+        let feed = rss(&updates);
+        assert_eq!(feed.matches("<item>").count(), updates.len());
+    }
+
+    fn update_source(file: &str) -> serde_json::Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../content/updates")
+            .join(file);
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    /// The October 9 record is titled with the event's official name, verbatim
+    /// from the AIE program, not with a description of the poster session.
+    #[test]
+    fn english_training_event_name_is_preserved_verbatim() {
+        const NAME: &str = "Effective Presentation & Communication in English";
+        let record = update_source("2026-10-aie-english-training-poster.json");
+        assert_eq!(record["title"]["en"], NAME);
+
+        let mut update = test_update(
+            "aie-english-training-poster-2026",
+            "2026-10-09",
+            "2026-10-09",
+            "completed",
+        );
+        update.title.en = NAME.to_owned();
+        let updates = [update];
+        let escaped = "Effective Presentation &amp; Communication in English";
+        assert!(
+            home(&updates)
+                .into_string()
+                .contains(&format!("<h3>{escaped}</h3>"))
+        );
+        let refs: Vec<_> = updates.iter().collect();
+        assert!(
+            updates_page_refs(&refs, None)
+                .into_string()
+                .contains(&format!("<h3>{escaped}</h3>"))
+        );
+        assert!(rss(&updates).contains(&format!("<item><title>{escaped}</title>")));
+    }
+
+    #[test]
+    fn aie_update_titles_are_english_only() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../content/updates");
+        for file in [
+            "2026-10-aie-english-training-poster.json",
+            "2026-09-aie-pbl-symposium.json",
+        ] {
+            let record: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(root.join(file)).unwrap()).unwrap();
+            let title = record["title"]["en"].as_str().unwrap();
+            assert!(
+                !title.contains('(') && title.is_ascii(),
+                "{file} has a non-English title: {title}"
+            );
+        }
     }
 
     #[test]
