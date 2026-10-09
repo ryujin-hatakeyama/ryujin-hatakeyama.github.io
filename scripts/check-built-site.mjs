@@ -69,6 +69,7 @@ for (const path of htmlFiles) {
 }
 
 const home = readFileSync(new URL('index.html', root), 'utf8');
+const homeText = home.replace(/<[^>]*>/g, '');
 if (!home.includes('<link rel="canonical" href="https://ryujin-hatakeyama.github.io/">')) fail('homepage canonical URL is incorrect');
 if (!home.includes('<meta property="og:url" content="https://ryujin-hatakeyama.github.io/">')) fail('homepage Open Graph URL is incorrect');
 if (!home.includes('<link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">')) fail('homepage is missing the versioned SVG favicon');
@@ -76,8 +77,12 @@ if (!home.includes('<link rel="icon" href="/favicon-32x32.png?v=2" type="image/p
 if (!home.includes('<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" sizes="180x180">')) fail('homepage is missing the versioned Apple touch icon');
 if (!home.includes('Hello!')) fail('English homepage does not contain the required greeting');
 if (!home.includes("a second-year master's student")) fail('English homepage does not contain the M2 academic introduction');
-if (!home.includes('Foundations of Software Science')) fail('English homepage is missing the research-group link');
-if (!home.includes('Prof. Eijiro Sumii')) fail('English homepage is missing the supervisor link');
+const openingBiography = "Hello! I'm Ryujin, a second-year master's student in the Department of Computer and Mathematical Sciences at Tohoku University's Graduate School of Information Sciences. I work in the Foundations of Software Science group under the supervision of Professor Eijiro Sumii.";
+if (!homeText.includes(openingBiography)) fail('English homepage opening biography does not match the approved wording');
+if (!home.includes('href="https://www.is.tohoku.ac.jp/en/laboratory/list_dept/">Department of Computer and Mathematical Sciences</a>')) fail('English homepage is missing the department link');
+if (!home.includes('href="https://www.is.tohoku.ac.jp/en/">Tohoku University\'s Graduate School of Information Sciences</a>')) fail('English homepage is missing the graduate-school link');
+if (!home.includes('href="https://www.is.tohoku.ac.jp/en/laboratory/list_dept/a11.html">Foundations of Software Science</a>')) fail('English homepage is missing the research-group link');
+if (!home.includes('href="https://www.kb.ecei.tohoku.ac.jp/~sumii/">Professor Eijiro Sumii</a>')) fail('English homepage is missing the supervisor link');
 if (!home.includes('Oleg Kiselyov')) fail('English homepage is missing the collaborator link');
 if (!home.includes('compositional descriptions of probabilistic models and staged inference code generation')) fail('English homepage is missing the current research description');
 if (home.includes('compositional descriptions of hidden Markov models')) fail('English homepage still narrows the biography to hidden Markov models');
