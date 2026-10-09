@@ -4,7 +4,10 @@ use chrono::NaiveDate;
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 use crate::content::{ValidatedSiteContent, ValidatedWriting, public_english_writings};
-use crate::model::{Category, EventStatus, Language, Link, Project, Publication, Update};
+use crate::model::{
+    Category, EventStatus, Language, Link, Project, Publication, SummarySegment, Update,
+    summary_plain_text, summary_segments,
+};
 
 const SITE_ORIGIN: &str = "https://ryujin-hatakeyama.github.io";
 const SITE_NAME: &str = "Ryujin Hatakeyama";
@@ -153,7 +156,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
             path.clone(),
             true,
             &update.title.en,
-            &update.summary.en,
+            &summary_plain_text(&update.summary.en),
             &path,
             update_detail(update),
         ));
@@ -691,7 +694,7 @@ fn upcoming_list(updates: &[&Update], compact: bool) -> Markup {
                                 } @else { (&update.title.en) }
                             }
                             @if !compact {
-                                p { (&update.summary.en) }
+                                p { (update_summary(&update.summary.en)) }
                                 p.event-line {
                                     "Announced "
                                     time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) }
@@ -701,6 +704,17 @@ fn upcoming_list(updates: &[&Update], compact: bool) -> Markup {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+fn update_summary(summary: &str) -> Markup {
+    html! {
+        @for segment in summary_segments(summary) {
+            @match segment {
+                SummarySegment::Text(text) => (text),
+                SummarySegment::Link { text, url } => a href=(url) { (text) },
             }
         }
     }
@@ -770,7 +784,7 @@ fn update_list(updates: &[&Update], compact: bool) -> Markup {
                                 } @else { (&update.title.en) }
                             }
                             @if !compact {
-                                p { (&update.summary.en) }
+                                p { (update_summary(&update.summary.en)) }
                                 p.event-line { (event_line(update)) }
                                 @if !update.links.is_empty() { (record_links(&update.links, true)) }
                             }
@@ -788,7 +802,7 @@ fn update_detail(update: &Update) -> Markup {
             header {
                 p.longform-kicker { "Update " span aria-hidden="true" { "/" } " " (update.kind.label()) }
                 h1 { (&update.title.en) }
-                p.summary { (&update.summary.en) }
+                p.summary { (update_summary(&update.summary.en)) }
             }
             dl {
                 div.detail-meta { dt { "Event date" } dd { (event_dates(update)) } }
@@ -934,7 +948,7 @@ pub fn rss(updates: &[Update]) -> String {
             items,
             "<item><title>{}</title><description>{}</description><link>{link}</link><guid>{link}</guid><pubDate>{}</pubDate>{categories}</item>",
             escape_xml(&update.title.en),
-            escape_xml(&update.summary.en),
+            escape_xml(&summary_plain_text(&update.summary.en)),
             update
                 .announced_on
                 .format("%a, %d %b %Y 00:00:00 +0000"),
@@ -978,7 +992,8 @@ fn escape_xml(value: &str) -> String {
 mod tests {
     use super::{
         classification, cv, escape_xml, filterable_publications, format_date, format_date_range,
-        header, home, publication_list, rss, update_detail, update_list, updates_page_refs,
+        header, home, publication_list, rss, update_detail, update_list, update_summary,
+        updates_page_refs,
     };
     use crate::model::{Category, EventStatus, Publication};
     use chrono::NaiveDate;
@@ -1046,6 +1061,16 @@ mod tests {
         assert!(!html.contains("Excellence Award"));
         assert!(
             html.find("Research experience").unwrap() < html.find("Honors and awards").unwrap()
+        );
+    }
+
+    #[test]
+    fn update_summary_links_are_escaped_anchors() {
+        let html =
+            update_summary("A <b> [Ai2 & co](https://allenai.org/about?a=1&b=2).").into_string();
+        assert_eq!(
+            html,
+            r#"A &lt;b&gt; <a href="https://allenai.org/about?a=1&amp;b=2">Ai2 &amp; co</a>."#
         );
     }
 

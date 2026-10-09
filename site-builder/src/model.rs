@@ -263,6 +263,12 @@ impl Update {
         validate_slug(&self.id).with_context(|| format!("{source}: invalid update id"))?;
         self.title.validate(source, "title")?;
         self.summary.validate(source, "summary")?;
+        for segment in summary_segments(&self.summary.en) {
+            if let SummarySegment::Link { url, .. } = segment {
+                validate_http_url(url)
+                    .with_context(|| format!("{source}: invalid summary link URL {url:?}"))?;
+            }
+        }
         ensure!(
             !self.categories.is_empty(),
             "{source}: categories must not be empty"
@@ -318,6 +324,58 @@ impl Update {
     pub fn last_event_day(&self) -> NaiveDate {
         self.end_date.unwrap_or(self.date)
     }
+}
+
+/// A run of an update summary: plain text, or an inline link written as
+/// `[text](https://…)`. Anything that does not form such a link stays text, so
+/// summaries without links render exactly as before.
+#[derive(Debug, Eq, PartialEq)]
+pub enum SummarySegment<'a> {
+    Text(&'a str),
+    Link { text: &'a str, url: &'a str },
+}
+
+pub fn summary_segments(summary: &str) -> Vec<SummarySegment<'_>> {
+    let mut segments = Vec::new();
+    let mut text_start = 0;
+    let mut search_from = 0;
+    while let Some(offset) = summary[search_from..].find('[') {
+        let open = search_from + offset;
+        let link = summary[open + 1..]
+            .split_once("](")
+            .and_then(|(text, tail)| Some((text, tail.split_once(')')?.0)))
+            .filter(|(text, url)| {
+                !text.trim().is_empty()
+                    && !text.contains(['[', ']'])
+                    && is_http_url(url)
+                    && !url.contains(char::is_whitespace)
+            });
+        match link {
+            Some((text, url)) => {
+                if text_start < open {
+                    segments.push(SummarySegment::Text(&summary[text_start..open]));
+                }
+                segments.push(SummarySegment::Link { text, url });
+                text_start = open + text.len() + url.len() + 4;
+                search_from = text_start;
+            }
+            None => search_from = open + 1,
+        }
+    }
+    if text_start < summary.len() {
+        segments.push(SummarySegment::Text(&summary[text_start..]));
+    }
+    segments
+}
+
+/// The summary with link markup removed, for meta descriptions and RSS.
+pub fn summary_plain_text(summary: &str) -> String {
+    summary_segments(summary)
+        .into_iter()
+        .map(|segment| match segment {
+            SummarySegment::Text(text) | SummarySegment::Link { text, .. } => text,
+        })
+        .collect()
 }
 
 /// Whether the reported activity had taken place when the update was
@@ -678,8 +736,8 @@ fn is_safe_root_relative(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        Category, EventKind, EventStatus, Language, Link, LinkType, Publication, Update,
-        validate_markdown_url, validate_slug,
+        Category, EventKind, EventStatus, Language, Link, LinkType, Publication, SummarySegment,
+        Update, summary_plain_text, summary_segments, validate_markdown_url, validate_slug,
     };
 
     fn publication(extra: &str) -> serde_json::Result<Publication> {
@@ -837,6 +895,34 @@ mod tests {
                 link_type: LinkType::External,
             };
             assert!(link.validate("fixture").is_ok(), "{url:?}");
+        }
+    }
+
+    #[test]
+    fn summary_links_are_parsed_and_other_text_is_kept_verbatim() {
+        let summary = "Visited [UW](https://www.washington.edu/visit/), [x] (y), and Micron.";
+        assert_eq!(
+            summary_segments(summary),
+            [
+                SummarySegment::Text("Visited "),
+                SummarySegment::Link {
+                    text: "UW",
+                    url: "https://www.washington.edu/visit/"
+                },
+                SummarySegment::Text(", [x] (y), and Micron."),
+            ]
+        );
+        assert_eq!(
+            summary_plain_text(summary),
+            "Visited UW, [x] (y), and Micron."
+        );
+        for literal in [
+            "Plain text.",
+            "[a](javascript:alert(1))",
+            "[](https://x.org)",
+            "[a](https://x.org",
+        ] {
+            assert_eq!(summary_segments(literal), [SummarySegment::Text(literal)]);
         }
     }
 }
