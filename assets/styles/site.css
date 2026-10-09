@@ -383,6 +383,10 @@ main { min-height: 64vh; }
 .update-copy h3 a { color: var(--ink); }
 .update-copy > p { max-width: 48rem; margin: 0 0 .7rem; color: var(--ink-soft); font-size: .9rem; }
 .update-meta .category-label { color: var(--ink-soft); }
+.upcoming-updates { margin-bottom: 2.25rem; }
+.upcoming-updates > h2 { margin: 0 0 .35rem; color: var(--ink-soft); font-family: var(--sans); font-size: .86rem; font-weight: 600; }
+/* For planned events the event date leads the metadata column. */
+.upcoming-list .update-meta > time { color: var(--ink); }
 
 .update-list.compact article { grid-template-columns: 8rem 1fr; padding: 1.1rem 0; }
 .update-list.compact .update-meta .kind-label { display: none; }

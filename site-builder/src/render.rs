@@ -598,11 +598,82 @@ fn updates_page(updates: &[Update], active: Option<Category>) -> Markup {
 }
 
 fn updates_page_refs(updates: &[&Update], active: Option<Category>) -> Markup {
+    let (upcoming, reported) = split_upcoming(updates);
     html! {
         (page_intro(active.map_or("Updates", Category::label)))
         (update_filters(active))
-        (update_list(updates, false))
+        @if upcoming.is_empty() {
+            (update_list(&reported, false))
+        } @else {
+            section.upcoming-updates aria-labelledby="upcoming-heading" {
+                h2 id="upcoming-heading" { "Upcoming" }
+                (upcoming_list(&upcoming))
+            }
+            section aria-labelledby="reported-heading" {
+                h2.sr-only id="reported-heading" { "Other updates" }
+                (update_list(&reported, false))
+            }
+        }
     }
+}
+
+/// Separates planned events, soonest first, from the remaining updates, which
+/// keep their newest-first announcement order. The split depends only on each
+/// record's stated status, never on the build date; a planned record whose
+/// event has begun stops the build for editorial review instead.
+fn split_upcoming<'a>(updates: &[&'a Update]) -> (Vec<&'a Update>, Vec<&'a Update>) {
+    let (mut upcoming, reported): (Vec<&Update>, Vec<&Update>) = updates
+        .iter()
+        .copied()
+        .partition(|update| update.event_status == EventStatus::Planned);
+    upcoming.sort_by(|left, right| {
+        left.date
+            .cmp(&right.date)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    (upcoming, reported)
+}
+
+/// Planned events lead with their event date; the announcement date is
+/// secondary because it does not say when the event takes place.
+fn upcoming_list(updates: &[&Update]) -> Markup {
+    html! {
+        ol.update-list.upcoming-list {
+            @for update in updates {
+                li {
+                    article id=(format!("update-{}", update.id)) {
+                        div.update-meta {
+                            (event_dates(update))
+                            span.kind-label { (update.kind.label()) }
+                            span.category-label { (category_labels(update)) }
+                        }
+                        div.update-copy {
+                            h3 {
+                                @if update.detail {
+                                    a href=(format!("/updates/item/{}/", update.id)) { (&update.title.en) }
+                                } @else { (&update.title.en) }
+                            }
+                            p { (&update.summary.en) }
+                            p.event-line {
+                                "Announced "
+                                time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) }
+                            }
+                            @if !update.links.is_empty() { (record_links(&update.links, true)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn category_labels(update: &Update) -> String {
+    update
+        .categories
+        .iter()
+        .map(|category| category.label())
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 fn page_intro(title: &str) -> Markup {
@@ -651,9 +722,7 @@ fn update_list(updates: &[&Update], compact: bool) -> Markup {
                             span.kind-label { (update.kind.label()) }
                             // Categories are plain, muted metadata rather than
                             // links; the category filters provide navigation.
-                            span.category-label {
-                                (update.categories.iter().map(|category| category.label()).collect::<Vec<_>>().join(" · "))
-                            }
+                            span.category-label { (category_labels(update)) }
                         }
                         div.update-copy {
                             h3 {
@@ -684,9 +753,11 @@ fn update_detail(update: &Update) -> Markup {
             }
             dl {
                 div.detail-meta { dt { "Event date" } dd { (event_dates(update)) } }
-                div.detail-meta { dt { "Event status" } dd { (update.event_status.label()) } }
+                @if update.event_status == EventStatus::Planned {
+                    div.detail-meta { dt { "Status" } dd { "Planned" } }
+                }
                 div.detail-meta { dt { "Announced" } dd { time datetime=(update.announced_on.format("%Y-%m-%d")) { (format_date(update.announced_on)) } } }
-                div.detail-meta { dt { "Categories" } dd { (update.categories.iter().map(|category| category.label()).collect::<Vec<_>>().join(" · ")) } }
+                div.detail-meta { dt { "Categories" } dd { (category_labels(update)) } }
             }
             @if let Some(body) = &update.body { div.prose { p { (&body.en) } } }
             @if !update.links.is_empty() { (record_links(&update.links, true)) }
@@ -868,7 +939,7 @@ fn escape_xml(value: &str) -> String {
 mod tests {
     use super::{
         classification, cv, escape_xml, filterable_publications, format_date, format_date_range,
-        header, publication_list, rss, update_detail, update_list,
+        header, publication_list, rss, update_detail, update_list, updates_page_refs,
     };
     use crate::model::Publication;
     use chrono::NaiveDate;
@@ -987,6 +1058,47 @@ mod tests {
         let detail = update_detail(&update).into_string();
         assert!(detail.contains(link));
         assert!(detail.contains(r#"<article class="detail-sheet update-detail">"#));
+    }
+
+    #[test]
+    fn planned_events_are_listed_as_upcoming_by_event_date() {
+        let update = |id: &str, date: &str, end: &str, status: &str| -> crate::model::Update {
+            serde_json::from_str(&format!(
+                r#"{{"id":"{id}","title":{{"en":"{id}"}},"summary":{{"en":"x"}},"date":"{date}"{end},
+                "announcedOn":"2026-10-09","eventStatus":"{status}","categories":["academia"],
+                "kind":{{"type":"participation"}},"related":{{}}}}"#
+            ))
+            .unwrap()
+        };
+        let later = update(
+            "later",
+            "2026-10-16",
+            r#","endDate":"2026-10-18""#,
+            "planned",
+        );
+        let sooner = update("sooner", "2026-10-11", "", "planned");
+        let past = update("past", "2026-09-25", "", "completed");
+        let html = updates_page_refs(&[&later, &sooner, &past], None).into_string();
+
+        let upcoming = html
+            .find(r#"<h2 id="upcoming-heading">Upcoming</h2>"#)
+            .unwrap();
+        let other = html.find(r#"id="reported-heading""#).unwrap();
+        let sooner_at = html.find(r#"id="update-sooner""#).unwrap();
+        let later_at = html.find(r#"id="update-later""#).unwrap();
+        let past_at = html.find(r#"id="update-past""#).unwrap();
+        assert!(
+            upcoming < sooner_at && sooner_at < later_at && later_at < other && other < past_at
+        );
+        // The event date leads; the announcement date is secondary.
+        assert!(html.contains(
+            r#"<div class="update-meta"><time datetime="2026-10-16">16–18 Oct 2026</time>"#
+        ));
+        assert!(html.contains(r#"Announced <time datetime="2026-10-09">09 Oct 2026</time>"#));
+        assert!(!html.contains("Completed") && !html.contains("· Planned"));
+
+        let without_plans = updates_page_refs(&[&past], None).into_string();
+        assert!(!without_plans.contains("Upcoming"));
     }
 
     #[test]

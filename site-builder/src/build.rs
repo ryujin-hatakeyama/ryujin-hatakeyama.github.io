@@ -18,13 +18,18 @@ pub fn build(root: &Path, output_relative: &Path) -> Result<()> {
     let started = Instant::now();
     let content = content::load(root)?;
     let content_time = started.elapsed();
+    // A planned event that has begun would otherwise be published under
+    // "Upcoming". Stop before staging, so the previous output is kept, and
+    // leave the editorial decision to the author.
     if let Some(today) = utc_today() {
-        for update in content::planned_updates_needing_review(content.updates(), today) {
-            eprintln!(
-                "site-builder warning: update {:?} announces planned attendance, but the event began on {}; review it and set its status to draft or record the actual outcome",
-                update.id, update.date
-            );
-        }
+        let stale: Vec<_> = content::planned_updates_needing_review(content.updates(), today)
+            .map(|update| format!("{:?} (event began {})", update.id, update.date))
+            .collect();
+        ensure!(
+            stale.is_empty(),
+            "planned updates need editorial review because their events have begun: {}. Set each to draft, or record what actually happened with event_status \"completed\"",
+            stale.join(", ")
+        );
     }
 
     let started = Instant::now();
@@ -69,8 +74,8 @@ pub fn build(root: &Path, output_relative: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Today's UTC date, used only for review warnings so that generated output
-/// never depends on the build date.
+/// Today's UTC date, used only to stop the build for stale planned updates so
+/// that generated output never depends on the build date.
 fn utc_today() -> Option<NaiveDate> {
     let seconds = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
     NaiveDate::from_ymd_opt(1970, 1, 1)?.checked_add_days(Days::new(seconds / 86_400))
