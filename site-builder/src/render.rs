@@ -457,6 +457,17 @@ fn cv(publications: &[&Publication], presentations: &[&Publication]) -> Markup {
                     }
                 }
             }
+            section aria-labelledby="teaching-experience-heading" {
+                h2 id="teaching-experience-heading" { "Teaching experience" }
+                div.cv-entry {
+                    time datetime="2025" { "Spring 2025" }
+                    div {
+                        p { strong { "Teaching Assistant — " span lang="ja" { "プログラミング演習B" } " (Programming B; F#)" } }
+                        p { "Department of Electrical, Information and Physics Engineering, Tohoku University." }
+                        p { "Assisted with F# programming exercises taught by " a href="https://www.riec.tohoku.ac.jp/~asada/" { "Kazuyuki Asada" } " and " a href="https://www.r-info.tohoku.ac.jp/en/246db5ad378b8edbec312635d74650b4.html" { "Kentaro Kikuchi" } "." }
+                    }
+                }
+            }
             section aria-labelledby="publications-heading" {
                 h2 id="publications-heading" { "Publications" }
                 (filterable_publications(publications))
@@ -1036,6 +1047,15 @@ mod tests {
         assert!(
             html.find("Research experience").unwrap() < html.find("Honors and awards").unwrap()
         );
+    }
+
+    #[test]
+    fn cv_places_teaching_experience_between_research_experience_and_publications() {
+        let html = cv(&[], &[]).into_string();
+        let teaching = html.find("Teaching experience").unwrap();
+        assert!(html.find("Research experience").unwrap() < teaching);
+        assert!(teaching < html.find("id=\"publications-heading\"").unwrap());
+        assert!(html.contains(r#"<span lang="ja">プログラミング演習B</span> (Programming B; F#)"#));
     }
 
     #[test]
