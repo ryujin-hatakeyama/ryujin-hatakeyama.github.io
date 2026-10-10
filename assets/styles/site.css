@@ -599,6 +599,8 @@ main { min-height: 64vh; }
 }
 
 .footer-privacy { flex-basis: 100%; color: var(--ink-faint); }
+.privacy-page { max-width: 46rem; }
+.privacy-page p { margin: 0 0 .9rem; font-size: 1.025rem; line-height: 1.68; }
 
 .page-intro {
   display: block;

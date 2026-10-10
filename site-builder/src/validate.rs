@@ -21,6 +21,7 @@ const REQUIRED_FILES: &[&str] = &[
     "miscellany/reading/index.html",
     "miscellany/notes/index.html",
     "miscellany/diary/index.html",
+    "privacy/index.html",
     "404.html",
     "rss.xml",
     "robots.txt",
@@ -446,10 +447,12 @@ fn validate_expected_content(root: &Path) -> Result<()> {
         "the academia category page is not titled Activities"
     );
 
-    let research_updates = fs::read_to_string(root.join("updates/research/index.html"))?;
+    // Activities is not shown as a label or offered as a filter.
+    let updates = fs::read_to_string(root.join("updates/index.html"))?;
     ensure!(
-        !research_updates.contains("AIE English Training Session"),
-        "the AIE English Training Session poster must be listed under Activities only"
+        !updates.contains("class=\"category-label\">Activities")
+            && !updates.contains("href=\"/updates/academia/\""),
+        "the Updates page labels or filters by Activities"
     );
 
     let sitemap = fs::read_to_string(root.join("sitemap-0.xml"))?;

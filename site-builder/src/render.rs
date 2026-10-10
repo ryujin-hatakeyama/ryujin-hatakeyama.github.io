@@ -187,6 +187,19 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
             diary_page(content.miscellany()),
         ),
         page(
+            "privacy/index.html",
+            "/privacy/",
+            true,
+            PageMetadata {
+                title: "Privacy",
+                description: "How this site counts visits.",
+                current_path: "/privacy/",
+                noindex: false,
+                article: false,
+            },
+            privacy(),
+        ),
+        page(
             "404.html",
             "/404/",
             false,
@@ -429,11 +442,7 @@ fn footer() -> Markup {
                 "Last updated "
                 time datetime=(LAST_UPDATED.format("%Y-%m-%d")) { (LAST_UPDATED.format("%-d %B %Y")) }
             }
-            p.footer-privacy {
-                "Aggregate, cookie-free visit statistics are collected with "
-                a href="https://www.goatcounter.com/" { "GoatCounter" }
-                "."
-            }
+            p.footer-privacy { a href="/privacy/" { "Privacy" } }
         }
     }
 }
@@ -801,7 +810,9 @@ fn upcoming_list(updates: &[&Update], compact: bool) -> Markup {
                         div.update-meta {
                             (event_dates(update))
                             span.kind-label { (update.kind.label()) }
-                            span.category-label { (category_labels(update)) }
+                            @if let Some(label) = visible_category_labels(update) {
+                                span.category-label { (label) }
+                            }
                         }
                         div.update-copy {
                             h3 { (update_title(update, true)) }
@@ -880,13 +891,18 @@ fn update_summary(summary: &str) -> Markup {
     }
 }
 
-fn category_labels(update: &Update) -> String {
-    update
+/// The category labels shown on an entry. Activities (the `academia`
+/// category) is the default context of most entries and is not labelled, so
+/// only explicit categories such as Research appear; an entry with none shows
+/// no label at all.
+fn visible_category_labels(update: &Update) -> Option<String> {
+    let labels: Vec<_> = update
         .categories
         .iter()
+        .filter(|category| category.is_labelled())
         .map(|category| category.label())
-        .collect::<Vec<_>>()
-        .join(" · ")
+        .collect();
+    (!labels.is_empty()).then(|| labels.join(" · "))
 }
 
 fn page_intro(title: &str) -> Markup {
@@ -897,7 +913,9 @@ fn update_filters(active: Option<Category>) -> Markup {
     html! {
         nav.update-filters aria-label="Update categories" {
             (filter_link("/updates/", "All", active.is_none()))
-            @for category in Category::ALL {
+            // Activities has no filter of its own; /updates/academia/ is still
+            // generated so that existing links keep working.
+            @for category in Category::ALL.into_iter().filter(|category| category.is_labelled()) {
                 (filter_link(
                     &format!("/updates/{}/", category.slug()),
                     category.label(),
@@ -935,7 +953,9 @@ fn update_list(updates: &[&Update], compact: bool) -> Markup {
                             span.kind-label { (update.kind.label()) }
                             // Categories are plain, muted metadata rather than
                             // links; the category filters provide navigation.
-                            span.category-label { (category_labels(update)) }
+                            @if let Some(label) = visible_category_labels(update) {
+                                span.category-label { (label) }
+                            }
                         }
                         div.update-copy {
                             h3 { (update_title(update, true)) }
@@ -964,7 +984,9 @@ fn update_detail(update: &Update) -> Markup {
                 @if update.event_status == EventStatus::Planned {
                     div.detail-meta { dt { "Status" } dd { "Planned" } }
                 }
-                div.detail-meta { dt { "Categories" } dd { (category_labels(update)) } }
+                @if let Some(label) = visible_category_labels(update) {
+                    div.detail-meta { dt { "Categories" } dd { (label) } }
+                }
             }
             @if let Some(body) = &update.body { div.prose { p { (&body.en) } } }
             (update_links(update, true, false))
@@ -1351,6 +1373,22 @@ fn diary_entry(entry: &ValidatedDiaryEntry, offered: &[DisplayLanguage]) -> Mark
                 }
             }
             (article_passages(entry.passages(), 3, offered))
+        }
+    }
+}
+
+/// What the site's analytics actually do: GoatCounter, loaded on every page
+/// and counting only on the production hostname (see `analytics`).
+fn privacy() -> Markup {
+    html! {
+        header.plain-page-header { h1 { "Privacy" } }
+        div.privacy-page {
+            p { "This site uses GoatCounter for aggregate visit statistics. GoatCounter does not use tracking cookies." }
+            p {
+                "For what it collects and how, see GoatCounter's "
+                a href="https://www.goatcounter.com/help/privacy" { "privacy policy" }
+                "."
+            }
         }
     }
 }
@@ -1948,21 +1986,14 @@ mod tests {
         const LLAL_PAGE: &str = "https://sites.google.com/view/llal-at-gsis/meetings/llalgsis-13";
         let aie = update_from_source("2026-10-aie-english-training-poster.json");
         let llal = update_from_source("2026-03-llal-gsis-13.json");
-        for (update, title, text, url) in [
+        for (update, text, url) in [
             (
                 &aie,
-                "Presented at Effective Presentation & Communication in English",
                 "Effective Presentation & Communication in English",
                 AIE_PDF,
             ),
-            (
-                &llal,
-                "Attendance at LLAL@GSIS (XIII)",
-                "LLAL@GSIS (XIII)",
-                LLAL_PAGE,
-            ),
+            (&llal, "LLAL@GSIS (XIII)", LLAL_PAGE),
         ] {
-            assert_eq!(update.title.en, title);
             let link = update.title_link.as_ref().unwrap();
             assert_eq!((link.text.as_str(), link.url.as_str()), (text, url));
             assert!(update.links.is_empty(), "{}", update.id);
@@ -1976,11 +2007,9 @@ mod tests {
             "Attended LLAL@GSIS (XIII), a workshop on nonclassical and philosophical logic at Tohoku University."
         );
 
-        let aie_heading = format!(
-            r#"<h3>Presented at <a href="{AIE_PDF}">Effective Presentation &amp; Communication in English</a></h3>"#
-        );
-        let llal_heading =
-            format!(r#"<h3>Attendance at <a href="{LLAL_PAGE}">LLAL@GSIS (XIII)</a></h3>"#);
+        let aie_heading = linked_heading(&aie);
+        let llal_heading = linked_heading(&llal);
+        let titles = [escape_xml(&aie.title.en), escape_xml(&llal.title.en)];
         let updates = [aie, llal];
         let refs: Vec<_> = updates.iter().collect();
         let views = [
@@ -2018,10 +2047,9 @@ mod tests {
             assert_no_nested_anchors(html);
         }
         let feed = rss(&updates);
-        assert!(feed.contains(
-            "<item><title>Presented at Effective Presentation &amp; Communication in English</title>"
-        ));
-        assert!(feed.contains("<title>Attendance at LLAL@GSIS (XIII)</title>"));
+        for title in titles {
+            assert!(feed.contains(&format!("<item><title>{title}</title>")));
+        }
         assert!(!feed.contains("<a ") && !feed.contains("](") && !feed.contains("aie.tohoku"));
     }
 
@@ -2087,32 +2115,53 @@ mod tests {
         update
     }
 
+    /// Records whose titles link the event's name, with each official page.
     const LINKED_EVENTS: [(&str, &str); 6] = [
         (
             "2026-10-aie-english-training-poster.json",
-            r#"<h3>Presented at <a href="https://www.aie.tohoku.ac.jp/data/news/20261009_english.pdf">Effective Presentation &amp; Communication in English</a></h3>"#,
+            "https://www.aie.tohoku.ac.jp/data/news/20261009_english.pdf",
         ),
         (
             "2026-03-llal-gsis-13.json",
-            r#"<h3>Attendance at <a href="https://sites.google.com/view/llal-at-gsis/meetings/llalgsis-13">LLAL@GSIS (XIII)</a></h3>"#,
+            "https://sites.google.com/view/llal-at-gsis/meetings/llalgsis-13",
         ),
         (
             "2026-10-graham-priest-welcome.json",
-            r#"<h3>Planned attendance at the <a href="https://sites.google.com/view/welcome-graham/">workshop welcoming Graham Priest to Sendai</a></h3>"#,
+            "https://sites.google.com/view/welcome-graham/",
         ),
         (
             "2026-10-wakate-no-kai.json",
-            r#"<h3>Planned attendance at <a href="https://sites.google.com/view/wakatenokai2026/" lang="ja">数学基礎論若手の会2026</a></h3>"#,
+            "https://sites.google.com/view/wakatenokai2026/",
         ),
         (
             "2026-09-ppl-summer-school.json",
-            r#"<h3>Attendance at <a href="https://jssst-ppl.org/wiki/ss2026">PPL Summer School 2026</a></h3>"#,
+            "https://jssst-ppl.org/wiki/ss2026",
         ),
         (
             "2026-09-jssst-2026-presentation.json",
-            r#"<h3>Oral presentation at <a href="https://jssst2026.wordpress.com/">the 43rd JSSST Annual Conference</a></h3>"#,
+            "https://jssst2026.wordpress.com/",
         ),
     ];
+
+    /// The heading a record's title renders as: the event's name, and only
+    /// that, linked to its page; the rest of the title plain, escaped text.
+    /// Built from the record itself, so titles can be reworded freely.
+    fn linked_heading(update: &crate::model::Update) -> String {
+        let link = update.title_link.as_ref().unwrap();
+        let (before, after) = link.split(&update.title.en).unwrap();
+        let escape = |text: &str| maud::html! { (text) }.into_string();
+        let lang = link
+            .lang
+            .map(|lang| format!(r#" lang="{}""#, lang.code()))
+            .unwrap_or_default();
+        format!(
+            r#"<h3>{}<a href="{}"{lang}>{}</a>{}</h3>"#,
+            escape(before),
+            link.url,
+            escape(&link.text),
+            escape(after)
+        )
+    }
 
     /// Fails if any anchor opens before the previous one has closed.
     fn assert_no_nested_anchors(html: &str) {
@@ -2193,9 +2242,84 @@ mod tests {
     }
 
     #[test]
-    fn footer_discloses_cookie_free_aggregate_statistics() {
+    fn only_explicit_categories_are_labelled_and_activities_has_no_filter() {
+        // A title saying "Presented" does not make an entry research; only
+        // its category does.
+        let mut activity = test_update_in("activity", "2026-09-01", "", "completed", "academia");
+        activity.title.en = "Presented at a symposium".to_owned();
+        let research = test_update_in("talk", "2026-09-02", "", "completed", "research");
+        let mut both = test_update_in("poster", "2026-09-03", "", "completed", "academia");
+        both.categories.push(Category::Research);
+        let refs = [&activity, &research, &both];
+        let pages = [
+            updates_page_refs(&refs, None).into_string(),
+            update_list(&refs, true).into_string(),
+        ];
+        for html in &pages {
+            let entry = |title: &str| {
+                let start = html.find(&format!(">{title}<")).unwrap();
+                let meta = html[..start].rfind(r#"<div class="update-meta">"#).unwrap();
+                html[meta..start].to_owned()
+            };
+            assert!(!entry(&activity.title.en).contains("category-label"));
+            for labelled in [&research, &both] {
+                assert!(
+                    entry(&labelled.title.en)
+                        .contains(r#"<span class="category-label">Research</span>"#)
+                );
+            }
+            assert!(!html.contains("Activities") && !html.contains(r#"category-label"></span>"#));
+        }
+        let filters = &pages[0][..pages[0].find("</nav>").unwrap()];
+        assert!(filters.contains(r#"href="/updates/research/""#));
+        assert!(!filters.contains("/updates/academia/"));
+        // The Activities page remains for existing links, under its title.
+        let academia =
+            updates_page_refs(&[&activity, &both], Some(Category::Academia)).into_string();
+        assert!(academia.contains("<h1>Activities</h1>"));
+        assert!(!academia.contains(r#"aria-current="page""#));
+        // A detail page has no empty Categories row.
+        let mut detailed = activity.clone();
+        detailed.detail = true;
+        assert!(
+            !update_detail(&detailed)
+                .into_string()
+                .contains("Categories")
+        );
+    }
+
+    #[test]
+    fn footer_links_to_the_privacy_page_after_the_existing_lines() {
         let html = footer().into_string();
-        assert!(html.contains(r#"<p class="footer-privacy">Aggregate, cookie-free visit statistics are collected with <a href="https://www.goatcounter.com/">GoatCounter</a>.</p>"#));
+        let privacy = html
+            .find(r#"<p class="footer-privacy"><a href="/privacy/">Privacy</a></p>"#)
+            .unwrap();
+        assert!(html.find("© 2026 Ryujin Hatakeyama").unwrap() < privacy);
+        assert!(html.find("Last updated <time").unwrap() < privacy);
+        assert!(!html.contains("goatcounter.com"));
+    }
+
+    #[test]
+    fn privacy_page_is_a_short_ordinary_page_linking_goatcounter() {
+        let content = crate::content::ValidatedSiteContent::with_miscellany(
+            crate::content::Miscellany::default(),
+        );
+        let page = super::pages(&content)
+            .into_iter()
+            .find(|page| page.output_path == "privacy/index.html")
+            .unwrap();
+        assert_eq!(page.public_path, "/privacy/");
+        assert!(page.include_in_sitemap);
+        let html = &page.html;
+        assert!(html.contains("<title>Privacy — Ryujin Hatakeyama</title>"));
+        assert!(html.contains(
+            r#"<link rel="canonical" href="https://ryujin-hatakeyama.github.io/privacy/">"#
+        ));
+        let main = &html[html.find("<main").unwrap()..html.find("</main>").unwrap()];
+        assert_eq!(main.matches("<h1>Privacy</h1>").count(), 1);
+        assert!(main.contains(r#"<a href="https://www.goatcounter.com/help/privacy">"#));
+        // Not a primary section.
+        assert!(!header("/privacy/").into_string().contains("/privacy/"));
     }
 
     #[test]
@@ -2259,26 +2383,57 @@ mod tests {
             .copied()
             .filter(|u| u.categories.contains(&Category::Academia))
             .collect();
+        let research_page = updates_page_refs(&research, Some(Category::Research)).into_string();
+        let academia_page = updates_page_refs(&academia, Some(Category::Academia)).into_string();
         let pages = [
             home(&fixture_home(), &updates).into_string(),
             updates_page_refs(&refs, None).into_string(),
-            updates_page_refs(&research, Some(Category::Research)).into_string()
-                + &updates_page_refs(&academia, Some(Category::Academia)).into_string(),
+            research_page.clone(),
+            academia_page.clone(),
         ];
-        for page in &pages {
-            for (file, heading) in LINKED_EVENTS {
-                assert_eq!(page.matches(heading).count(), 1, "{file}");
+        for (update, (file, url)) in updates.iter().zip(LINKED_EVENTS) {
+            assert_eq!(update.title_link.as_ref().unwrap().url, url, "{file}");
+        }
+        // Each record is listed once on the homepage and the full page, and
+        // once on the page of each of its categories.
+        for update in &updates {
+            let heading = linked_heading(update);
+            for (category, page) in [
+                (Category::Research, &research_page),
+                (Category::Academia, &academia_page),
+            ] {
+                let expected = usize::from(update.categories.contains(&category));
+                assert_eq!(page.matches(&heading).count(), expected, "{}", update.id);
             }
+        }
+        for page in &pages[..2] {
+            for update in &updates {
+                assert_eq!(
+                    page.matches(&linked_heading(update)).count(),
+                    1,
+                    "{}",
+                    update.id
+                );
+            }
+        }
+        for page in &pages {
             assert_no_nested_anchors(page);
             assert!(
                 !page.contains("サマースクール")
                     && !page.contains("日本ソフトウェア科学会第43回大会")
             );
         }
-        // Only the event name is linked: the activity phrase stays text.
-        for (_, heading) in LINKED_EVENTS {
-            let before_link = &heading[..heading.find("<a ").unwrap()];
-            assert!(!before_link.contains("href"));
+        // Only the event name is linked: the activity phrase stays text, and
+        // the title has exactly one link.
+        for update in &updates {
+            let link = update.title_link.as_ref().unwrap();
+            let (before, after) = link.split(&update.title.en).unwrap();
+            assert!(
+                !before.trim().is_empty() || !after.trim().is_empty(),
+                "{}",
+                update.id
+            );
+            assert_eq!(linked_heading(update).matches("<a ").count(), 1);
         }
         // Each primary resource is linked once, from the title: the records
         // no longer repeat it as a resource link. The distinct JSSST program
@@ -2376,17 +2531,16 @@ mod tests {
             .chain([update_from_source("2026-01-aie-study-visit.json")])
             .collect();
         let feed = rss(&updates);
-        assert!(feed.contains("<item><title>Planned attendance at 数学基礎論若手の会2026</title>"));
-        assert!(feed.contains("<title>Attendance at PPL Summer School 2026</title>"));
-        assert!(feed.contains(
-            "<title>Planned attendance at the workshop welcoming Graham Priest to Sendai</title>"
-        ));
+        // Each item carries its record's whole title as plain text.
+        for update in &updates {
+            assert!(feed.contains(&format!(
+                "<item><title>{}</title>",
+                escape_xml(&update.title.en)
+            )));
+        }
         assert!(feed.contains(
             "<description>Attended PPL Summer School 2026, a summer school on quantum program compilation.</description>"
         ));
-        assert!(
-            feed.contains("<title>Oral presentation at the 43rd JSSST Annual Conference</title>")
-        );
         for update in &updates {
             let url = format!(
                 "https://ryujin-hatakeyama.github.io/updates/#update-{}",
@@ -2437,7 +2591,11 @@ mod tests {
             );
         }
         assert!(!html.contains("]("));
-        assert!(html.contains("<h3>AIE study visit to Seattle and Boise</h3>"));
+        // The title is plain text: the institutions are linked in the summary.
+        assert!(html.contains(&format!(
+            "<h3>{}</h3>",
+            maud::html! { (update.title.en) }.into_string()
+        )));
         let summary = &html[html.find("<p>Selected").unwrap()..];
         let summary = &summary[..summary.find("</p>").unwrap()];
         assert_eq!(summary.matches("<a ").count(), 6);

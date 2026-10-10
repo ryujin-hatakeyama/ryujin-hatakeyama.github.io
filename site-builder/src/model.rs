@@ -602,6 +602,13 @@ impl Category {
             Self::Writing => "Writing",
         }
     }
+
+    /// Whether entries show this category as a label and the Updates page
+    /// offers it as a filter. Activities is the default context of most
+    /// entries, so it is neither; its page and feed category remain.
+    pub const fn is_labelled(self) -> bool {
+        !matches!(self, Self::Academia)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
