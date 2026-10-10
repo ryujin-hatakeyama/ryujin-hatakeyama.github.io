@@ -414,6 +414,114 @@ pub fn summary_segments(summary: &str) -> Vec<SummarySegment<'_>> {
     segments
 }
 
+/// The homepage source file, `content/home.json`: one string per biography
+/// paragraph, in order. Strings may contain inline links written as
+/// `[text](target)`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HomeSource {
+    pub bio: Vec<String>,
+}
+
+/// A paragraph of prose: a sequence of plain text and links.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Paragraph(Vec<Inline>);
+
+impl Paragraph {
+    pub fn inlines(&self) -> &[Inline] {
+        &self.0
+    }
+
+    /// Parses an authored paragraph strictly: every `[` must open a complete
+    /// `[text](target)` link with a valid target, and a literal `[`, `]`, or
+    /// `\` is written `\[`, `\]`, or `\\`. Malformed markup is an error, never
+    /// silently shown as text.
+    pub fn parse(source: &str) -> Result<Self> {
+        ensure!(!source.trim().is_empty(), "paragraph must not be empty");
+        let mut inlines = Vec::new();
+        let mut text = String::new();
+        let mut rest = source;
+        while let Some(character) = rest.chars().next() {
+            let at = source.len() - rest.len();
+            match character {
+                '\\' => match rest[1..].chars().next() {
+                    Some(escaped @ ('[' | ']' | '\\')) => {
+                        text.push(escaped);
+                        rest = &rest[2..];
+                    }
+                    _ => bail!(
+                        "stray backslash at byte {at}; write \\[, \\], or \\\\ for a literal character"
+                    ),
+                },
+                '[' => {
+                    let (label, after) = rest[1..].split_once("](").with_context(|| {
+                        format!("unclosed link at byte {at}: expected [text](target)")
+                    })?;
+                    ensure!(
+                        !label.contains(['[', ']', '\\']),
+                        "malformed link at byte {at}: link text must not contain brackets or backslashes"
+                    );
+                    ensure!(!label.trim().is_empty(), "empty link text at byte {at}");
+                    let (target, after) = after
+                        .split_once(')')
+                        .with_context(|| format!("unclosed link target at byte {at}"))?;
+                    let target = LinkTarget::parse(target)
+                        .with_context(|| format!("invalid link target {target:?} at byte {at}"))?;
+                    if !text.is_empty() {
+                        inlines.push(Inline::Text(std::mem::take(&mut text)));
+                    }
+                    inlines.push(Inline::Link {
+                        text: label.to_owned(),
+                        target,
+                    });
+                    rest = after;
+                }
+                ']' => bail!("unmatched ] at byte {at}; write \\] for a literal bracket"),
+                other => {
+                    text.push(other);
+                    rest = &rest[other.len_utf8()..];
+                }
+            }
+        }
+        if !text.is_empty() {
+            inlines.push(Inline::Text(text));
+        }
+        Ok(Self(inlines))
+    }
+}
+
+/// Inline content: plain text, or a link whose text is plain text.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Inline {
+    Text(String),
+    Link { text: String, target: LinkTarget },
+}
+
+/// A link destination that has been checked: an `https://` URL with a host, or
+/// a site-local absolute path such as `/miscellany/diary/`. It can only be
+/// obtained through [`LinkTarget::parse`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LinkTarget(String);
+
+impl LinkTarget {
+    pub fn parse(value: &str) -> Result<Self> {
+        validate_url_characters(value)?;
+        let https = value
+            .get(..8)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"))
+            && is_http_url(value);
+        ensure!(
+            https || is_safe_root_relative(value),
+            "link target must be an https:// URL or a site-local path beginning with /"
+        );
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// The summary with link markup removed, for meta descriptions and RSS.
 pub fn summary_plain_text(summary: &str) -> String {
     summary_segments(summary)
@@ -714,10 +822,13 @@ impl ReadingList {
     }
 }
 
-/// One work in the reading record. The title is the original title, kept as
-/// written; `lang` marks the language of the title and author's name, and
-/// `noteLang` that of the personal note, when either differs from English.
-/// The author is optional because some works are anonymous.
+/// One work in the reading record. The bibliographic fields describe the
+/// work itself: the title is the original title, kept as written, and `lang`
+/// marks the language of the title and the author's name. The optional
+/// commentary is the author's own writing about the work, separate from the
+/// work's language: either one `note` (in English unless `noteLang` says
+/// otherwise) or a `notes` map from passage language to text. The author is
+/// optional because some works are anonymous.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReadingItem {
@@ -725,8 +836,50 @@ pub struct ReadingItem {
     pub title: String,
     pub lang: Option<LanguageTag>,
     pub url: Option<String>,
-    pub note: Option<String>,
-    pub note_lang: Option<LanguageTag>,
+    note: Option<String>,
+    note_lang: Option<PassageLanguage>,
+    notes: Option<CommentMap>,
+}
+
+/// The `notes` map of a reading item, from passage language to text, in
+/// source order. Unlike a plain map, it rejects a language given twice
+/// instead of silently keeping only the last text.
+#[derive(Clone, Debug)]
+struct CommentMap(Vec<(String, String)>);
+
+impl<'de> Deserialize<'de> for CommentMap {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = CommentMap;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a map from passage language to text")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<CommentMap, A::Error> {
+                let mut entries: Vec<(String, String)> = Vec::new();
+                while let Some((language, text)) = map.next_entry::<String, String>()? {
+                    if entries.iter().any(|(seen, _)| *seen == language) {
+                        return Err(serde::de::Error::custom(format!(
+                            "duplicate entry with key {language:?} in notes"
+                        )));
+                    }
+                    entries.push((language, text));
+                }
+                Ok(CommentMap(entries))
+            }
+        }
+        deserializer.deserialize_map(Visitor)
+    }
+}
+
+/// One passage of commentary on a reading item.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReadingComment {
+    pub language: PassageLanguage,
+    pub text: String,
 }
 
 impl ReadingItem {
@@ -741,63 +894,197 @@ impl ReadingItem {
                 "{source}: author must not be empty when given"
             );
         }
-        if let Some(note) = &self.note {
-            ensure!(
-                !note.trim().is_empty(),
-                "{source}: note must not be empty when given"
-            );
-        }
         ensure!(
             self.note_lang.is_none() || self.note.is_some(),
             "{source}: noteLang requires a note"
         );
-        for tag in [&self.lang, &self.note_lang].into_iter().flatten() {
-            tag.validate()
-                .with_context(|| format!("{source}: invalid language tag {:?}", tag.0))?;
-        }
+        ensure!(
+            self.note.is_none() || self.notes.is_none(),
+            "{source}: use either note or notes, not both"
+        );
         if let Some(url) = &self.url {
             validate_http_url(url).with_context(|| format!("{source}: invalid url {url:?}"))?;
         }
-        Ok(())
+        self.comments(source).map(|_| ())
+    }
+
+    /// The commentary as passages, English first and mixed passages last.
+    /// Fails on empty text or an unsupported passage language.
+    pub fn comments(&self, source: &str) -> Result<Vec<ReadingComment>> {
+        let mut comments = Vec::new();
+        if let Some(note) = &self.note {
+            comments.push(ReadingComment {
+                language: self
+                    .note_lang
+                    .unwrap_or(PassageLanguage::Designated(DisplayLanguage::En)),
+                text: note.clone(),
+            });
+        }
+        for (language, text) in self.notes.iter().flat_map(|notes| &notes.0) {
+            comments.push(ReadingComment {
+                language: PassageLanguage::parse(language)
+                    .with_context(|| format!("{source}: invalid notes language {language:?}"))?,
+                text: text.clone(),
+            });
+        }
+        for comment in &comments {
+            ensure!(
+                !comment.text.trim().is_empty(),
+                "{source}: {} note must not be empty",
+                comment.language.code()
+            );
+        }
+        comments.sort_by_key(|comment| comment.language);
+        Ok(comments)
+    }
+}
+
+/// A language in which separately authored passages may be written and
+/// selected for display. Adding a language means adding a variant here with
+/// its names; content and rendering pick it up from there. The declaration
+/// order is the display order in the "All" view.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(rename_all = "lowercase")]
+pub enum DisplayLanguage {
+    En,
+    Ja,
+    De,
+}
+
+impl DisplayLanguage {
+    pub const ALL: [Self; 3] = [Self::En, Self::Ja, Self::De];
+
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::Ja => "ja",
+            Self::De => "de",
+        }
+    }
+
+    /// The language's name for itself, used on the language control.
+    pub const fn endonym(self) -> &'static str {
+        match self {
+            Self::En => "English",
+            Self::Ja => "日本語",
+            Self::De => "Deutsch",
+        }
+    }
+
+    /// The language's English name, used in the site's English notices.
+    pub const fn english_name(self) -> &'static str {
+        match self {
+            Self::En => "English",
+            Self::Ja => "Japanese",
+            Self::De => "German",
+        }
+    }
+}
+
+/// The language of a passage as a whole. A designated passage is written in
+/// one display language and can be shown or hidden by the reader's language
+/// choice. A mixed passage deliberately moves between languages; it is never
+/// split or hidden, and carries no passage-wide `lang` attribute. Languages of
+/// individual phrases inside any passage are marked inline instead and never
+/// affect selection.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(try_from = "String")]
+pub enum PassageLanguage {
+    Designated(DisplayLanguage),
+    Mixed,
+}
+
+impl PassageLanguage {
+    pub fn parse(value: &str) -> Result<Self> {
+        if value == "mixed" {
+            return Ok(Self::Mixed);
+        }
+        DisplayLanguage::ALL
+            .into_iter()
+            .find(|language| language.code() == value)
+            .map(Self::Designated)
+            .with_context(|| {
+                let supported: Vec<_> = DisplayLanguage::ALL.iter().map(|l| l.code()).collect();
+                format!(
+                    "passage language {value:?} is not supported (expected {} or mixed)",
+                    supported.join(", ")
+                )
+            })
+    }
+
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Designated(language) => language.code(),
+            Self::Mixed => "mixed",
+        }
+    }
+
+    pub const fn designated(self) -> Option<DisplayLanguage> {
+        match self {
+            Self::Designated(language) => Some(language),
+            Self::Mixed => None,
+        }
+    }
+}
+
+impl TryFrom<String> for PassageLanguage {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        Self::parse(&value)
     }
 }
 
 /// A BCP 47 language tag such as `ja`, `de`, or `zh-Hant`, checked for shape
-/// only: a 2–3 letter lowercase primary language, then alphanumeric subtags.
+/// when it is read: a 2–3 letter lowercase primary language, then
+/// alphanumeric subtags. Used for bibliographic languages and inline phrases,
+/// which may be any language.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(transparent)]
-pub struct LanguageTag(pub String);
+#[serde(try_from = "String")]
+pub struct LanguageTag(String);
 
 impl LanguageTag {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    fn validate(&self) -> Result<()> {
-        let mut parts = self.0.split('-');
+    pub fn parse(value: &str) -> Result<Self> {
+        let mut parts = value.split('-');
         let primary = parts.next().unwrap_or_default();
         ensure!(
             (2..=3).contains(&primary.len()) && primary.bytes().all(|b| b.is_ascii_lowercase()),
-            "language tag must begin with a 2–3 letter lowercase language code"
+            "language tag {value:?} must begin with a 2–3 letter lowercase language code"
         );
         ensure!(
             parts.all(|part| (1..=8).contains(&part.len())
                 && part.bytes().all(|b| b.is_ascii_alphanumeric())),
-            "language subtags must be 1–8 ASCII letters or digits"
+            "language tag {value:?} has a subtag that is not 1–8 ASCII letters or digits"
         );
-        Ok(())
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
-/// A study note, published at `/miscellany/notes/<slug>/`. Notes carry no
-/// date; the index follows the optional editorial `order` (lowest first),
-/// then the slug.
+impl TryFrom<String> for LanguageTag {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        Self::parse(&value)
+    }
+}
+
+/// A study note, published at `/miscellany/notes/<slug>/`. This file holds the
+/// note's identity and shared metadata and its first passage, written in
+/// `lang`. Further passages live in companion files (see
+/// [`PassageFrontMatter`]). Notes carry no date; the index follows the
+/// optional editorial `order` (lowest first), then the slug.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NoteFrontMatter {
     pub slug: String,
     pub title: String,
-    pub lang: Language,
+    /// The language of the title, when it is not that of this file's passage.
+    pub title_lang: Option<LanguageTag>,
+    pub lang: PassageLanguage,
     pub description: Option<String>,
     pub order: Option<u32>,
     #[serde(default)]
@@ -821,18 +1108,24 @@ impl NoteFrontMatter {
         }
         Ok(())
     }
+
+    /// The language of the title: stated, or that of the first passage.
+    pub fn title_language(&self) -> Option<&str> {
+        title_language(self.title_lang.as_ref(), self.lang)
+    }
 }
 
-/// A diary entry, shown in full on `/miscellany/diary/`. Its date is the
-/// date the author gives the entry. The optional `slug` distinguishes entries
-/// that share a date, and the optional `title` is shown when given.
+/// A diary entry, shown in full on `/miscellany/diary/`. This file holds the
+/// entry's identity (its date and optional slug), its optional title, and its
+/// first passage, written in `lang`. Further passages live in companion files.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiaryFrontMatter {
     pub date: NaiveDate,
     pub slug: Option<String>,
     pub title: Option<String>,
-    pub lang: Language,
+    pub title_lang: Option<LanguageTag>,
+    pub lang: PassageLanguage,
     #[serde(default)]
     pub math: bool,
     #[serde(default = "default_true")]
@@ -853,14 +1146,62 @@ impl DiaryFrontMatter {
         Ok(())
     }
 
-    /// The entry's fragment identifier on the Diary page, derived only from
-    /// its stated date and slug so that links stay stable as entries are
-    /// added.
-    pub fn anchor(&self) -> String {
+    /// The entry's identity: its stated date, then its slug when it has one,
+    /// as in `2026-10-10` or `2026-10-10-evening`. Companion passages name
+    /// their entry by this identity.
+    pub fn id(&self) -> String {
         match &self.slug {
-            Some(slug) => format!("diary-{}-{slug}", self.date.format("%Y-%m-%d")),
-            None => format!("diary-{}", self.date.format("%Y-%m-%d")),
+            Some(slug) => format!("{}-{slug}", self.date.format("%Y-%m-%d")),
+            None => self.date.format("%Y-%m-%d").to_string(),
         }
+    }
+
+    /// The entry's fragment identifier on the Diary page, derived only from
+    /// its identity so that links stay stable as entries are added.
+    pub fn anchor(&self) -> String {
+        format!("diary-{}", self.id())
+    }
+
+    pub fn title_language(&self) -> Option<&str> {
+        title_language(self.title_lang.as_ref(), self.lang)
+    }
+}
+
+fn title_language(stated: Option<&LanguageTag>, passage: PassageLanguage) -> Option<&str> {
+    stated
+        .map(LanguageTag::as_str)
+        .or_else(|| passage.designated().map(DisplayLanguage::code))
+}
+
+/// A further passage of a note or diary entry, in its own file. It names its
+/// article explicitly with `of` (a note's slug, or a diary entry's identity
+/// such as `2026-10-10`) and carries only what belongs to the passage: its
+/// language, an optional title of its own, and whether it uses math. Shared
+/// metadata such as dates, slugs, ordering, and draft status belong to the
+/// article and are rejected here.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PassageFrontMatter {
+    pub of: String,
+    pub lang: PassageLanguage,
+    pub title: Option<String>,
+    #[serde(default)]
+    pub math: bool,
+}
+
+impl PassageFrontMatter {
+    pub fn validate(&self, source: &str) -> Result<()> {
+        ensure!(
+            !self.of.trim().is_empty(),
+            "{source}: of must name the article"
+        );
+        if let Some(title) = &self.title {
+            ensure!(
+                !title.trim().is_empty(),
+                "{source}: title must not be empty when given"
+            );
+        }
+        Ok(())
     }
 }
 
@@ -950,9 +1291,79 @@ fn is_safe_root_relative(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        Category, EventKind, EventStatus, Language, Link, LinkType, Publication, SummarySegment,
-        Update, summary_plain_text, summary_segments, validate_markdown_url, validate_slug,
+        Category, EventKind, EventStatus, Inline, Language, Link, LinkTarget, LinkType, Paragraph,
+        Publication, SummarySegment, Update, summary_plain_text, summary_segments,
+        validate_markdown_url, validate_slug,
     };
+
+    fn link(text: &str, target: &str) -> Inline {
+        Inline::Link {
+            text: text.to_owned(),
+            target: LinkTarget::parse(target).unwrap(),
+        }
+    }
+
+    fn text(value: &str) -> Inline {
+        Inline::Text(value.to_owned())
+    }
+
+    #[test]
+    fn paragraphs_parse_into_text_and_checked_links() {
+        let parsed = Paragraph::parse(
+            "Working with [Oleg Kiselyov](https://okmij.org/ftp/); see the [diary](/miscellany/diary/).",
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.inlines(),
+            [
+                text("Working with "),
+                link("Oleg Kiselyov", "https://okmij.org/ftp/"),
+                text("; see the "),
+                link("diary", "/miscellany/diary/"),
+                text("."),
+            ]
+        );
+        // Unicode, parentheses outside links, and escapes stay text.
+        assert_eq!(
+            Paragraph::parse("“bugs” :-) (XIII) \\[x\\] \\\\")
+                .unwrap()
+                .inlines(),
+            [text("“bugs” :-) (XIII) [x] \\")]
+        );
+        assert_eq!(
+            Paragraph::parse("[Only a link](/cv/)").unwrap().inlines(),
+            [link("Only a link", "/cv/")]
+        );
+    }
+
+    #[test]
+    fn malformed_paragraphs_and_unsafe_targets_are_rejected() {
+        for (source, expected) in [
+            ("", "must not be empty"),
+            ("   ", "must not be empty"),
+            ("An [unclosed link", "unclosed link"),
+            ("A [link](https://example.org/", "unclosed link target"),
+            ("A [](https://example.org/) link", "empty link text"),
+            (
+                "A [nested [link]](https://example.org/)",
+                "must not contain brackets",
+            ),
+            ("A stray ] bracket", "unmatched ]"),
+            ("A [bracket] without a target", "unclosed link"),
+            ("A stray \\ backslash", "stray backslash"),
+            ("[x](javascript:alert(1))", "invalid link target"),
+            ("[x](http://example.org/)", "invalid link target"),
+            ("[x](//example.org/)", "invalid link target"),
+            ("[x](data:text/html,hi)", "invalid link target"),
+            ("[x](relative/path)", "invalid link target"),
+            ("[x](https:///no-host)", "invalid link target"),
+            ("[x](/a b)", "invalid link target"),
+            ("[x]()", "invalid link target"),
+        ] {
+            let error = format!("{:#}", Paragraph::parse(source).unwrap_err());
+            assert!(error.contains(expected), "{source:?}: {error}");
+        }
+    }
 
     fn publication(extra: &str) -> serde_json::Result<Publication> {
         serde_json::from_str(&format!(

@@ -4,12 +4,13 @@ use chrono::NaiveDate;
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 use crate::content::{
-    Miscellany, ValidatedDiaryEntry, ValidatedNote, ValidatedSiteContent, ValidatedWriting,
-    public_english_writings,
+    Miscellany, Passage, Passages, ValidatedDiaryEntry, ValidatedHome, ValidatedNote,
+    ValidatedSiteContent, ValidatedWriting, public_english_writings,
 };
 use crate::model::{
-    Category, EventStatus, Language, Link, Project, Publication, ReadingItem, SummarySegment,
-    Update, summary_plain_text, summary_segments,
+    Category, DisplayLanguage, EventStatus, Inline, Language, LanguageTag, Link, Paragraph,
+    PassageLanguage, Project, Publication, ReadingComment, SummarySegment, Update,
+    summary_plain_text, summary_segments,
 };
 
 const SITE_ORIGIN: &str = "https://ryujin-hatakeyama.github.io";
@@ -79,7 +80,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
                 noindex: false,
                 article: false,
             },
-            home(content.updates()),
+            home(content.home(), content.updates()),
         ),
         page(
             "cv/index.html",
@@ -144,7 +145,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
                 noindex: false,
                 article: false,
             },
-            miscellany_overview(),
+            miscellany_overview(content.miscellany()),
         ),
         page(
             "miscellany/reading/index.html",
@@ -157,7 +158,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
                 noindex: false,
                 article: false,
             },
-            reading_page(content.miscellany().reading()),
+            reading_page(content.miscellany()),
         ),
         page(
             "miscellany/notes/index.html",
@@ -263,7 +264,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
             &metadata.title,
             &description,
             &path,
-            note_detail(note),
+            note_detail(note, &content.miscellany().display_languages()),
         ));
     }
 
@@ -442,7 +443,7 @@ fn footer() -> Markup {
 const HOME_UPCOMING_LIMIT: usize = 3;
 const HOME_RECENT_LIMIT: usize = 5;
 
-fn home(updates: &[Update]) -> Markup {
+fn home(home: &ValidatedHome, updates: &[Update]) -> Markup {
     let refs: Vec<_> = updates.iter().collect();
     let (mut upcoming, mut recent) = split_upcoming(&refs);
     upcoming.truncate(HOME_UPCOMING_LIMIT);
@@ -471,23 +472,9 @@ fn home(updates: &[Update]) -> Markup {
                 }
             }
             div.home-bio-copy {
-                p.home-bio {
-                    "Hello! I'm Ryujin, a second-year master's student in the "
-                    a href="https://www.is.tohoku.ac.jp/en/laboratory/list_dept/" { "Department of Computer and Mathematical Sciences" }
-                    " at "
-                    a href="https://www.is.tohoku.ac.jp/en/" { "Tohoku University's Graduate School of Information Sciences" }
-                    ". I work in the "
-                    a href="https://www.is.tohoku.ac.jp/en/laboratory/list_dept/a11.html" { "Foundations of Software Science" }
-                    " group under the supervision of "
-                    a href="https://www.kb.ecei.tohoku.ac.jp/~sumii/" { "Professor Eijiro Sumii" }
-                    "."
+                @for paragraph in home.bio() {
+                    p.home-bio { (inline_content(paragraph)) }
                 }
-                p.home-bio {
-                    "My research is in programming language theory. I'm currently working with "
-                    a href="https://okmij.org/ftp/" { "Oleg Kiselyov" }
-                    " on compositional descriptions of probabilistic models and staged inference code generation."
-                }
-                p.home-bio { "My broader interests lie in modal and categorical logic, and in the conditions of intelligibility of formal reasoning." }
             }
             nav.home-links aria-label="Academic and contact links" {
                 ul.home-academic-links {
@@ -517,6 +504,19 @@ fn home(updates: &[Update]) -> Markup {
         // One link to the complete records, after both previews, instead of a
         // "read more" link on every entry.
         p.home-all-updates { a href="/updates/" { "All updates" } }
+    }
+}
+
+/// A validated paragraph as phrasing content. Text is escaped by Maud, and
+/// link targets have already been checked.
+fn inline_content(paragraph: &Paragraph) -> Markup {
+    html! {
+        @for inline in paragraph.inlines() {
+            @match inline {
+                Inline::Text(text) => (text),
+                Inline::Link { text, target } => a href=(target.as_str()) { (text) },
+            }
+        }
     }
 }
 
@@ -1066,9 +1066,16 @@ fn note_path(slug: &str) -> String {
     format!("/miscellany/notes/{slug}/")
 }
 
-fn miscellany_overview() -> Markup {
+/// The one editorial note about multilingual writing, shown on the overview
+/// only once some published entry has texts in more than one language.
+const MULTILINGUAL_NOTE: &str = "An entry may contain texts in different languages that are not necessarily translations of one another.";
+
+fn miscellany_overview(miscellany: &Miscellany) -> Markup {
     html! {
-        header.plain-page-header { h1 { "Miscellany" } }
+        header.plain-page-header {
+            h1 { "Miscellany" }
+            @if miscellany.has_multilingual_entry() { p { (MULTILINGUAL_NOTE) } }
+        }
         div.miscellany-overview {
             @for (href, label, description) in MISCELLANY_SECTIONS {
                 section.content-section {
@@ -1093,42 +1100,150 @@ fn miscellany_nav(current_path: &str) -> Markup {
     }
 }
 
-fn miscellany_section_header(path: &str, title: &str, description: &str) -> Markup {
+fn miscellany_section_header(
+    path: &str,
+    title: &str,
+    description: &str,
+    languages: &[DisplayLanguage],
+) -> Markup {
     html! {
         header.plain-page-header.miscellany-header {
             (miscellany_nav(path))
             h1 { (title) }
             p { (description) }
+            (language_filter(languages))
         }
     }
 }
 
-/// The reading record in the author's order. Titles and names are shown as
-/// written, marked with their language when it is not English.
-fn reading_page(items: &[ReadingItem]) -> Markup {
-    let (path, title, description) = MISCELLANY_SECTIONS[0];
+/// The reader's choice among the languages of separately authored passages:
+/// All, then each display language actually used, by its own name. It is
+/// rendered only when there is a choice to make, and stays hidden until the
+/// script enables it, so every passage is shown without JavaScript.
+fn language_filter(languages: &[DisplayLanguage]) -> Markup {
     html! {
-        (miscellany_section_header(path, title, description))
+        @if languages.len() > 1 {
+            div.language-filter role="group" aria-label="Language" hidden data-language-filter {
+                button type="button" data-language="all" aria-pressed="true" { "All" }
+                @for language in languages {
+                    button type="button" data-language=(language.code()) lang=(language.code()) aria-pressed="false" {
+                        (language.endonym())
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The passages of one article, which the language filter shows or hides
+/// together. When some offered language would hide every passage, a hidden
+/// notice names the languages of the text and offers to show it; the script
+/// reveals the notice only when the reader's choice does hide them all.
+/// Mixed passages are never hidden, so articles with one need no notice.
+fn passage_group(
+    designated: &[DisplayLanguage],
+    has_mixed: bool,
+    offered: &[DisplayLanguage],
+    passages: Markup,
+) -> Markup {
+    let can_be_emptied = offered.len() > 1
+        && !has_mixed
+        && offered
+            .iter()
+            .any(|language| !designated.contains(language));
+    html! {
+        div.passages data-passages {
+            (passages)
+            @if can_be_emptied { (language_notice(designated)) }
+        }
+    }
+}
+
+fn language_notice(languages: &[DisplayLanguage]) -> Markup {
+    let names: Vec<_> = languages.iter().map(|l| l.english_name()).collect();
+    let listed = match names.as_slice() {
+        [only] => (*only).to_owned(),
+        [first, second] => format!("{first} and {second}"),
+        [init @ .., last] => format!("{}, and {last}", init.join(", ")),
+        [] => String::new(),
+    };
+    let action = match languages {
+        [only] => format!("Read in {}", only.english_name()),
+        _ => "Show the text".to_owned(),
+    };
+    html! {
+        p.language-notice data-language-notice hidden {
+            "Written in " (listed) ". "
+            button type="button" data-language-reveal { (action) }
+        }
+    }
+}
+
+/// One separately authored passage of a note or diary entry. A designated
+/// passage carries its language; a mixed passage carries none of its own, so
+/// phrases inside it keep whatever languages are marked inline. A passage
+/// title, when given, is a heading at `title_level`.
+fn markdown_passage(passage: &Passage, title_level: u8) -> Markup {
+    let designated = passage.language().designated();
+    let class = if designated == Some(DisplayLanguage::Ja) {
+        "passage longform-ja"
+    } else {
+        "passage"
+    };
+    html! {
+        div class=(class) data-passage=(passage.language().code()) lang=[designated.map(DisplayLanguage::code)] {
+            @if let Some(title) = passage.title() {
+                @match title_level {
+                    2 => h2.passage-title { (title) },
+                    3 => h3.passage-title { (title) },
+                    _ => h4.passage-title { (title) },
+                }
+            }
+            div.prose.miscellany-prose { (PreEscaped(passage.rendered_body())) }
+        }
+    }
+}
+
+fn article_passages(passages: &Passages, title_level: u8, offered: &[DisplayLanguage]) -> Markup {
+    passage_group(
+        &passages.designated_languages(),
+        passages.has_mixed(),
+        offered,
+        html! { @for passage in passages.iter() { (markdown_passage(passage, title_level)) } },
+    )
+}
+
+/// The reading record in the author's order. Titles and names are shown as
+/// written, marked with their language when it is not English. The language
+/// filter applies to the author's commentary, never to the record itself.
+fn reading_page(miscellany: &Miscellany) -> Markup {
+    let (path, title, description) = MISCELLANY_SECTIONS[0];
+    let languages = miscellany.display_languages();
+    let items = miscellany.reading();
+    html! {
+        (miscellany_section_header(path, title, description, &languages))
         @if items.is_empty() {
             p.empty-state { "No entries yet." }
         } @else {
             ol.reading-list {
                 @for item in items {
+                    @let work = item.work();
+                    @let lang = work.lang.as_ref().map(LanguageTag::as_str);
                     li {
                         p.reading-title {
-                            cite lang=[item.lang.as_ref().map(|tag| tag.as_str())] {
-                                @if let Some(url) = &item.url {
-                                    a href=(url) { (&item.title) }
+                            cite lang=[lang] {
+                                @if let Some(url) = &work.url {
+                                    a href=(url) { (&work.title) }
                                 } @else {
-                                    (&item.title)
+                                    (&work.title)
                                 }
                             }
                         }
-                        @if let Some(author) = &item.author {
-                            p.reading-author lang=[item.lang.as_ref().map(|tag| tag.as_str())] { (author) }
+                        @if let Some(author) = &work.author {
+                            p.reading-author lang=[lang] { (author) }
                         }
-                        @if let Some(note) = &item.note {
-                            p.reading-note lang=[item.note_lang.as_ref().map(|tag| tag.as_str())] { (note) }
+                        @if !item.comments().is_empty() {
+                            (reading_comments(item.comments(), &languages))
                         }
                     }
                 }
@@ -1137,18 +1252,43 @@ fn reading_page(items: &[ReadingItem]) -> Markup {
     }
 }
 
+fn reading_comments(comments: &[ReadingComment], offered: &[DisplayLanguage]) -> Markup {
+    let designated: Vec<_> = comments
+        .iter()
+        .filter_map(|comment| comment.language.designated())
+        .collect();
+    let has_mixed = comments
+        .iter()
+        .any(|comment| comment.language == PassageLanguage::Mixed);
+    passage_group(
+        &designated,
+        has_mixed,
+        offered,
+        html! {
+            @for comment in comments {
+                p.reading-note data-passage=(comment.language.code())
+                    lang=[comment.language.designated().map(DisplayLanguage::code)] {
+                    (&comment.text)
+                }
+            }
+        },
+    )
+}
+
+/// Each logical note once, under its one title, whatever languages it is
+/// written in.
 fn notes_page(miscellany: &Miscellany) -> Markup {
     let (path, title, description) = MISCELLANY_SECTIONS[1];
     let notes: Vec<_> = miscellany.public_notes().collect();
     html! {
-        (miscellany_section_header(path, title, description))
+        (miscellany_section_header(path, title, description, &[]))
         @if notes.is_empty() {
             p.empty-state { "No notes yet." }
         } @else {
             ol.miscellany-list {
                 @for note in notes {
                     @let metadata = note.metadata();
-                    li lang=(metadata.lang.code()) {
+                    li lang=[metadata.title_language()] {
                         h2 { a href=(note_path(&metadata.slug)) { (&metadata.title) } }
                         @if let Some(description) = &metadata.description {
                             p { (description) }
@@ -1160,23 +1300,21 @@ fn notes_page(miscellany: &Miscellany) -> Markup {
     }
 }
 
-fn note_detail(note: &ValidatedNote) -> Markup {
+fn note_detail(note: &ValidatedNote, languages: &[DisplayLanguage]) -> Markup {
     let metadata = note.metadata();
-    let class = if metadata.lang == Language::Ja {
-        "miscellany-note longform-ja"
-    } else {
-        "miscellany-note"
-    };
     html! {
-        div.miscellany-header { (miscellany_nav(&note_path(&metadata.slug))) }
-        article class=(class) lang=(metadata.lang.code()) {
+        div.miscellany-header {
+            (miscellany_nav(&note_path(&metadata.slug)))
+            (language_filter(languages))
+        }
+        article.miscellany-note {
             header {
-                h1 { (&metadata.title) }
+                h1 lang=[metadata.title_language()] { (&metadata.title) }
                 @if let Some(description) = &metadata.description {
-                    p.summary { (description) }
+                    p.summary lang=[metadata.title_language()] { (description) }
                 }
             }
-            div.prose.miscellany-prose { (PreEscaped(note.rendered_body())) }
+            (article_passages(note.passages(), 2, languages))
         }
     }
 }
@@ -1185,39 +1323,34 @@ fn note_detail(note: &ValidatedNote) -> Markup {
 /// links to the entry's own anchor; a title, when given, follows it.
 fn diary_page(miscellany: &Miscellany) -> Markup {
     let (path, title, description) = MISCELLANY_SECTIONS[2];
+    let languages = miscellany.display_languages();
     let entries: Vec<_> = miscellany.public_diary().collect();
     html! {
-        (miscellany_section_header(path, title, description))
+        (miscellany_section_header(path, title, description, &languages))
         @if entries.is_empty() {
             p.empty-state { "No entries yet." }
         } @else {
             div.diary {
-                @for entry in entries { (diary_entry(entry)) }
+                @for entry in entries { (diary_entry(entry, &languages)) }
             }
         }
     }
 }
 
-fn diary_entry(entry: &ValidatedDiaryEntry) -> Markup {
+fn diary_entry(entry: &ValidatedDiaryEntry, offered: &[DisplayLanguage]) -> Markup {
     let metadata = entry.metadata();
     let anchor = metadata.anchor();
-    let lang = metadata.lang.code();
-    let class = if metadata.lang == Language::Ja {
-        "diary-entry longform-ja"
-    } else {
-        "diary-entry"
-    };
     html! {
-        article class=(class) id=(anchor) {
+        article.diary-entry id=(anchor) {
             h2 {
                 a.diary-date href=(format!("#{anchor}")) {
                     time datetime=(metadata.date.format("%Y-%m-%d")) { (metadata.date.format("%-d %B %Y")) }
                 }
                 @if let Some(title) = &metadata.title {
-                    span.diary-title lang=(lang) { (title) }
+                    span.diary-title lang=[metadata.title_language()] { (title) }
                 }
             }
-            div.prose.miscellany-prose lang=(lang) { (PreEscaped(entry.rendered_body())) }
+            (article_passages(entry.passages(), 3, offered))
         }
     }
 }
@@ -1312,8 +1445,80 @@ mod tests {
         format_date_range, header, home, publication_list, research, rss, update_detail,
         update_list, update_summary, updates_page_refs,
     };
+    use crate::content::ValidatedHome;
     use crate::model::{Category, EventStatus, Publication};
     use chrono::NaiveDate;
+
+    /// A small biography for tests that are not about its wording.
+    fn fixture_home() -> ValidatedHome {
+        ValidatedHome::from_json(r#"{"bio":["Fixture biography."]}"#).unwrap()
+    }
+
+    fn bio_section(html: &str) -> &str {
+        let start = html.find(r#"<div class="home-bio-copy">"#).unwrap();
+        &html[start..start + html[start..].find("</div>").unwrap()]
+    }
+
+    #[test]
+    fn biography_paragraphs_render_in_order_with_escaped_text_and_links() {
+        let home_content = ValidatedHome::from_json(
+            r#"{"bio":[
+                "First, with an [external link](https://example.org/a?b=1&c=2).",
+                "I keep a [diary](/miscellany/diary/) and enjoy noticing birds and “bugs” on my walks. :-)",
+                "Escaped <b>markup</b> & a literal \\[bracket\\]."
+            ]}"#,
+        )
+        .unwrap();
+        let html = home(&home_content, &[]).into_string();
+        assert_eq!(
+            bio_section(&html),
+            concat!(
+                r#"<div class="home-bio-copy">"#,
+                r#"<p class="home-bio">First, with an <a href="https://example.org/a?b=1&amp;c=2">external link</a>.</p>"#,
+                r#"<p class="home-bio">I keep a <a href="/miscellany/diary/">diary</a> and enjoy noticing birds and “bugs” on my walks. :-)</p>"#,
+                r#"<p class="home-bio">Escaped &lt;b&gt;markup&lt;/b&gt; &amp; a literal [bracket].</p>"#,
+            )
+        );
+        // The biography sits between the name and the contact links.
+        assert!(html.find("</h1>").unwrap() < html.find("home-bio-copy").unwrap());
+        assert!(html.find("home-bio-copy").unwrap() < html.find("home-links").unwrap());
+    }
+
+    /// The real biography renders one paragraph per JSON string, in order,
+    /// with every authored link. Only its structure is checked, so editing
+    /// the wording in content/home.json needs no change here.
+    #[test]
+    fn the_authored_biography_renders_one_paragraph_per_entry() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../content/home.json");
+        let source = std::fs::read_to_string(path).unwrap();
+        let raw: serde_json::Value = serde_json::from_str(&source).unwrap();
+        let home_content = ValidatedHome::from_json(&source).unwrap();
+        assert_eq!(
+            home_content.bio().len(),
+            raw["bio"].as_array().unwrap().len()
+        );
+        let html = home(&home_content, &[]).into_string();
+        let section = bio_section(&html);
+        assert_eq!(
+            section.matches(r#"<p class="home-bio">"#).count(),
+            home_content.bio().len()
+        );
+        let mut position = 0;
+        for paragraph in home_content.bio() {
+            for inline in paragraph.inlines() {
+                let expected = match inline {
+                    crate::model::Inline::Text(text) => maud::html! { (text) }.into_string(),
+                    crate::model::Inline::Link { text, target } => {
+                        maud::html! { a href=(target.as_str()) { (text) } }.into_string()
+                    }
+                };
+                let found = section[position..]
+                    .find(&expected)
+                    .unwrap_or_else(|| panic!("missing or out of order: {expected}"));
+                position += found + expected.len();
+            }
+        }
+    }
 
     fn publication(slug: &str, year: i32, language: &str, kind: &str) -> Publication {
         serde_json::from_str(&format!(
@@ -1505,7 +1710,7 @@ mod tests {
     #[test]
     fn homepage_previews_upcoming_and_recent_updates_separately() {
         let updates = mixed_updates();
-        let html = home(&updates).into_string();
+        let html = home(&fixture_home(), &updates).into_string();
 
         assert!(html.contains(r#"<h2 id="upcoming-heading">Upcoming</h2>"#));
         assert!(html.contains(r#"<h2 id="updates-heading">Recent Updates</h2>"#));
@@ -1544,7 +1749,7 @@ mod tests {
             .into_iter()
             .filter(|update| update.id.starts_with("completed-"))
             .collect();
-        let html = home(&updates).into_string();
+        let html = home(&fixture_home(), &updates).into_string();
         assert!(!html.contains("Upcoming"));
         assert!(html.contains(r#"<h2 id="updates-heading">Recent Updates</h2>"#));
         assert!(html.contains(r#"<a href="/updates/">All updates</a>"#));
@@ -1660,7 +1865,7 @@ mod tests {
 
         let full = updates_page_refs(&refs, None).into_string();
         assert_eq!(ids_in_order(&full), expected);
-        let home_html = home(&updates).into_string();
+        let home_html = home(&fixture_home(), &updates).into_string();
         let (start, end) = section_bounds(&home_html, "updates-heading");
         assert_eq!(ids_in_order(&home_html[start..end]), expected[..5]);
         let research: Vec<_> = refs
@@ -1779,7 +1984,7 @@ mod tests {
         let updates = [aie, llal];
         let refs: Vec<_> = updates.iter().collect();
         let views = [
-            ("home", home(&updates).into_string()),
+            ("home", home(&fixture_home(), &updates).into_string()),
             ("updates", updates_page_refs(&refs, None).into_string()),
             (
                 "activities",
@@ -1978,7 +2183,7 @@ mod tests {
 
     #[test]
     fn homepage_heading_holds_both_forms_of_the_name() {
-        let html = home(&[]).into_string();
+        let html = home(&fixture_home(), &[]).into_string();
         assert_eq!(html.matches("<h1").count(), 1);
         assert!(html.contains(r#"<h1 class="person-name" id="home-name"><span class="name-latin" lang="en">Ryujin Hatakeyama</span> <span class="name-japanese" lang="ja">畠山竜迅</span></h1>"#));
         assert_eq!(html.matches("畠山竜迅").count(), 1);
@@ -2025,7 +2230,7 @@ mod tests {
 
     #[test]
     fn homepage_has_one_all_updates_link_after_both_previews() {
-        let html = home(&mixed_updates()).into_string();
+        let html = home(&fixture_home(), &mixed_updates()).into_string();
         assert_eq!(
             html.matches(r#"<a href="/updates/">All updates</a>"#)
                 .count(),
@@ -2055,7 +2260,7 @@ mod tests {
             .filter(|u| u.categories.contains(&Category::Academia))
             .collect();
         let pages = [
-            home(&updates).into_string(),
+            home(&fixture_home(), &updates).into_string(),
             updates_page_refs(&refs, None).into_string(),
             updates_page_refs(&research, Some(Category::Research)).into_string()
                 + &updates_page_refs(&academia, Some(Category::Academia)).into_string(),
@@ -2324,7 +2529,7 @@ mod miscellany_tests {
 
     #[test]
     fn overview_has_one_heading_and_three_plain_sections() {
-        let html = miscellany_overview().into_string();
+        let html = miscellany_overview(&Miscellany::default()).into_string();
         assert_eq!(html.matches("<h1").count(), 1);
         assert!(html.contains("<h1>Miscellany</h1>"));
         let sections = [
@@ -2379,7 +2584,7 @@ mod miscellany_tests {
     #[test]
     fn reading_keeps_the_authors_order_original_titles_and_languages() {
         let reading = "items:\n  - author: 夏目漱石\n    title: こころ\n    lang: ja\n    note: Read in the original.\n  - author: Saul A. Kripke\n    title: Naming and Necessity\n    url: https://example.org/naming\n  - title: 竹取物語\n    lang: ja\n    note: 二度目。\n    noteLang: ja\n  - author: A <b> & \"C\"\n    title: Title <script>alert(1)</script>\n";
-        let html = reading_page(miscellany(reading, &[], &[]).reading()).into_string();
+        let html = reading_page(&miscellany(reading, &[], &[])).into_string();
         let order: Vec<_> = [
             "こころ",
             "Naming and Necessity",
@@ -2390,11 +2595,13 @@ mod miscellany_tests {
         .map(|title| html.find(title).unwrap())
         .collect();
         assert!(order.windows(2).all(|pair| pair[0] < pair[1]));
-        assert!(html.contains(r#"<p class="reading-title"><cite lang="ja">こころ</cite></p><p class="reading-author" lang="ja">夏目漱石</p><p class="reading-note">Read in the original.</p>"#));
+        // The work's language marks its title and author; the commentary is
+        // the author's own passage, in its own language.
+        assert!(html.contains(r#"<p class="reading-title"><cite lang="ja">こころ</cite></p><p class="reading-author" lang="ja">夏目漱石</p><div class="passages" data-passages><p class="reading-note" data-passage="en" lang="en">Read in the original.</p><p class="language-notice" data-language-notice hidden>Written in English. <button type="button" data-language-reveal>Read in English</button></p></div>"#));
         assert!(html.contains(r#"<cite><a href="https://example.org/naming">Naming and Necessity</a></cite></p><p class="reading-author">Saul A. Kripke</p>"#));
         // An anonymous work has no author line; a Japanese note is marked.
         assert!(html.contains(
-            r#"<cite lang="ja">竹取物語</cite></p><p class="reading-note" lang="ja">二度目。</p>"#
+            r#"<cite lang="ja">竹取物語</cite></p><div class="passages" data-passages><p class="reading-note" data-passage="ja" lang="ja">二度目。</p><p class="language-notice" data-language-notice hidden>Written in Japanese. <button type="button" data-language-reveal>Read in Japanese</button></p></div>"#
         ));
         assert!(html.contains("A &lt;b&gt; &amp; &quot;C&quot;"));
         assert!(!html.contains("<script>") && !html.contains("<b>"));
@@ -2439,7 +2646,7 @@ mod miscellany_tests {
         assert!(html.contains(r#"<a href="/miscellany/" aria-current="page">Miscellany</a>"#));
         let main = main_of(&html);
         assert_eq!(main.matches("<h1").count(), 1);
-        assert!(main.contains(r#"<article class="miscellany-note" lang="en"><header><h1>Staged &lt;interpreters&gt; &amp; you</h1><p class="summary">How a staged interpreter becomes a compiler.</p></header>"#));
+        assert!(main.contains(r#"<article class="miscellany-note"><header><h1 lang="en">Staged &lt;interpreters&gt; &amp; you</h1><p class="summary" lang="en">How a staged interpreter becomes a compiler.</p></header><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose">"#));
         for fragment in [
             "<h2>Background</h2>",
             "<code>inline code</code>",
@@ -2465,8 +2672,8 @@ mod miscellany_tests {
     fn japanese_notes_are_marked_as_japanese() {
         let notes = miscellany("items: []", &[NOTE_JA], &[]);
         let note = notes.public_notes().next().unwrap();
-        let html = note_detail(note).into_string();
-        assert!(html.contains(r#"<article class="miscellany-note longform-ja" lang="ja"><header><h1>クリプキ意味論の覚え書き</h1></header>"#));
+        let html = note_detail(note, &[]).into_string();
+        assert!(html.contains(r#"<article class="miscellany-note"><header><h1 lang="ja">クリプキ意味論の覚え書き</h1></header><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja">"#));
         assert!(html.contains("<h2>可能世界</h2>"));
         assert!(!html.contains("summary"));
         assert!(
@@ -2481,10 +2688,10 @@ mod miscellany_tests {
         let entries = miscellany("items: []", &[], &[DIARY_OLD, DIARY_DRAFT, DIARY_NEW]);
         let html = diary_page(&entries).into_string();
         let newest = html
-            .find(r##"<article class="diary-entry longform-ja" id="diary-2026-10-10"><h2><a class="diary-date" href="#diary-2026-10-10"><time datetime="2026-10-10">10 October 2026</time></a><span class="diary-title" lang="ja">仙台にて</span></h2><div class="prose miscellany-prose" lang="ja"><p>今日は図書館で一日を過ごした。</p>"##)
+            .find(r##"<article class="diary-entry" id="diary-2026-10-10"><h2><a class="diary-date" href="#diary-2026-10-10"><time datetime="2026-10-10">10 October 2026</time></a><span class="diary-title" lang="ja">仙台にて</span></h2><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja"><div class="prose miscellany-prose"><p>今日は図書館で一日を過ごした。</p>"##)
             .unwrap();
         let older = html
-            .find(r##"<article class="diary-entry" id="diary-2026-03-01"><h2><a class="diary-date" href="#diary-2026-03-01"><time datetime="2026-03-01">1 March 2026</time></a></h2><div class="prose miscellany-prose" lang="en"><p>First paragraph.</p>
+            .find(r##"<article class="diary-entry" id="diary-2026-03-01"><h2><a class="diary-date" href="#diary-2026-03-01"><time datetime="2026-03-01">1 March 2026</time></a></h2><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose"><p>First paragraph.</p>
 <p>Second paragraph.</p>"##)
             .unwrap();
         assert!(newest < older);
@@ -2529,5 +2736,256 @@ mod miscellany_tests {
         );
         let home = page_html(&content, "index.html");
         assert!(!main_of(&home).contains("miscellany"));
+    }
+}
+
+#[cfg(test)]
+mod multilingual_tests {
+    use super::{diary_page, miscellany_overview, note_detail, notes_page, pages, reading_page};
+    use crate::content::{Miscellany, ValidatedSiteContent};
+    use crate::model::DisplayLanguage;
+
+    // Fictional fixtures, parsed through the real validation and never
+    // written to the content directory.
+    const MOON_JA: &str = "---\nslug: moon\ntitle: 月について\nlang: ja\ndraft: false\n---\n\n## 見えるもの\n\n月の話。ここでは [Stimme]{lang=de} という語を借りる。[^1]\n\n[^1]: 日本語の注。\n";
+    const MOON_EN: &str = "---\nof: moon\nlang: en\ntitle: On <the> moon\n---\n\nA longer English text with its own argument.[^1]\n\n### A section only here\n\nMore English prose, with `code` and a [link](https://example.org/).\n\n[^1]: An English note.\n";
+    const ONLY_EN: &str =
+        "---\nslug: only-en\ntitle: Only English\nlang: en\ndraft: false\n---\n\nEnglish text.\n";
+    const ONLY_JA: &str =
+        "---\nslug: only-ja\ntitle: 日本語だけ\nlang: ja\ndraft: false\n---\n\n日本語の本文。\n";
+    const MIXED: &str = "---\nslug: mixed\ntitle: Between languages\nlang: mixed\ndraft: false\n---\n\nThis sentence begins in English, そして日本語で続き、[und endet auf Deutsch]{lang=de}.\n";
+    const ONLY_EN_DE: &str =
+        "---\nof: only-en\nlang: de\n---\n\nEin deutscher Text, keine Übersetzung.\n";
+    const DIARY_JA: &str = "---\ndate: 2026-10-10\nlang: ja\ndraft: false\n---\n\n鳥を見た。\n";
+    const DIARY_EN: &str =
+        "---\nof: 2026-10-10\nlang: en\n---\n\nA different, shorter English entry.\n";
+    const DIARY_OTHER_SAME_DAY: &str = "---\ndate: 2026-10-10\nslug: evening\nlang: en\ndraft: false\n---\n\nAn unrelated entry on the same date.\n";
+    const READING: &str = "items:\n  - author: 作者\n    title: 架空の本\n    lang: ja\n    note: My English commentary on a Japanese book.\n  - title: Two Commentaries\n    notes:\n      ja: 日本語の感想。\n      en: An English comment, not a translation.\n  - author: Someone\n    title: No Commentary\n";
+
+    fn miscellany(notes: &[&str], diary: &[&str]) -> Miscellany {
+        Miscellany::from_sources(READING, notes, diary).unwrap()
+    }
+
+    fn passage_markers(html: &str) -> Vec<&str> {
+        html.match_indices("data-passage=\"")
+            .map(|(at, marker)| {
+                let rest = &html[at + marker.len()..];
+                &rest[..rest.find('"').unwrap()]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn one_article_keeps_one_identity_url_and_index_entry() {
+        let content = ValidatedSiteContent::with_miscellany(miscellany(
+            &[MOON_EN, MOON_JA, ONLY_EN, ONLY_JA, MIXED],
+            &[],
+        ));
+        let paths: Vec<_> = pages(&content)
+            .into_iter()
+            .map(|page| page.output_path)
+            .collect();
+        let note_pages: Vec<_> = paths
+            .iter()
+            .filter(|path| {
+                path.starts_with("miscellany/notes/") && *path != "miscellany/notes/index.html"
+            })
+            .collect();
+        assert_eq!(
+            note_pages,
+            [
+                "miscellany/notes/mixed/index.html",
+                "miscellany/notes/moon/index.html",
+                "miscellany/notes/only-en/index.html",
+                "miscellany/notes/only-ja/index.html",
+            ]
+        );
+        let index = notes_page(content.miscellany()).into_string();
+        assert_eq!(
+            index.matches(r#"href="/miscellany/notes/moon/""#).count(),
+            1
+        );
+        assert_eq!(index.matches("<li").count(), 4);
+        // The index names each note once, by its one title; it offers no
+        // language choice and never hides an entry.
+        assert!(index.contains(
+            r#"<li lang="ja"><h2><a href="/miscellany/notes/moon/">月について</a></h2></li>"#
+        ));
+        assert!(!index.contains("On &lt;the&gt; moon") && !index.contains("data-language"));
+        for page in pages(&content) {
+            assert!(!page.html.contains("hreflang"), "{}", page.output_path);
+        }
+    }
+
+    #[test]
+    fn separately_authored_passages_render_in_display_order_with_their_languages() {
+        let notes = miscellany(&[MOON_JA, MOON_EN], &[]);
+        let note = notes.public_notes().next().unwrap();
+        let languages = notes.display_languages();
+        assert_eq!(languages, [DisplayLanguage::En, DisplayLanguage::Ja]);
+        let html = note_detail(note, &languages).into_string();
+        // English before Japanese, each marked with its language; the
+        // passages have different lengths, titles, and sections.
+        assert_eq!(passage_markers(&html), ["en", "ja"]);
+        assert!(html.contains(r#"<div class="passage" data-passage="en" lang="en"><h2 class="passage-title">On &lt;the&gt; moon</h2><div class="prose miscellany-prose"><p>A longer English text"#));
+        assert!(html.contains("<h3>A section only here</h3>"));
+        assert!(html.contains(r#"<div class="passage longform-ja" data-passage="ja" lang="ja"><div class="prose miscellany-prose"><h2>見えるもの</h2>"#));
+        // The article keeps its one title and heading.
+        assert_eq!(html.matches("<h1").count(), 1);
+        assert!(html.contains(r#"<h1 lang="ja">月について</h1>"#));
+        // Footnotes of the two passages never share an identifier.
+        assert!(html.contains(r##"href="#en-1""##) && html.contains(r##"id="en-1""##));
+        assert!(html.contains(r##"href="#ja-1""##) && html.contains(r##"id="ja-1""##));
+        // A German phrase inside the Japanese passage is marked inline only.
+        assert!(html.contains(r#"ここでは <span lang="de">Stimme</span> という語を借りる。"#));
+        assert!(!html.contains("Deutsch") && !html.contains(r#"data-language="de""#));
+        // Both languages are present, so no offered choice can empty the
+        // article and it has no notice.
+        assert!(!html.contains("data-language-notice"));
+    }
+
+    #[test]
+    fn the_language_control_offers_only_languages_of_designated_passages() {
+        let one_language = Miscellany::from_sources("items: []", &[ONLY_EN, MIXED], &[]).unwrap();
+        assert_eq!(one_language.display_languages(), [DisplayLanguage::En]);
+        let html = note_detail(
+            one_language.public_notes().next().unwrap(),
+            &one_language.display_languages(),
+        )
+        .into_string();
+        assert!(!html.contains("data-language-filter") && !html.contains("data-language-notice"));
+
+        let both = miscellany(&[ONLY_EN, ONLY_JA], &[]);
+        let languages = both.display_languages();
+        let note = both
+            .public_notes()
+            .find(|n| n.metadata().slug == "only-en")
+            .unwrap();
+        let html = note_detail(note, &languages).into_string();
+        assert!(html.contains(r#"<div class="language-filter" role="group" aria-label="Language" hidden data-language-filter><button type="button" data-language="all" aria-pressed="true">All</button><button type="button" data-language="en" lang="en" aria-pressed="false">English</button><button type="button" data-language="ja" lang="ja" aria-pressed="false">日本語</button></div>"#));
+
+        // A German-designated passage, added later, offers Deutsch.
+        let german = miscellany(&[ONLY_EN, ONLY_EN_DE, ONLY_JA], &[]);
+        let languages = german.display_languages();
+        assert_eq!(languages, DisplayLanguage::ALL);
+        let note = german
+            .public_notes()
+            .find(|n| n.metadata().slug == "only-en")
+            .unwrap();
+        let html = note_detail(note, &languages).into_string();
+        assert!(html.contains(r#"<button type="button" data-language="de" lang="de" aria-pressed="false">Deutsch</button>"#));
+        assert_eq!(passage_markers(&html), ["en", "de"]);
+        assert!(html.contains(r#"<div class="passage" data-passage="de" lang="de">"#));
+        // Under 日本語 this note would be empty, so it carries its notice.
+        assert!(html.contains("Written in English and German. <button type=\"button\" data-language-reveal>Show the text</button>"));
+    }
+
+    #[test]
+    fn single_language_articles_carry_a_hidden_notice_and_mixed_passages_none() {
+        let notes = miscellany(&[ONLY_EN, ONLY_JA, MIXED], &[]);
+        let languages = notes.display_languages();
+        let find = |slug: &str| {
+            notes
+                .public_notes()
+                .find(|n| n.metadata().slug == slug)
+                .unwrap()
+        };
+        let ja = note_detail(find("only-ja"), &languages).into_string();
+        assert!(ja.contains(r#"<p class="language-notice" data-language-notice hidden>Written in Japanese. <button type="button" data-language-reveal>Read in Japanese</button></p>"#));
+        let en = note_detail(find("only-en"), &languages).into_string();
+        assert!(en.contains("Written in English. <button type=\"button\" data-language-reveal>Read in English</button>"));
+        // A mixed passage is shown in every view: no notice, no language of
+        // its own, and its inline marks kept intact.
+        let mixed = note_detail(find("mixed"), &languages).into_string();
+        assert!(mixed.contains(r#"<div class="passage" data-passage="mixed"><div class="prose miscellany-prose"><p>This sentence begins in English, そして日本語で続き、<span lang="de">und endet auf Deutsch</span>.</p>"#));
+        assert!(!mixed.contains("data-language-notice"));
+        assert!(!mixed.contains("translat"));
+    }
+
+    #[test]
+    fn without_javascript_every_passage_is_visible_and_the_controls_are_hidden() {
+        let content = ValidatedSiteContent::with_miscellany(miscellany(
+            &[MOON_JA, MOON_EN, ONLY_JA],
+            &[DIARY_JA, DIARY_EN],
+        ));
+        for page in pages(&content)
+            .iter()
+            .filter(|page| page.output_path.starts_with("miscellany/"))
+        {
+            let html = &page.html;
+            // Only the control and the notices start hidden.
+            let hidden = html.matches(" hidden").count();
+            let controls = html.matches("data-language-filter").count()
+                + html.matches("data-language-notice").count();
+            assert_eq!(hidden, controls, "{}", page.output_path);
+            assert!(
+                !html.contains("data-passage=\"en\" hidden")
+                    && !html.contains("aria-hidden=\"true\" data-passage")
+            );
+        }
+    }
+
+    #[test]
+    fn diary_entries_keep_their_anchors_and_explicit_passages() {
+        let entries = miscellany(&[], &[DIARY_JA, DIARY_OTHER_SAME_DAY, DIARY_EN]);
+        let html = diary_page(&entries).into_string();
+        // Two entries on one date stay two entries; the English passage joins
+        // only the entry it names.
+        assert_eq!(html.matches("<article").count(), 2);
+        let first = html
+            .find(r#"<article class="diary-entry" id="diary-2026-10-10">"#)
+            .unwrap();
+        let second = html
+            .find(r#"<article class="diary-entry" id="diary-2026-10-10-evening">"#)
+            .unwrap();
+        assert_eq!(passage_markers(&html[first..second]), ["en", "ja"]);
+        assert_eq!(passage_markers(&html[second..]), ["en"]);
+        assert!(html[first..second].contains("A different, shorter English entry."));
+        assert!(html.contains(r##"<a class="diary-date" href="#diary-2026-10-10">"##));
+        // The evening entry is English only, so it can be emptied by 日本語.
+        assert!(html[second..].contains("Written in English."));
+        assert!(!html[first..second].contains("data-language-notice"));
+    }
+
+    #[test]
+    fn reading_commentary_is_filtered_but_the_record_never_is() {
+        let reading = miscellany(&[], &[]);
+        let html = reading_page(&reading).into_string();
+        assert!(html.contains("data-language-filter"));
+        // A Japanese title with English commentary: the work keeps its
+        // language; the commentary is an English passage.
+        assert!(html.contains(r#"<cite lang="ja">架空の本</cite></p><p class="reading-author" lang="ja">作者</p><div class="passages" data-passages><p class="reading-note" data-passage="en" lang="en">My English commentary on a Japanese book.</p><p class="language-notice" data-language-notice hidden>Written in English."#));
+        // Two commentaries, English first, never a notice.
+        assert!(html.contains(r#"<p class="reading-note" data-passage="en" lang="en">An English comment, not a translation.</p><p class="reading-note" data-passage="ja" lang="ja">日本語の感想。</p></div>"#));
+        // A work without commentary is a plain record.
+        let plain = &html[html.find("No Commentary").unwrap()..];
+        let plain = &plain[..plain.find("</li>").unwrap()];
+        assert!(!plain.contains("passages") && !plain.contains("notice"));
+        assert_eq!(html.matches("<li>").count(), 3);
+    }
+
+    #[test]
+    fn the_editorial_note_appears_once_multilingual_text_is_published() {
+        const NOTE: &str = super::MULTILINGUAL_NOTE;
+        // Separate single-language entries are not multilingual articles.
+        let separate = miscellany(&[ONLY_EN, ONLY_JA], &[]);
+        let reading_only = Miscellany::from_sources(
+            "items:\n  - title: X\n    note: English only.\n",
+            &[ONLY_EN, ONLY_JA],
+            &[],
+        )
+        .unwrap();
+        assert!(
+            !miscellany_overview(&reading_only)
+                .into_string()
+                .contains(NOTE)
+        );
+        // The fixture reading list already has a work with two commentaries.
+        assert!(miscellany_overview(&separate).into_string().contains(NOTE));
+        let empty = Miscellany::default();
+        assert!(!miscellany_overview(&empty).into_string().contains(NOTE));
+        let html = miscellany_overview(&miscellany(&[MOON_JA, MOON_EN], &[])).into_string();
+        assert_eq!(html.matches(NOTE).count(), 1);
+        assert!(html.contains(&format!("<h1>Miscellany</h1><p>{NOTE}</p></header>")));
     }
 }

@@ -1,0 +1,8 @@
+{
+  "bio": [
+    "Hello! I'm Ryujin, a second-year master's student in the [Department of Computer and Mathematical Sciences](https://www.is.tohoku.ac.jp/en/laboratory/list_dept/) at [Tohoku University's Graduate School of Information Sciences](https://www.is.tohoku.ac.jp/en/). I work in the [Foundations of Software Science](https://www.is.tohoku.ac.jp/en/laboratory/list_dept/a11.html) group under the supervision of [Professor Eijiro Sumii](https://www.kb.ecei.tohoku.ac.jp/~sumii/).",
+    "My research is in programming language theory. With guidance from [Oleg Kiselyov](https://okmij.org/ftp/), I'm studying how algebraic operations in compositional descriptions of probabilistic models can expose structure at code-generation time for use in generating specialized inference code through multi-stage programming.",
+    "My broader interests lie in modal and categorical logic, and in the conditions of intelligibility of formal reasoning.",
+    "I keep a diary and enjoy noticing birds and “bugs” on my walks. :-)"
+  ]
+}

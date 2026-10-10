@@ -927,6 +927,49 @@ div.miscellany-header { padding-top: 3.75rem; }
 .diary-date:hover { text-decoration: underline; }
 .diary-title { display: block; margin-top: .2rem; color: var(--ink); }
 
+/* Language choice for separately authored passages. Like the Updates
+   category filters, it is quiet text with an underline for the current
+   choice; it stays hidden until the script can apply it. */
+.language-filter { display: flex; flex-wrap: wrap; gap: .1rem 1.1rem; margin-top: 1rem; font-size: .82rem; }
+.language-filter[hidden] { display: none; }
+.miscellany-nav + .language-filter { margin: -.6rem 0 1.6rem; }
+.language-filter button, .language-notice button {
+  min-height: 2rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.language-filter button { color: var(--ink-soft); }
+.language-filter button:hover { color: var(--ink); }
+.language-filter button[aria-pressed='true'] {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: .07em;
+  text-underline-offset: .32rem;
+}
+
+.passages > .passage + .passage { margin-top: 2.6rem; }
+.diary-entry .passages > .passage + .passage { margin-top: 1.5rem; }
+/* A passage title has the rank of the passage's own top-level headings, so it
+   takes their style: in a note, that of .prose h2; in a diary entry, .prose h3. */
+.passage-title { margin: 0 0 .8em; color: var(--ink); line-height: 1.25; }
+.miscellany-note .passage-title { font-family: var(--serif); font-size: calc(1.16rem * 1.7); font-weight: 500; }
+.diary-entry .passage-title { font-family: var(--sans); font-size: 1.16rem; font-weight: 600; }
+.language-notice { margin: 0; color: var(--ink-soft); font-size: .88rem; }
+.reading-note + .language-notice, .reading-note + .reading-note { margin-top: .3rem; }
+.language-notice button {
+  min-height: auto;
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-decoration-thickness: .07em;
+  text-underline-offset: .18em;
+}
+.language-notice button:hover { color: var(--accent); text-decoration-color: currentColor; }
+
 @media (max-width: 36rem) {
   div.miscellany-header { padding-top: 2.8rem; }
 }

@@ -361,14 +361,18 @@ fn validate_png(path: &Path, width: u32, height: u32) -> Result<()> {
 
 fn validate_expected_content(root: &Path) -> Result<()> {
     let home = fs::read_to_string(root.join("index.html"))?;
+    // The biography's wording lives in content/home.json and is edited
+    // there; the build checks only that it is present and inside the intro.
+    let bio = home
+        .find("<div class=\"home-bio-copy\"><p class=\"home-bio\">")
+        .context("homepage has no biography")?;
+    ensure!(
+        bio < home
+            .find("</section>")
+            .context("homepage has no intro section")?,
+        "the biography is outside the homepage introduction"
+    );
     for phrase in [
-        "Hello! I'm Ryujin, a second-year master's student",
-        "Department of Computer and Mathematical Sciences",
-        "Foundations of Software Science",
-        "Professor Eijiro Sumii",
-        "Oleg Kiselyov",
-        "compositional descriptions of probabilistic models and staged inference code generation",
-        "My broader interests lie in modal and categorical logic, and in the conditions of intelligibility of formal reasoning.",
         "畠山竜迅",
         "はたけやま りゅうじん",
         "hatakejama ɾʲɯːdʑiɴ",

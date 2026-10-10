@@ -326,6 +326,7 @@ mod tests {
         fs::create_dir_all(root.join("content/miscellany/notes")).unwrap();
         fs::create_dir_all(root.join("content/miscellany/diary")).unwrap();
         write(&root.join("content/miscellany/reading.yaml"), "items: []\n");
+        write(&root.join("content/home.json"), r#"{"bio":["Biography."]}"#);
         write(&root.join("target/generated/updates.json"), "[]");
     }
 

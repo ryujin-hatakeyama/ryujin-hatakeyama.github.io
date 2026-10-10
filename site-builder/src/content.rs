@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::error::Error as StdError;
 use std::fmt;
 use std::fs;
@@ -6,14 +6,16 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use katex::{Opts, render_with_opts};
-use pulldown_cmark::{CowStr, Event, HeadingLevel, Options, Parser, Tag, html};
+use pulldown_cmark::{CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd, html};
 use serde::de::DeserializeOwned;
 
 use chrono::NaiveDate;
 
 use crate::model::{
-    DiaryFrontMatter, EventStatus, Language, NoteFrontMatter, Project, ProjectFrontMatter,
-    Publication, ReadingItem, ReadingList, Update, WritingFrontMatter, validate_markdown_url,
+    DiaryFrontMatter, DisplayLanguage, EventStatus, HomeSource, Language, LanguageTag,
+    NoteFrontMatter, Paragraph, PassageFrontMatter, PassageLanguage, Project, ProjectFrontMatter,
+    Publication, ReadingComment, ReadingItem, ReadingList, Update, WritingFrontMatter,
+    validate_markdown_url,
 };
 
 #[derive(Debug)]
@@ -23,6 +25,7 @@ pub(crate) struct ValidatedSiteContent {
     writings: Vec<ValidatedWriting>,
     projects: Vec<Project>,
     miscellany: Miscellany,
+    home: ValidatedHome,
 }
 
 impl ValidatedSiteContent {
@@ -46,6 +49,10 @@ impl ValidatedSiteContent {
         &self.miscellany
     }
 
+    pub(crate) fn home(&self) -> &ValidatedHome {
+        &self.home
+    }
+
     /// Site content with only the given Miscellany, for rendering tests.
     #[cfg(test)]
     pub(crate) fn with_miscellany(miscellany: Miscellany) -> Self {
@@ -55,8 +62,65 @@ impl ValidatedSiteContent {
             writings: Vec::new(),
             projects: Vec::new(),
             miscellany,
+            home: ValidatedHome::from_json(r#"{"bio":["Fixture biography."]}"#)
+                .expect("the fixture biography is valid"),
         }
     }
+}
+
+/// The homepage biography from `content/home.json`: paragraphs of text and
+/// checked links, in the authored order.
+#[derive(Debug)]
+pub(crate) struct ValidatedHome {
+    bio: Vec<Paragraph>,
+}
+
+impl ValidatedHome {
+    pub(crate) fn bio(&self) -> &[Paragraph] {
+        &self.bio
+    }
+
+    fn parse(path: &Path, source: &str) -> Result<Self> {
+        let home: HomeSource = serde_json::from_str(source)
+            .with_context(|| format!("invalid JSON in {}", path.display()))?;
+        ensure!(
+            !home.bio.is_empty(),
+            "{}: bio must contain at least one paragraph",
+            path.display()
+        );
+        let mut diagnostics = Diagnostics::default();
+        let bio: Vec<_> =
+            home.bio
+                .iter()
+                .enumerate()
+                .filter_map(|(index, paragraph)| {
+                    diagnostics.capture(Paragraph::parse(paragraph).with_context(|| {
+                        format!("{}: bio paragraph {}", path.display(), index + 1)
+                    }))
+                })
+                .collect();
+        diagnostics.finish("homepage biography is invalid")?;
+        Ok(Self { bio })
+    }
+
+    /// A biography parsed from in-memory JSON through the same validation.
+    #[cfg(test)]
+    pub(crate) fn from_json(source: &str) -> Result<Self> {
+        Self::parse(Path::new("home.json"), source)
+    }
+}
+
+fn load_home(path: &Path) -> Result<ValidatedHome> {
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("missing homepage content {}", path.display()))?;
+    ensure!(
+        metadata.is_file() && !metadata.file_type().is_symlink(),
+        "missing homepage content {}",
+        path.display()
+    );
+    let source =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    ValidatedHome::parse(path, &source)
 }
 
 /// Reading records, study notes, and diary entries. Each has its own small
@@ -64,14 +128,14 @@ impl ValidatedSiteContent {
 /// date, notes have no date, and diary entries need no title.
 #[derive(Debug, Default)]
 pub(crate) struct Miscellany {
-    reading: Vec<ReadingItem>,
+    reading: Vec<ValidatedReadingItem>,
     notes: Vec<ValidatedNote>,
     diary: Vec<ValidatedDiaryEntry>,
 }
 
 impl Miscellany {
     /// The reading record in the author's order.
-    pub(crate) fn reading(&self) -> &[ReadingItem] {
+    pub(crate) fn reading(&self) -> &[ValidatedReadingItem] {
         &self.reading
     }
 
@@ -83,6 +147,42 @@ impl Miscellany {
     /// Published diary entries, newest first.
     pub(crate) fn public_diary(&self) -> impl Iterator<Item = &ValidatedDiaryEntry> {
         self.diary.iter().filter(|entry| !entry.metadata.draft)
+    }
+
+    /// The display languages of published, separately authored passages and
+    /// reading commentary, in display order. Languages that appear only in
+    /// inline phrases or mixed passages are not included.
+    pub(crate) fn display_languages(&self) -> Vec<DisplayLanguage> {
+        let languages: BTreeSet<_> = self
+            .public_passage_language_sets()
+            .into_iter()
+            .flatten()
+            .collect();
+        languages.into_iter().collect()
+    }
+
+    /// Whether any published note, diary entry, or reading item has
+    /// separately authored texts in more than one language.
+    pub(crate) fn has_multilingual_entry(&self) -> bool {
+        self.public_passage_language_sets()
+            .iter()
+            .any(|languages| languages.len() > 1)
+    }
+
+    fn public_passage_language_sets(&self) -> Vec<Vec<DisplayLanguage>> {
+        let reading = self.reading.iter().map(|item| {
+            item.comments
+                .iter()
+                .filter_map(|comment| comment.language.designated())
+                .collect()
+        });
+        let notes = self
+            .public_notes()
+            .map(|note| note.passages.designated_languages());
+        let diary = self
+            .public_diary()
+            .map(|entry| entry.passages.designated_languages());
+        reading.chain(notes).chain(diary).collect()
     }
 }
 
@@ -111,27 +211,28 @@ impl Miscellany {
 
     /// Miscellany parsed from in-memory sources through the same validation
     /// as the content directory, for tests that must not publish fixtures.
+    /// Companion passages are given among the sources of their section.
     #[cfg(test)]
     pub(crate) fn from_sources(reading: &str, notes: &[&str], diary: &[&str]) -> Result<Self> {
-        fn parse_all<T>(
-            kind: &str,
-            sources: &[&str],
-            parse: fn(&Path, &str, &str) -> Result<T>,
-        ) -> Result<Vec<T>> {
+        fn sources(kind: &str, sources: &[&str]) -> Result<Vec<SourceFile>> {
             sources
                 .iter()
                 .enumerate()
                 .map(|(index, source)| {
                     let path = PathBuf::from(format!("{kind}-{index}.md"));
                     let (front_matter, body) = split_front_matter(source, &path)?;
-                    parse(&path, front_matter, body)
+                    Ok(SourceFile {
+                        front_matter: front_matter.to_owned(),
+                        body: body.to_owned(),
+                        path,
+                    })
                 })
                 .collect()
         }
         let mut miscellany = Self {
             reading: parse_reading(Path::new("reading.yaml"), reading)?,
-            notes: parse_all("note", notes, parse_note)?,
-            diary: parse_all("diary", diary, parse_diary_entry)?,
+            notes: assemble_articles(sources("note", notes)?)?,
+            diary: assemble_articles(sources("diary", diary)?)?,
         };
         sort_notes(&mut miscellany.notes);
         sort_diary(&mut miscellany.diary);
@@ -142,35 +243,165 @@ impl Miscellany {
     }
 }
 
+/// A reading item: the bibliographic record of one work, and the author's
+/// commentary on it as separately authored passages.
 #[derive(Debug)]
-pub(crate) struct ValidatedNote {
-    metadata: NoteFrontMatter,
-    rendered_body: RenderedMarkdown,
+pub(crate) struct ValidatedReadingItem {
+    work: ReadingItem,
+    comments: Vec<ReadingComment>,
 }
 
-impl ValidatedNote {
-    pub(crate) fn metadata(&self) -> &NoteFrontMatter {
+impl ValidatedReadingItem {
+    pub(crate) fn work(&self) -> &ReadingItem {
+        &self.work
+    }
+
+    pub(crate) fn comments(&self) -> &[ReadingComment] {
+        &self.comments
+    }
+}
+
+/// One logical article: its identity and shared metadata, kept apart from the
+/// separately authored passages that make up its text. However many
+/// languages it is written in, it has one identity, one URL or anchor, and
+/// one entry in every listing.
+#[derive(Debug)]
+pub(crate) struct Article<M> {
+    metadata: M,
+    passages: Passages,
+}
+
+impl<M> Article<M> {
+    pub(crate) fn metadata(&self) -> &M {
         &self.metadata
     }
 
-    pub(crate) fn rendered_body(&self) -> &str {
-        self.rendered_body.as_str()
+    pub(crate) fn passages(&self) -> &Passages {
+        &self.passages
     }
 }
 
+pub(crate) type ValidatedNote = Article<NoteFrontMatter>;
+pub(crate) type ValidatedDiaryEntry = Article<DiaryFrontMatter>;
+
+/// A separately authored passage of an article, in one language or
+/// deliberately mixed, with an optional title of its own.
 #[derive(Debug)]
-pub(crate) struct ValidatedDiaryEntry {
-    metadata: DiaryFrontMatter,
-    rendered_body: RenderedMarkdown,
+pub(crate) struct Passage {
+    language: PassageLanguage,
+    title: Option<String>,
+    body: RenderedMarkdown,
 }
 
-impl ValidatedDiaryEntry {
-    pub(crate) fn metadata(&self) -> &DiaryFrontMatter {
-        &self.metadata
+impl Passage {
+    pub(crate) fn language(&self) -> PassageLanguage {
+        self.language
+    }
+
+    pub(crate) fn title(&self) -> Option<&str> {
+        self.title.as_deref()
     }
 
     pub(crate) fn rendered_body(&self) -> &str {
-        self.rendered_body.as_str()
+        self.body.as_str()
+    }
+}
+
+/// An article's passages: at least one, at most one per passage language,
+/// with designated languages in display order followed by any mixed passage.
+#[derive(Debug)]
+pub(crate) struct Passages(Vec<Passage>);
+
+impl Passages {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &Passage> {
+        self.0.iter()
+    }
+
+    pub(crate) fn designated_languages(&self) -> Vec<DisplayLanguage> {
+        self.0
+            .iter()
+            .filter_map(|passage| passage.language.designated())
+            .collect()
+    }
+
+    pub(crate) fn has_mixed(&self) -> bool {
+        self.0
+            .iter()
+            .any(|passage| passage.language == PassageLanguage::Mixed)
+    }
+
+    /// Orders the passages, rejecting two passages in the same language.
+    fn assemble(mut passages: Vec<(PathBuf, Passage)>) -> Result<Self> {
+        passages.sort_by_key(|(_, passage)| passage.language);
+        for pair in passages.windows(2) {
+            ensure!(
+                pair[0].1.language != pair[1].1.language,
+                "{} and {} are both {} passages of the same article",
+                pair[0].0.display(),
+                pair[1].0.display(),
+                pair[0].1.language.code()
+            );
+        }
+        Ok(Self(
+            passages.into_iter().map(|(_, passage)| passage).collect(),
+        ))
+    }
+}
+
+/// What the shared article assembly needs to know about a kind of article.
+trait ArticleMetadata: DeserializeOwned {
+    /// How errors name this kind of article.
+    const KIND: &'static str;
+    /// The most prominent heading an untitled passage body may contain; a
+    /// passage title takes this level and pushes its body one level down.
+    const HEADING: HeadingLevel;
+    /// Whether passage bodies may contain footnotes.
+    const FOOTNOTES: bool;
+
+    fn validate(&self, source: &str) -> Result<()>;
+    /// The identity that companion passages name with `of`.
+    fn id(&self) -> String;
+    fn language(&self) -> PassageLanguage;
+    fn math(&self) -> bool;
+}
+
+impl ArticleMetadata for NoteFrontMatter {
+    const KIND: &'static str = "note";
+    const HEADING: HeadingLevel = HeadingLevel::H2;
+    const FOOTNOTES: bool = true;
+
+    fn validate(&self, source: &str) -> Result<()> {
+        NoteFrontMatter::validate(self, source)
+    }
+    fn id(&self) -> String {
+        self.slug.clone()
+    }
+    fn language(&self) -> PassageLanguage {
+        self.lang
+    }
+    fn math(&self) -> bool {
+        self.math
+    }
+}
+
+impl ArticleMetadata for DiaryFrontMatter {
+    const KIND: &'static str = "diary entry";
+    // Entries share one page beneath the h1 "Diary" and an h2 per entry, and
+    // footnote identifiers there would need to be unique across entries.
+    const HEADING: HeadingLevel = HeadingLevel::H3;
+    const FOOTNOTES: bool = false;
+
+    fn validate(&self, source: &str) -> Result<()> {
+        DiaryFrontMatter::validate(self, source)
+    }
+    fn id(&self) -> String {
+        DiaryFrontMatter::id(self)
+    }
+    fn language(&self) -> PassageLanguage {
+        self.lang
+    }
+    fn math(&self) -> bool {
+        self.math
     }
 }
 
@@ -209,6 +440,7 @@ pub(crate) fn load(root: &Path) -> Result<ValidatedSiteContent> {
     let writings = diagnostics.capture(load_writings(&root.join("content/writings")));
     let projects = diagnostics.capture(load_projects(&root.join("content/projects")));
     let miscellany = diagnostics.capture(load_miscellany(&root.join("content/miscellany")));
+    let home = diagnostics.capture(load_home(&root.join("content/home.json")));
     diagnostics.finish("content loading failed")?;
 
     let publications = publications.expect("successful diagnostics contain publications");
@@ -216,6 +448,7 @@ pub(crate) fn load(root: &Path) -> Result<ValidatedSiteContent> {
     let writings = writings.expect("successful diagnostics contain writings");
     let projects = projects.expect("successful diagnostics contain projects");
     let miscellany = miscellany.expect("successful diagnostics contain miscellany");
+    let home = home.expect("successful diagnostics contain the homepage");
 
     let mut diagnostics = Diagnostics::default();
     diagnostics.extend(validate_unique(
@@ -250,6 +483,7 @@ pub(crate) fn load(root: &Path) -> Result<ValidatedSiteContent> {
         writings,
         projects,
         miscellany,
+        home,
     })
 }
 
@@ -375,7 +609,7 @@ fn load_miscellany(directory: &Path) -> Result<Miscellany> {
     })
 }
 
-fn load_reading(path: &Path) -> Result<Vec<ReadingItem>> {
+fn load_reading(path: &Path) -> Result<Vec<ValidatedReadingItem>> {
     let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("missing reading list {}", path.display()))?;
     ensure!(
@@ -388,18 +622,32 @@ fn load_reading(path: &Path) -> Result<Vec<ReadingItem>> {
     parse_reading(path, &source)
 }
 
-fn parse_reading(path: &Path, source: &str) -> Result<Vec<ReadingItem>> {
+fn parse_reading(path: &Path, source: &str) -> Result<Vec<ValidatedReadingItem>> {
     let list: ReadingList = serde_yaml_ng::from_str(source)
         .with_context(|| format!("invalid reading list {}", path.display()))?;
     list.validate(&path.display().to_string())?;
-    Ok(list.items)
+    list.items
+        .into_iter()
+        .enumerate()
+        .map(|(index, work)| {
+            let source = format!("{} (item {})", path.display(), index + 1);
+            Ok(ValidatedReadingItem {
+                comments: work.comments(&source)?,
+                work,
+            })
+        })
+        .collect()
+}
+
+/// A Markdown source file split into its front matter and body.
+struct SourceFile {
+    path: PathBuf,
+    front_matter: String,
+    body: String,
 }
 
 /// Markdown files with front matter in `directory`, skipping its README.
-fn load_markdown_records<T>(
-    directory: &Path,
-    mut load: impl FnMut(&Path, &str, &str) -> Result<T>,
-) -> Result<Vec<T>> {
+fn load_markdown_sources(directory: &Path) -> Result<Vec<SourceFile>> {
     let paths = files_with_extensions(directory, &["md"])?;
     load_records(paths, |path| {
         if path.file_name().and_then(|name| name.to_str()) == Some("README.md") {
@@ -408,33 +656,160 @@ fn load_markdown_records<T>(
         let source = fs::read_to_string(&path)
             .with_context(|| format!("failed to read {}", path.display()))?;
         let (front_matter, body) = split_front_matter(&source, &path)?;
-        load(&path, front_matter, body).map(Some)
+        Ok(Some(SourceFile {
+            front_matter: front_matter.to_owned(),
+            body: body.to_owned(),
+            path,
+        }))
     })
     .map(|records| records.into_iter().flatten().collect())
 }
 
 fn load_notes(directory: &Path) -> Result<Vec<ValidatedNote>> {
-    let mut notes = load_markdown_records(directory, parse_note)?;
+    let mut notes = assemble_articles(load_markdown_sources(directory)?)?;
     sort_notes(&mut notes);
     Ok(notes)
 }
 
-fn parse_note(path: &Path, front_matter: &str, body: &str) -> Result<ValidatedNote> {
-    let metadata: NoteFrontMatter = serde_yaml_ng::from_str(front_matter)
-        .with_context(|| format!("invalid front matter in {}", path.display()))?;
-    metadata.validate(&path.display().to_string())?;
-    // The note's title is the page's only h1.
-    let rules = MarkdownRules {
-        math: metadata.math,
-        highest_heading: HeadingLevel::H2,
-        footnotes: true,
+/// A source file is either an article's primary file, holding its identity,
+/// shared metadata, and first passage, or a companion passage naming its
+/// article with `of`.
+enum ArticleSource<M> {
+    Primary {
+        path: PathBuf,
+        metadata: M,
+        passage: Passage,
+    },
+    Companion {
+        path: PathBuf,
+        of: String,
+        passage: Passage,
+    },
+}
+
+fn parse_article_source<M: ArticleMetadata>(file: SourceFile) -> Result<ArticleSource<M>> {
+    let path = file.path;
+    let invalid = || format!("invalid front matter in {}", path.display());
+    let fields: serde_yaml_ng::Value =
+        serde_yaml_ng::from_str(&file.front_matter).with_context(invalid)?;
+    if fields.get("of").is_some() {
+        let metadata: PassageFrontMatter =
+            serde_yaml_ng::from_value(fields).with_context(invalid)?;
+        metadata.validate(&path.display().to_string())?;
+        let passage = render_passage::<M>(
+            &path,
+            &file.body,
+            metadata.lang,
+            metadata.title,
+            metadata.math,
+        )?;
+        Ok(ArticleSource::Companion {
+            of: metadata.of,
+            passage,
+            path,
+        })
+    } else {
+        let metadata: M = serde_yaml_ng::from_value(fields).with_context(invalid)?;
+        metadata.validate(&path.display().to_string())?;
+        let passage = render_passage::<M>(
+            &path,
+            &file.body,
+            metadata.language(),
+            None,
+            metadata.math(),
+        )?;
+        Ok(ArticleSource::Primary {
+            path,
+            metadata,
+            passage,
+        })
+    }
+}
+
+fn render_passage<M: ArticleMetadata>(
+    path: &Path,
+    body: &str,
+    language: PassageLanguage,
+    title: Option<String>,
+    math: bool,
+) -> Result<Passage> {
+    ensure!(
+        !body.trim().is_empty(),
+        "{}: the passage text must not be empty",
+        path.display()
+    );
+    let highest_heading = if title.is_some() {
+        next_heading_level(M::HEADING)
+    } else {
+        M::HEADING
     };
-    let rendered_body = render_markdown_with(body, rules)
+    let rules = MarkdownRules {
+        math,
+        highest_heading,
+        footnotes: M::FOOTNOTES,
+        // Footnote identifiers are prefixed by passage language so that the
+        // passages of one page never share an identifier.
+        footnote_prefix: Some(language.code()),
+        inline_languages: true,
+    };
+    let body = render_markdown_with(body, rules)
         .with_context(|| format!("failed to render {}", path.display()))?;
-    Ok(ValidatedNote {
-        metadata,
-        rendered_body,
+    Ok(Passage {
+        language,
+        title,
+        body,
     })
+}
+
+const fn next_heading_level(level: HeadingLevel) -> HeadingLevel {
+    match level {
+        HeadingLevel::H1 => HeadingLevel::H2,
+        HeadingLevel::H2 => HeadingLevel::H3,
+        HeadingLevel::H3 => HeadingLevel::H4,
+        HeadingLevel::H4 => HeadingLevel::H5,
+        HeadingLevel::H5 | HeadingLevel::H6 => HeadingLevel::H6,
+    }
+}
+
+/// Gathers each article's primary file and companion passages into one
+/// article, reporting every invalid file, companion naming no article, and
+/// duplicated passage language.
+fn assemble_articles<M: ArticleMetadata>(files: Vec<SourceFile>) -> Result<Vec<Article<M>>> {
+    let mut diagnostics = Diagnostics::default();
+    let mut primaries = Vec::new();
+    let mut companions = Vec::new();
+    for file in files {
+        match diagnostics.capture(parse_article_source::<M>(file)) {
+            Some(ArticleSource::Primary {
+                path,
+                metadata,
+                passage,
+            }) => primaries.push((metadata.id(), metadata, vec![(path, passage)])),
+            Some(ArticleSource::Companion { path, of, passage }) => {
+                companions.push((path, of, passage));
+            }
+            None => {}
+        }
+    }
+    for (path, of, passage) in companions {
+        match primaries.iter_mut().find(|(id, _, _)| *id == of) {
+            Some((_, _, passages)) => passages.push((path, passage)),
+            None => diagnostics.extend([anyhow::anyhow!(
+                "{}: of {of:?} names no {}",
+                path.display(),
+                M::KIND
+            )]),
+        }
+    }
+    let articles = primaries
+        .into_iter()
+        .filter_map(|(_, metadata, passages)| {
+            let passages = diagnostics.capture(Passages::assemble(passages))?;
+            Some(Article { metadata, passages })
+        })
+        .collect();
+    diagnostics.finish("one or more content records are invalid")?;
+    Ok(articles)
 }
 
 /// Editorial order: notes with an `order` come first, lowest first; the rest
@@ -449,28 +824,9 @@ fn sort_notes(notes: &mut [ValidatedNote]) {
 }
 
 fn load_diary(directory: &Path) -> Result<Vec<ValidatedDiaryEntry>> {
-    let mut entries = load_markdown_records(directory, parse_diary_entry)?;
+    let mut entries = assemble_articles(load_markdown_sources(directory)?)?;
     sort_diary(&mut entries);
     Ok(entries)
-}
-
-fn parse_diary_entry(path: &Path, front_matter: &str, body: &str) -> Result<ValidatedDiaryEntry> {
-    let metadata: DiaryFrontMatter = serde_yaml_ng::from_str(front_matter)
-        .with_context(|| format!("invalid front matter in {}", path.display()))?;
-    metadata.validate(&path.display().to_string())?;
-    // Entries share one page under the h1 "Diary" and an h2 per entry, and
-    // footnote identifiers would collide between entries.
-    let rules = MarkdownRules {
-        math: metadata.math,
-        highest_heading: HeadingLevel::H3,
-        footnotes: false,
-    };
-    let rendered_body = render_markdown_with(body, rules)
-        .with_context(|| format!("failed to render {}", path.display()))?;
-    Ok(ValidatedDiaryEntry {
-        metadata,
-        rendered_body,
-    })
 }
 
 /// Newest first by the entry's own date; entries sharing a date follow their
@@ -569,6 +925,11 @@ struct MarkdownRules {
     /// beneath the headings of the page it appears on.
     highest_heading: HeadingLevel,
     footnotes: bool,
+    /// Prefixed to footnote labels, keeping identifiers unique when several
+    /// bodies share one page.
+    footnote_prefix: Option<&'static str>,
+    /// Whether `[phrase]{lang=xx}` marks the language of a phrase.
+    inline_languages: bool,
 }
 
 fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown> {
@@ -578,6 +939,8 @@ fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown>
             math: math_enabled,
             highest_heading: HeadingLevel::H1,
             footnotes: true,
+            footnote_prefix: None,
+            inline_languages: false,
         },
     )
 }
@@ -619,12 +982,90 @@ fn render_markdown_with(source: &str, rules: MarkdownRules) -> Result<RenderedMa
         events.push(match event {
             Event::InlineMath(formula) => render_math_event(&formula, false)?,
             Event::DisplayMath(formula) => render_math_event(&formula, true)?,
+            Event::FootnoteReference(label) => Event::FootnoteReference(prefixed(label, &rules)),
+            Event::Start(Tag::FootnoteDefinition(label)) => {
+                Event::Start(Tag::FootnoteDefinition(prefixed(label, &rules)))
+            }
             other => other,
         });
+    }
+    if rules.inline_languages {
+        events = mark_inline_languages(events)?;
     }
     let mut output = String::new();
     html::push_html(&mut output, events.into_iter());
     Ok(RenderedMarkdown(output))
+}
+
+fn prefixed<'a>(label: CowStr<'a>, rules: &MarkdownRules) -> CowStr<'a> {
+    match rules.footnote_prefix {
+        Some(prefix) => format!("{prefix}-{label}").into(),
+        None => label,
+    }
+}
+
+/// Marks phrases written `[phrase]{lang=xx}` with `<span lang="xx">`. This
+/// works on the parsed event stream, never on HTML: adjacent text events are
+/// joined, code and image descriptions are left alone, and the phrase must be
+/// plain text within one run of text. The language tag is validated, so the
+/// only markup produced is the span itself; the phrase stays escaped text.
+fn mark_inline_languages(events: Vec<Event<'_>>) -> Result<Vec<Event<'_>>> {
+    let mut output = Vec::with_capacity(events.len());
+    let mut text = String::new();
+    let mut verbatim_depth = 0_usize;
+    for event in events {
+        match event {
+            Event::Text(run) if verbatim_depth == 0 => text.push_str(&run),
+            other => {
+                push_marked_text(std::mem::take(&mut text), &mut output)?;
+                match &other {
+                    Event::Start(Tag::CodeBlock(_) | Tag::Image { .. }) => verbatim_depth += 1,
+                    Event::End(TagEnd::CodeBlock | TagEnd::Image) => verbatim_depth -= 1,
+                    _ => {}
+                }
+                output.push(other);
+            }
+        }
+    }
+    push_marked_text(text, &mut output)?;
+    Ok(output)
+}
+
+fn push_marked_text(text: String, output: &mut Vec<Event<'_>>) -> Result<()> {
+    const MARKER: &str = "]{lang=";
+    let mut rest = text.as_str();
+    while let Some(marker) = rest.find(MARKER) {
+        let open = rest[..marker].rfind('[').with_context(|| {
+            format!(
+                "an inline language mark must follow plain text in brackets, as in [Stimme]{{lang=de}}, near {:?}",
+                &rest[marker..]
+            )
+        })?;
+        let phrase = &rest[open + 1..marker];
+        ensure!(
+            !phrase.trim().is_empty() && !phrase.contains(']'),
+            "an inline language mark needs a plain phrase in brackets, near {:?}",
+            &rest[open..]
+        );
+        let after = &rest[marker + MARKER.len()..];
+        let close = after
+            .find('}')
+            .with_context(|| format!("unclosed inline language mark near {:?}", &rest[open..]))?;
+        let tag = LanguageTag::parse(&after[..close])?;
+        if open > 0 {
+            output.push(Event::Text(rest[..open].to_owned().into()));
+        }
+        output.push(Event::InlineHtml(
+            format!("<span lang=\"{}\">", tag.as_str()).into(),
+        ));
+        output.push(Event::Text(phrase.to_owned().into()));
+        output.push(Event::InlineHtml("</span>".into()));
+        rest = &after[close + 1..];
+    }
+    if !rest.is_empty() {
+        output.push(Event::Text(rest.to_owned().into()));
+    }
+    Ok(())
 }
 
 fn render_math_event<'a>(formula: &str, display: bool) -> Result<Event<'a>> {
@@ -795,8 +1236,9 @@ impl StdError for CollectedErrors {}
 #[cfg(test)]
 mod tests {
     use super::{
-        Miscellany, ValidatedSiteContent, ValidatedWriting, load_miscellany, load_records,
-        planned_updates_needing_review, render_markdown, sort_updates, split_front_matter,
+        Miscellany, ValidatedHome, ValidatedSiteContent, ValidatedWriting, load_miscellany,
+        load_records, planned_updates_needing_review, render_markdown, sort_updates,
+        split_front_matter,
     };
     use crate::model::{
         Category, EventKind, EventStatus, Language, Localized, Related, Update, WritingFrontMatter,
@@ -1002,6 +1444,7 @@ mod tests {
             writings,
             projects: Vec::new(),
             miscellany: Miscellany::default(),
+            home: ValidatedHome::from_json(r#"{"bio":["Synthetic biography."]}"#).unwrap(),
         };
         let started = Instant::now();
         let pages = render::pages(&content);
@@ -1083,11 +1526,15 @@ mod tests {
             ),
             (
                 "items:\n  - title: X\n    lang: Japanese\n",
-                "invalid language tag",
+                "language tag \"Japanese\"",
+            ),
+            (
+                "items:\n  - title: X\n    note: x\n    noteLang: fr\n",
+                "not supported",
             ),
             (
                 "items:\n  - title: X\n    lang: ja-\n",
-                "invalid language tag",
+                "language tag \"ja-\"",
             ),
             (
                 "items:\n  - title: X\n    url: javascript:alert(1)\n",
@@ -1110,7 +1557,7 @@ mod tests {
         let notes = |source: &str| Miscellany::from_sources("items: []", &[source], &[]);
         for (source, expected) in [
             (note("progress: 50\n", ""), "unknown field"),
-            (note("lang: fr\n", ""), "duplicate field"),
+            (note("lang: fr\n", ""), "duplicate entry with key \"lang\""),
             (
                 note("description: ''\n", ""),
                 "description must not be empty",
@@ -1121,7 +1568,7 @@ mod tests {
             ),
             (
                 "---\nslug: x\ntitle: X\nlang: fr\n---\n".to_owned(),
-                "unknown variant",
+                "is not supported (expected en, ja, de or mixed)",
             ),
             (
                 "---\nslug: x\nlang: en\n---\n".to_owned(),
@@ -1263,5 +1710,181 @@ mod tests {
                 "diary-2025-12-31"
             ]
         );
+    }
+
+    #[test]
+    fn invalid_homepage_content_is_rejected_with_file_diagnostics() {
+        for (source, expected) in [
+            ("{\"bio\": [", "invalid JSON in home.json"),
+            ("{}", "missing field `bio`"),
+            (
+                "{\"bio\": []}",
+                "home.json: bio must contain at least one paragraph",
+            ),
+            ("{\"bio\": [\"Fine.\", \"\"]}", "home.json: bio paragraph 2"),
+            (
+                "{\"bio\": [\"Fine.\"], \"title\": \"x\"}",
+                "unknown field `title`",
+            ),
+            (
+                "{\"bio\": [\"See [x](javascript:alert(1)).\"]}",
+                "home.json: bio paragraph 1",
+            ),
+            ("{\"bio\": [\"An [unclosed link.\"]}", "unclosed link"),
+        ] {
+            let error = format!("{:#}", ValidatedHome::from_json(source).unwrap_err());
+            assert!(error.contains(expected), "{source}: {error}");
+        }
+        // Every invalid paragraph is reported, not only the first.
+        let error = format!(
+            "{:#}",
+            ValidatedHome::from_json("{\"bio\": [\"[a](x)\", \"ok\", \"b]\"]}").unwrap_err()
+        );
+        assert!(
+            error.contains("2 error(s)") && error.contains("paragraph 3"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn multilingual_sources_are_validated_per_file() {
+        let primary = "---\nslug: moon\ntitle: Moon\nlang: ja\n---\n本文。\n";
+        let notes = |extra: &str| Miscellany::from_sources("items: []", &[primary, extra], &[]);
+        for (companion, expected) in [
+            // A companion names an article that does not exist.
+            (
+                "---\nof: sun\nlang: en\n---\nText.\n",
+                "note-1.md: of \"sun\" names no note",
+            ),
+            // Two passages in one language.
+            (
+                "---\nof: moon\nlang: ja\n---\n別の本文。\n",
+                "note-0.md and note-1.md are both ja passages",
+            ),
+            // Shared metadata belongs to the article, not to a passage.
+            (
+                "---\nof: moon\nlang: en\nslug: moon-en\n---\nText.\n",
+                "unknown field `slug`",
+            ),
+            (
+                "---\nof: moon\nlang: en\ndraft: false\n---\nText.\n",
+                "unknown field `draft`",
+            ),
+            (
+                "---\nof: moon\nlang: en\norder: 1\n---\nText.\n",
+                "unknown field `order`",
+            ),
+            // Unsupported passage languages and empty passages.
+            (
+                "---\nof: moon\nlang: fr\n---\nTexte.\n",
+                "\"fr\" is not supported",
+            ),
+            (
+                "---\nof: moon\nlang: en\n---\n\n",
+                "the passage text must not be empty",
+            ),
+            // A passage title is its heading, so its body starts one level lower.
+            (
+                "---\nof: moon\nlang: en\ntitle: Moon\n---\n## Too high\n",
+                "level 3 (`###`)",
+            ),
+            // Inline language marks are validated.
+            (
+                "---\nof: moon\nlang: en\n---\nA [phrase]{lang=Deutsch}.\n",
+                "language tag \"Deutsch\"",
+            ),
+            (
+                "---\nof: moon\nlang: en\n---\nA [phrase]{lang=de\n",
+                "unclosed inline language mark",
+            ),
+            (
+                "---\nof: moon\nlang: en\n---\nA *phrase*]{lang=de}.\n",
+                "plain text in brackets",
+            ),
+            (
+                "---\nof: moon\nlang: en\n---\nA [x](javascript:alert(1)).\n",
+                "unsafe Markdown URL",
+            ),
+            (
+                "---\nof: moon\nlang: en\n---\n<span lang=\"de\">x</span>\n",
+                "raw HTML is not permitted",
+            ),
+        ] {
+            let error = format!("{:#}", notes(companion).unwrap_err());
+            assert!(error.contains(expected), "{companion:?}: {error}");
+        }
+        let entry = "---\ndate: 2026-10-10\nlang: en\n---\nText.\n";
+        let error = format!(
+            "{:#}",
+            Miscellany::from_sources(
+                "items: []",
+                &[],
+                &[entry, "---\nof: 2026-10-11\nlang: ja\n---\n本文。\n"],
+            )
+            .unwrap_err()
+        );
+        assert!(
+            error.contains("of \"2026-10-11\" names no diary entry"),
+            "{error}"
+        );
+        // A reading note in an unsupported language, and both note forms.
+        for (reading, expected) in [
+            (
+                "items:\n  - title: X\n    notes:\n      fr: Texte.\n",
+                "invalid notes language \"fr\"",
+            ),
+            (
+                "items:\n  - title: X\n    note: a\n    notes:\n      ja: b\n",
+                "either note or notes",
+            ),
+            (
+                "items:\n  - title: X\n    notes:\n      en: ''\n",
+                "en note must not be empty",
+            ),
+            (
+                "items:\n  - title: X\n    notes:\n      en: a\n      en: b\n",
+                "duplicate entry",
+            ),
+        ] {
+            let error = format!(
+                "{:#}",
+                Miscellany::from_sources(reading, &[], &[]).unwrap_err()
+            );
+            assert!(error.contains(expected), "{reading:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn inline_language_marks_are_safe_and_leave_code_alone() {
+        let body = "Ein [A & <B>]{lang=de} und `[x]{lang=fr}`.\n\n```\n[y]{lang=fr}\n```\n\n![alt [z]{lang=fr}](/a.png)\n";
+        let note = format!("---\nslug: m\ntitle: M\nlang: mixed\ndraft: false\n---\n{body}");
+        let error = format!(
+            "{:#}",
+            Miscellany::from_sources("items: []", &[&note], &[]).unwrap_err()
+        );
+        // Raw HTML stays rejected even inside a marked phrase.
+        assert!(error.contains("raw HTML is not permitted"), "{error}");
+        let note = note.replace(" & <B>", " &amp; B");
+        let miscellany = Miscellany::from_sources("items: []", &[&note], &[]).unwrap();
+        let html = miscellany
+            .public_notes()
+            .next()
+            .unwrap()
+            .passages()
+            .iter()
+            .next()
+            .unwrap()
+            .rendered_body()
+            .to_owned();
+        assert!(
+            html.contains(r#"Ein <span lang="de">A &amp; B</span> und <code>[x]{lang=fr}</code>."#),
+            "{html}"
+        );
+        assert!(
+            html.contains("<pre><code>[y]{lang=fr}\n</code></pre>"),
+            "{html}"
+        );
+        assert!(html.contains(r#"alt="alt [z]{lang=fr}""#), "{html}");
+        assert_eq!(html.matches("<span").count(), 1);
     }
 }

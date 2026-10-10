@@ -68,6 +68,8 @@ document.addEventListener('DOMContentLoaded', () => {
     filter.hidden = false;
   }
 
+  setUpLanguageFilters();
+
   for (const control of document.querySelectorAll<HTMLElement>('[data-email-code]')) {
     control.addEventListener('click', (event) => {
       event.preventDefault();
@@ -79,3 +81,82 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+const LANGUAGE_KEY = 'miscellany-language';
+
+function readLanguage(): string {
+  try {
+    return window.localStorage.getItem(LANGUAGE_KEY) ?? 'all';
+  } catch {
+    return 'all';
+  }
+}
+
+// Miscellany entries may hold separately authored passages in several
+// languages. The language control is hidden in the generated HTML, so every
+// passage is shown without JavaScript. A choice hides designated passages in
+// other languages with the hidden attribute, which also removes them from
+// keyboard and screen-reader navigation; mixed-language passages are never
+// hidden. An entry with nothing left to show displays its notice instead,
+// whose button reveals that entry alone. The choice is remembered in this
+// browser only, across Miscellany pages.
+function setUpLanguageFilters(): void {
+  const filters = Array.from(document.querySelectorAll<HTMLElement>('[data-language-filter]'));
+  if (filters.length === 0) return;
+  const buttons = filters.flatMap((filter) =>
+    Array.from(filter.querySelectorAll<HTMLButtonElement>('button[data-language]')),
+  );
+  const groups = Array.from(document.querySelectorAll<HTMLElement>('[data-passages]'));
+  const offered = new Set(buttons.map((button) => button.dataset.language));
+  let choice = readLanguage();
+  if (!offered.has(choice)) choice = 'all';
+
+  const apply = (): void => {
+    for (const button of buttons) {
+      button.setAttribute('aria-pressed', String(button.dataset.language === choice));
+    }
+    for (const group of groups) {
+      const revealed = group.dataset.revealed === 'true';
+      let shown = 0;
+      for (const passage of group.querySelectorAll<HTMLElement>(':scope > [data-passage]')) {
+        const language = passage.dataset.passage;
+        passage.hidden =
+          !revealed && choice !== 'all' && language !== 'mixed' && language !== choice;
+        if (!passage.hidden) shown += 1;
+      }
+      const notice = group.querySelector<HTMLElement>(':scope > [data-language-notice]');
+      if (notice) notice.hidden = shown > 0;
+    }
+  };
+
+  for (const button of buttons) {
+    button.addEventListener('click', () => {
+      choice = button.dataset.language ?? 'all';
+      try {
+        window.localStorage.setItem(LANGUAGE_KEY, choice);
+      } catch {
+        // The choice still applies to this page view when storage is unavailable.
+      }
+      for (const group of groups) delete group.dataset.revealed;
+      apply();
+    });
+  }
+
+  for (const reveal of document.querySelectorAll<HTMLButtonElement>('[data-language-reveal]')) {
+    reveal.addEventListener('click', () => {
+      const group = reveal.closest<HTMLElement>('[data-passages]');
+      if (!group) return;
+      group.dataset.revealed = 'true';
+      apply();
+      // The notice and its button are now hidden; continue at the text.
+      const first = group.querySelector<HTMLElement>(':scope > [data-passage]');
+      if (first) {
+        first.tabIndex = -1;
+        first.focus();
+      }
+    });
+  }
+
+  apply();
+  for (const filter of filters) filter.hidden = false;
+}
