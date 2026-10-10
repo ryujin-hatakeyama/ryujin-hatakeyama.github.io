@@ -16,7 +16,7 @@ References checked:
 
 Rust:
 
-- typed publication, presentation, update-export, writing, and project models;
+- typed publication, presentation, update-export, writing, project, and Miscellany (reading, note, diary) models;
 - cross-record validation and deterministic ordering;
 - explicit static route construction;
 - reusable Maud layout and page components;

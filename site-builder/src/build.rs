@@ -323,6 +323,9 @@ mod tests {
         fs::create_dir_all(root.join("content/publications")).unwrap();
         fs::create_dir_all(root.join("content/writings")).unwrap();
         fs::create_dir_all(root.join("content/projects")).unwrap();
+        fs::create_dir_all(root.join("content/miscellany/notes")).unwrap();
+        fs::create_dir_all(root.join("content/miscellany/diary")).unwrap();
+        write(&root.join("content/miscellany/reading.yaml"), "items: []\n");
         write(&root.join("target/generated/updates.json"), "[]");
     }
 

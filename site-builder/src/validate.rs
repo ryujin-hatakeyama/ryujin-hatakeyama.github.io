@@ -17,6 +17,10 @@ const REQUIRED_FILES: &[&str] = &[
     "updates/research/index.html",
     "updates/academia/index.html",
     "updates/writing/index.html",
+    "miscellany/index.html",
+    "miscellany/reading/index.html",
+    "miscellany/notes/index.html",
+    "miscellany/diary/index.html",
     "404.html",
     "rss.xml",
     "robots.txt",
@@ -183,6 +187,32 @@ fn validate_html(root: &Path, files: &[PathBuf]) -> Result<()> {
         ensure!(
             html.contains("<nav class=\"primary-nav\" aria-label=\"Primary navigation\">"),
             "{} has no labelled primary navigation",
+            relative.display()
+        );
+        ensure!(
+            html.contains("<a href=\"/updates/\"") && html.contains("<a href=\"/miscellany/\""),
+            "{} has an incomplete primary navigation",
+            relative.display()
+        );
+        if relative.starts_with("miscellany") {
+            ensure!(
+                html.contains("<a href=\"/miscellany/\" aria-current=\"page\">Miscellany</a>"),
+                "{} does not mark Miscellany as the current section",
+                relative.display()
+            );
+        }
+        ensure!(
+            html.matches("src=\"https://gc.zgo.at/count.js\"").count() == 1
+                && html.matches("data-goatcounter=").count() == 1
+                && html.contains(
+                    "data-goatcounter=\"https://hatakeyama.goatcounter.com/count\" async src=\"https://gc.zgo.at/count.js\""
+                ),
+            "{} must load the GoatCounter script exactly once with the site endpoint",
+            relative.display()
+        );
+        ensure!(
+            html.contains("window.goatcounter={no_onload:true};</script><script data-goatcounter="),
+            "{} must disable GoatCounter outside production before its script",
             relative.display()
         );
         ensure!(
@@ -428,6 +458,10 @@ fn validate_expected_content(root: &Path) -> Result<()> {
     ensure!(
         rss.contains("<language>en</language>"),
         "RSS language is missing"
+    );
+    ensure!(
+        !rss.contains("/miscellany/"),
+        "the Updates feed must not include Miscellany content"
     );
     Ok(())
 }

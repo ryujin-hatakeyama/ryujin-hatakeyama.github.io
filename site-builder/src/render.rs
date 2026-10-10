@@ -3,10 +3,13 @@ use std::fmt::Write as _;
 use chrono::NaiveDate;
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
-use crate::content::{ValidatedSiteContent, ValidatedWriting, public_english_writings};
+use crate::content::{
+    Miscellany, ValidatedDiaryEntry, ValidatedNote, ValidatedSiteContent, ValidatedWriting,
+    public_english_writings,
+};
 use crate::model::{
-    Category, EventStatus, Language, Link, Project, Publication, SummarySegment, Update,
-    summary_plain_text, summary_segments,
+    Category, EventStatus, Language, Link, Project, Publication, ReadingItem, SummarySegment,
+    Update, summary_plain_text, summary_segments,
 };
 
 const SITE_ORIGIN: &str = "https://ryujin-hatakeyama.github.io";
@@ -19,6 +22,14 @@ const LAST_UPDATED: NaiveDate = match NaiveDate::from_ymd_opt(2026, 10, 10) {
     Some(date) => date,
     None => panic!("LAST_UPDATED must be a real date"),
 };
+/// GoatCounter's public counting endpoint and official script. These are
+/// public configuration values, not credentials.
+const GOATCOUNTER_ENDPOINT: &str = "https://hatakeyama.goatcounter.com/count";
+const GOATCOUNTER_SCRIPT: &str = "https://gc.zgo.at/count.js";
+/// Pageviews are counted only on this exact hostname. Elsewhere (local
+/// previews, test servers, other deployments) GoatCounter's documented
+/// `no_onload` option is set before its script can run, so nothing is sent.
+const PRODUCTION_HOSTNAME: &str = "ryujin-hatakeyama.github.io";
 const HOME_DESCRIPTION: &str = "Ryujin Hatakeyama is a second-year master's student at Tohoku University studying programming language theory and staged computation.";
 
 #[derive(Debug)]
@@ -123,6 +134,58 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
             writings_page(&writings),
         ),
         page(
+            "miscellany/index.html",
+            "/miscellany/",
+            true,
+            PageMetadata {
+                title: "Miscellany",
+                description: "Reading, study notes, and occasional diary entries by Ryujin Hatakeyama.",
+                current_path: "/miscellany/",
+                noindex: false,
+                article: false,
+            },
+            miscellany_overview(),
+        ),
+        page(
+            "miscellany/reading/index.html",
+            "/miscellany/reading/",
+            true,
+            PageMetadata {
+                title: "Reading",
+                description: "Books and papers read by Ryujin Hatakeyama.",
+                current_path: "/miscellany/reading/",
+                noindex: false,
+                article: false,
+            },
+            reading_page(content.miscellany().reading()),
+        ),
+        page(
+            "miscellany/notes/index.html",
+            "/miscellany/notes/",
+            true,
+            PageMetadata {
+                title: "Notes",
+                description: "Study notes and guides by Ryujin Hatakeyama.",
+                current_path: "/miscellany/notes/",
+                noindex: false,
+                article: false,
+            },
+            notes_page(content.miscellany()),
+        ),
+        page(
+            "miscellany/diary/index.html",
+            "/miscellany/diary/",
+            true,
+            PageMetadata {
+                title: "Diary",
+                description: "Occasional diary entries by Ryujin Hatakeyama.",
+                current_path: "/miscellany/diary/",
+                noindex: false,
+                article: false,
+            },
+            diary_page(content.miscellany()),
+        ),
+        page(
             "404.html",
             "/404/",
             false,
@@ -183,6 +246,24 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
             &writing.metadata().description,
             &path,
             writing_detail(writing),
+        ));
+    }
+
+    for note in content.miscellany().public_notes() {
+        let metadata = note.metadata();
+        let path = note_path(&metadata.slug);
+        let description = metadata
+            .description
+            .clone()
+            .unwrap_or_else(|| format!("A study note by Ryujin Hatakeyama: {}.", metadata.title));
+        pages.push(page_owned(
+            format!("miscellany/notes/{}/index.html", metadata.slug),
+            path.clone(),
+            true,
+            &metadata.title,
+            &description,
+            &path,
+            note_detail(note),
         ));
     }
 
@@ -270,6 +351,7 @@ fn layout(metadata: PageMetadata<'_>, body: Markup) -> Markup {
                 meta property="og:url" content=(canonical);
                 title { (full_title) }
                 script src="/assets/site.js" {}
+                (analytics())
             }
             body {
                 a.skip-link href="#main-content" { "Skip to content" }
@@ -283,6 +365,19 @@ fn layout(metadata: PageMetadata<'_>, body: Markup) -> Markup {
     }
 }
 
+/// Cookie-free, aggregate visit counting with GoatCounter. The inline guard
+/// runs while the document is parsed, before the asynchronous script can
+/// execute, and disables the automatic pageview outside production.
+fn analytics() -> Markup {
+    let guard = format!(
+        "if(location.hostname!=='{PRODUCTION_HOSTNAME}')window.goatcounter={{no_onload:true}};"
+    );
+    html! {
+        script { (PreEscaped(guard)) }
+        script data-goatcounter=(GOATCOUNTER_ENDPOINT) async src=(GOATCOUNTER_SCRIPT) {}
+    }
+}
+
 fn header(current_path: &str) -> Markup {
     html! {
         header.site-header {
@@ -292,6 +387,7 @@ fn header(current_path: &str) -> Markup {
                 (nav_link("/research/", "Research", current_path.starts_with("/research/")))
                 (nav_link("/cv/", "CV", current_path.starts_with("/cv/")))
                 (nav_link("/updates/", "Updates", current_path.starts_with("/updates/")))
+                (nav_link("/miscellany/", "Miscellany", current_path.starts_with("/miscellany/")))
             }
             div.header-tools {
                 // A single toggle button with a stable name; aria-pressed and the
@@ -332,6 +428,11 @@ fn footer() -> Markup {
                 "Last updated "
                 time datetime=(LAST_UPDATED.format("%Y-%m-%d")) { (LAST_UPDATED.format("%-d %B %Y")) }
             }
+            p.footer-privacy {
+                "Aggregate, cookie-free visit statistics are collected with "
+                a href="https://www.goatcounter.com/" { "GoatCounter" }
+                "."
+            }
         }
     }
 }
@@ -355,8 +456,14 @@ fn home(updates: &[Update]) -> Markup {
     html! {
         section.home-intro aria-labelledby="home-name" {
             div.identity-block {
-                h1 id="home-name" { "Ryujin Hatakeyama" }
-                p.name-japanese lang="ja" { "畠山竜迅" }
+                // Both forms of the name form one heading; the space keeps
+                // them separate words when read aloud or copied, while the
+                // layout itself comes from CSS.
+                h1.person-name id="home-name" {
+                    span.name-latin lang="en" { "Ryujin Hatakeyama" }
+                    " "
+                    span.name-japanese lang="ja" { "畠山竜迅" }
+                }
                 p.name-pronunciation {
                     span lang="ja" { "はたけやま りゅうじん" }
                     span aria-hidden="true" { " · " }
@@ -944,6 +1051,173 @@ fn writing_detail(writing: &ValidatedWriting) -> Markup {
                 @if let Some(publication) = &metadata.publication { p.publication-context { (publication) } }
             }
             div.prose { (PreEscaped(writing.rendered_body())) }
+        }
+    }
+}
+
+/// The three Miscellany sections, with their functional labels.
+const MISCELLANY_SECTIONS: [(&str, &str, &str); 3] = [
+    ("/miscellany/reading/", "Reading", "Books and papers"),
+    ("/miscellany/notes/", "Notes", "Study notes and guides"),
+    ("/miscellany/diary/", "Diary", "Occasional entries"),
+];
+
+fn note_path(slug: &str) -> String {
+    format!("/miscellany/notes/{slug}/")
+}
+
+fn miscellany_overview() -> Markup {
+    html! {
+        header.plain-page-header { h1 { "Miscellany" } }
+        div.miscellany-overview {
+            @for (href, label, description) in MISCELLANY_SECTIONS {
+                section.content-section {
+                    h2 { a href=(href) { (label) } }
+                    p { (description) }
+                }
+            }
+        }
+    }
+}
+
+/// Text links back to the overview and between the three sections, shown
+/// above the heading of every page below `/miscellany/`.
+fn miscellany_nav(current_path: &str) -> Markup {
+    html! {
+        nav.jump-links.miscellany-nav aria-label="Miscellany sections" {
+            (nav_link("/miscellany/", "Overview", current_path == "/miscellany/"))
+            @for (href, label, _) in MISCELLANY_SECTIONS {
+                (nav_link(href, label, current_path == href))
+            }
+        }
+    }
+}
+
+fn miscellany_section_header(path: &str, title: &str, description: &str) -> Markup {
+    html! {
+        header.plain-page-header.miscellany-header {
+            (miscellany_nav(path))
+            h1 { (title) }
+            p { (description) }
+        }
+    }
+}
+
+/// The reading record in the author's order. Titles and names are shown as
+/// written, marked with their language when it is not English.
+fn reading_page(items: &[ReadingItem]) -> Markup {
+    let (path, title, description) = MISCELLANY_SECTIONS[0];
+    html! {
+        (miscellany_section_header(path, title, description))
+        @if items.is_empty() {
+            p.empty-state { "No entries yet." }
+        } @else {
+            ol.reading-list {
+                @for item in items {
+                    li {
+                        p.reading-title {
+                            cite lang=[item.lang.as_ref().map(|tag| tag.as_str())] {
+                                @if let Some(url) = &item.url {
+                                    a href=(url) { (&item.title) }
+                                } @else {
+                                    (&item.title)
+                                }
+                            }
+                        }
+                        @if let Some(author) = &item.author {
+                            p.reading-author lang=[item.lang.as_ref().map(|tag| tag.as_str())] { (author) }
+                        }
+                        @if let Some(note) = &item.note {
+                            p.reading-note lang=[item.note_lang.as_ref().map(|tag| tag.as_str())] { (note) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn notes_page(miscellany: &Miscellany) -> Markup {
+    let (path, title, description) = MISCELLANY_SECTIONS[1];
+    let notes: Vec<_> = miscellany.public_notes().collect();
+    html! {
+        (miscellany_section_header(path, title, description))
+        @if notes.is_empty() {
+            p.empty-state { "No notes yet." }
+        } @else {
+            ol.miscellany-list {
+                @for note in notes {
+                    @let metadata = note.metadata();
+                    li lang=(metadata.lang.code()) {
+                        h2 { a href=(note_path(&metadata.slug)) { (&metadata.title) } }
+                        @if let Some(description) = &metadata.description {
+                            p { (description) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn note_detail(note: &ValidatedNote) -> Markup {
+    let metadata = note.metadata();
+    let class = if metadata.lang == Language::Ja {
+        "miscellany-note longform-ja"
+    } else {
+        "miscellany-note"
+    };
+    html! {
+        div.miscellany-header { (miscellany_nav(&note_path(&metadata.slug))) }
+        article class=(class) lang=(metadata.lang.code()) {
+            header {
+                h1 { (&metadata.title) }
+                @if let Some(description) = &metadata.description {
+                    p.summary { (description) }
+                }
+            }
+            div.prose.miscellany-prose { (PreEscaped(note.rendered_body())) }
+        }
+    }
+}
+
+/// Diary entries newest first, each shown in full under its date. The date
+/// links to the entry's own anchor; a title, when given, follows it.
+fn diary_page(miscellany: &Miscellany) -> Markup {
+    let (path, title, description) = MISCELLANY_SECTIONS[2];
+    let entries: Vec<_> = miscellany.public_diary().collect();
+    html! {
+        (miscellany_section_header(path, title, description))
+        @if entries.is_empty() {
+            p.empty-state { "No entries yet." }
+        } @else {
+            div.diary {
+                @for entry in entries { (diary_entry(entry)) }
+            }
+        }
+    }
+}
+
+fn diary_entry(entry: &ValidatedDiaryEntry) -> Markup {
+    let metadata = entry.metadata();
+    let anchor = metadata.anchor();
+    let lang = metadata.lang.code();
+    let class = if metadata.lang == Language::Ja {
+        "diary-entry longform-ja"
+    } else {
+        "diary-entry"
+    };
+    html! {
+        article class=(class) id=(anchor) {
+            h2 {
+                a.diary-date href=(format!("#{anchor}")) {
+                    time datetime=(metadata.date.format("%Y-%m-%d")) { (metadata.date.format("%-d %B %Y")) }
+                }
+                @if let Some(title) = &metadata.title {
+                    span.diary-title lang=(lang) { (title) }
+                }
+            }
+            div.prose.miscellany-prose lang=(lang) { (PreEscaped(entry.rendered_body())) }
         }
     }
 }
@@ -1656,6 +1930,70 @@ mod tests {
     }
 
     #[test]
+    fn every_page_loads_goatcounter_once_and_only_counts_in_production() {
+        let content = crate::content::ValidatedSiteContent::with_miscellany(
+            crate::content::Miscellany::default(),
+        );
+        let guard = "<script>if(location.hostname!=='ryujin-hatakeyama.github.io')window.goatcounter={no_onload:true};</script>";
+        let tag = r#"<script data-goatcounter="https://hatakeyama.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>"#;
+        for page in super::pages(&content) {
+            let html = &page.html;
+            assert_eq!(html.matches("gc.zgo.at").count(), 1, "{}", page.output_path);
+            assert_eq!(html.matches("data-goatcounter=").count(), 1);
+            assert_eq!(html.matches(guard).count(), 1);
+            // The guard precedes the asynchronous script, inside <head>, and
+            // after the theme script, which it leaves untouched.
+            let site = html
+                .find(r#"<script src="/assets/site.js"></script>"#)
+                .unwrap();
+            let guard_at = html.find(guard).unwrap();
+            assert!(site < guard_at && guard_at < html.find(tag).unwrap());
+            assert!(html.find(tag).unwrap() < html.find("</head>").unwrap());
+            assert!(html.contains(&format!(
+                r#"<link rel="canonical" href="https://ryujin-hatakeyama.github.io{}">"#,
+                page.public_path
+            )));
+        }
+        // Only the documented option: no events, identifiers, or counters.
+        let html = super::layout(
+            super::PageMetadata {
+                title: "T",
+                description: "D",
+                current_path: "/",
+                noindex: false,
+                article: false,
+            },
+            maud::html! {},
+        )
+        .into_string();
+        for absent in [
+            "goatcounter.count(",
+            "data-goatcounter-settings",
+            "visit_count",
+            "cookie=",
+        ] {
+            assert!(!html.contains(absent), "{absent}");
+        }
+    }
+
+    #[test]
+    fn homepage_heading_holds_both_forms_of_the_name() {
+        let html = home(&[]).into_string();
+        assert_eq!(html.matches("<h1").count(), 1);
+        assert!(html.contains(r#"<h1 class="person-name" id="home-name"><span class="name-latin" lang="en">Ryujin Hatakeyama</span> <span class="name-japanese" lang="ja">畠山竜迅</span></h1>"#));
+        assert_eq!(html.matches("畠山竜迅").count(), 1);
+        // The pronunciation follows the heading unchanged.
+        assert!(html.contains(r#"</h1><p class="name-pronunciation"><span lang="ja">はたけやま りゅうじん</span><span aria-hidden="true"> · </span><span class="ipa">/hatakejama ɾʲɯːdʑiɴ/</span></p>"#));
+        assert!(html.contains(r#"<section class="home-intro" aria-labelledby="home-name">"#));
+    }
+
+    #[test]
+    fn footer_discloses_cookie_free_aggregate_statistics() {
+        let html = footer().into_string();
+        assert!(html.contains(r#"<p class="footer-privacy">Aggregate, cookie-free visit statistics are collected with <a href="https://www.goatcounter.com/">GoatCounter</a>.</p>"#));
+    }
+
+    #[test]
     fn cv_is_a_primary_navigation_item() {
         let html = header("/cv/").into_string();
         let order: Vec<_> = [
@@ -1920,5 +2258,276 @@ mod tests {
         assert!(feed.contains(
             "<link>https://ryujin-hatakeyama.github.io/updates/#update-completed-1</link><guid>https://ryujin-hatakeyama.github.io/updates/#update-completed-1</guid><category>Activities</category></item>"
         ));
+    }
+}
+
+#[cfg(test)]
+mod miscellany_tests {
+    use super::{
+        diary_page, header, miscellany_overview, note_detail, notes_page, pages, reading_page,
+    };
+    use crate::content::{Miscellany, ValidatedSiteContent};
+
+    /// Published fixtures parsed through the real validation; they exist only
+    /// in memory and are never written to the content directory.
+    fn miscellany(reading: &str, notes: &[&str], diary: &[&str]) -> Miscellany {
+        Miscellany::from_sources(reading, notes, diary).unwrap()
+    }
+
+    fn main_of(html: &str) -> &str {
+        let start = html.find("<main id=\"main-content\">").unwrap();
+        &html[start..html.find("</main>").unwrap()]
+    }
+
+    fn page_html(content: &ValidatedSiteContent, output_path: &str) -> String {
+        pages(content)
+            .into_iter()
+            .find(|page| page.output_path == output_path)
+            .unwrap_or_else(|| panic!("missing {output_path}"))
+            .html
+    }
+
+    const NOTE_EN: &str = "---\nslug: staged-interpreters\ntitle: Staged <interpreters> & you\nlang: en\ndescription: How a staged interpreter becomes a compiler.\norder: 1\nmath: true\ndraft: false\n---\n\n## Background\n\nA paragraph with `inline code` and a [reference](https://example.org/paper).\n\n- first\n- second\n\n> A quotation.\n\n```ocaml\nlet rec power n x = if n = 0 then .<1>. else .<.~x * .~(power (n - 1) x)>.\n```\n\nInline $x^2$ and displayed:\n\n$$\\sum_{i=0}^{n} i = \\frac{n(n+1)}{2}$$\n\nText.[^1]\n\n[^1]: A footnote.\n";
+    const NOTE_JA: &str = "---\nslug: kripke-semantics\ntitle: クリプキ意味論の覚え書き\nlang: ja\ndraft: false\n---\n\n## 可能世界\n\n本文の段落です。\n";
+    const NOTE_DRAFT: &str =
+        "---\nslug: unfinished\ntitle: Unfinished note\nlang: en\n---\n\nNot public.\n";
+    const DIARY_OLD: &str = "---\ndate: 2026-03-01\nlang: en\ndraft: false\n---\n\nFirst paragraph.\n\nSecond paragraph.\n";
+    const DIARY_NEW: &str = "---\ndate: 2026-10-10\nlang: ja\ntitle: 仙台にて\ndraft: false\n---\n\n今日は図書館で一日を過ごした。\n";
+    const DIARY_DRAFT: &str = "---\ndate: 2026-10-11\nlang: en\n---\n\nNot public.\n";
+
+    #[test]
+    fn miscellany_is_the_fifth_primary_section_and_current_below_its_route() {
+        for path in [
+            "/miscellany/",
+            "/miscellany/reading/",
+            "/miscellany/notes/",
+            "/miscellany/notes/staged-interpreters/",
+            "/miscellany/diary/",
+        ] {
+            let html = header(path).into_string();
+            let order: Vec<_> = ["Home<", "Research<", "CV<", "Updates<", "Miscellany<"]
+                .iter()
+                .map(|label| html.find(label).unwrap())
+                .collect();
+            assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "{path}");
+            assert!(html.contains(r#"<a href="/miscellany/" aria-current="page">Miscellany</a>"#));
+            assert_eq!(html.matches("aria-current").count(), 1, "{path}");
+        }
+        for path in ["/", "/research/", "/cv/", "/updates/", "/writings/"] {
+            let html = header(path).into_string();
+            assert!(
+                html.contains(r#"<a href="/miscellany/">Miscellany</a>"#),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn overview_has_one_heading_and_three_plain_sections() {
+        let html = miscellany_overview().into_string();
+        assert_eq!(html.matches("<h1").count(), 1);
+        assert!(html.contains("<h1>Miscellany</h1>"));
+        let sections = [
+            r#"<h2><a href="/miscellany/reading/">Reading</a></h2><p>Books and papers</p>"#,
+            r#"<h2><a href="/miscellany/notes/">Notes</a></h2><p>Study notes and guides</p>"#,
+            r#"<h2><a href="/miscellany/diary/">Diary</a></h2><p>Occasional entries</p>"#,
+        ];
+        let positions: Vec<_> = sections.iter().map(|s| html.find(s).unwrap()).collect();
+        assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+        assert_eq!(html.matches("<section").count(), 3);
+        for decoration in [
+            "card",
+            "badge",
+            "tab",
+            "<svg",
+            "<img",
+            "No entries",
+            "role=",
+        ] {
+            assert!(!html.contains(decoration), "{decoration}");
+        }
+    }
+
+    #[test]
+    fn empty_sections_are_quiet_and_contain_no_entries() {
+        let content = ValidatedSiteContent::with_miscellany(Miscellany::default());
+        for (path, title, empty) in [
+            (
+                "miscellany/reading/index.html",
+                "Reading",
+                "No entries yet.",
+            ),
+            ("miscellany/notes/index.html", "Notes", "No notes yet."),
+            ("miscellany/diary/index.html", "Diary", "No entries yet."),
+        ] {
+            let html = page_html(&content, path);
+            let main = main_of(&html);
+            assert!(main.contains(&format!("<h1>{title}</h1>")), "{path}");
+            assert!(main.contains(&format!(r#"<p class="empty-state">{empty}</p>"#)));
+            assert!(!main.contains("<article") && !main.contains("<li") && !main.contains("<h2"));
+            assert!(main.contains(r#"<nav class="jump-links miscellany-nav" aria-label="Miscellany sections"><a href="/miscellany/">Overview</a>"#));
+            assert_eq!(main.matches(r#"aria-current="page""#).count(), 1);
+        }
+        assert!(
+            !pages(&content)
+                .iter()
+                .any(|page| page.output_path.starts_with("miscellany/notes/")
+                    && page.output_path != "miscellany/notes/index.html")
+        );
+    }
+
+    #[test]
+    fn reading_keeps_the_authors_order_original_titles_and_languages() {
+        let reading = "items:\n  - author: 夏目漱石\n    title: こころ\n    lang: ja\n    note: Read in the original.\n  - author: Saul A. Kripke\n    title: Naming and Necessity\n    url: https://example.org/naming\n  - title: 竹取物語\n    lang: ja\n    note: 二度目。\n    noteLang: ja\n  - author: A <b> & \"C\"\n    title: Title <script>alert(1)</script>\n";
+        let html = reading_page(miscellany(reading, &[], &[]).reading()).into_string();
+        let order: Vec<_> = [
+            "こころ",
+            "Naming and Necessity",
+            "竹取物語",
+            "Title &lt;script&gt;",
+        ]
+        .iter()
+        .map(|title| html.find(title).unwrap())
+        .collect();
+        assert!(order.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(html.contains(r#"<p class="reading-title"><cite lang="ja">こころ</cite></p><p class="reading-author" lang="ja">夏目漱石</p><p class="reading-note">Read in the original.</p>"#));
+        assert!(html.contains(r#"<cite><a href="https://example.org/naming">Naming and Necessity</a></cite></p><p class="reading-author">Saul A. Kripke</p>"#));
+        // An anonymous work has no author line; a Japanese note is marked.
+        assert!(html.contains(
+            r#"<cite lang="ja">竹取物語</cite></p><p class="reading-note" lang="ja">二度目。</p>"#
+        ));
+        assert!(html.contains("A &lt;b&gt; &amp; &quot;C&quot;"));
+        assert!(!html.contains("<script>") && !html.contains("<b>"));
+        for absent in ["rating", "progress", "%", "★", "<time"] {
+            assert!(!html.contains(absent), "{absent}");
+        }
+    }
+
+    #[test]
+    fn notes_have_stable_pages_with_markdown_and_math() {
+        let content = ValidatedSiteContent::with_miscellany(miscellany(
+            "items: []",
+            &[NOTE_JA, NOTE_DRAFT, NOTE_EN],
+            &[],
+        ));
+        let index = page_html(&content, "miscellany/notes/index.html");
+        // The ordered note comes first; the draft is not listed.
+        let english = index
+            .find(r#"<li lang="en"><h2><a href="/miscellany/notes/staged-interpreters/">Staged &lt;interpreters&gt; &amp; you</a></h2><p>How a staged interpreter becomes a compiler.</p></li>"#)
+            .unwrap();
+        let japanese = index
+            .find(r#"<li lang="ja"><h2><a href="/miscellany/notes/kripke-semantics/">クリプキ意味論の覚え書き</a></h2></li>"#)
+            .unwrap();
+        assert!(english < japanese);
+        assert!(!index.contains("Unfinished") && !index.contains("/unfinished/"));
+
+        let paths: Vec<_> = pages(&content)
+            .into_iter()
+            .map(|page| page.output_path)
+            .collect();
+        assert!(paths.contains(&"miscellany/notes/staged-interpreters/index.html".to_owned()));
+        assert!(paths.contains(&"miscellany/notes/kripke-semantics/index.html".to_owned()));
+        assert!(!paths.iter().any(|path| path.contains("unfinished")));
+
+        let html = page_html(&content, "miscellany/notes/staged-interpreters/index.html");
+        assert!(html.contains(r#"<link rel="canonical" href="https://ryujin-hatakeyama.github.io/miscellany/notes/staged-interpreters/">"#));
+        assert!(
+            html.contains(
+                "<title>Staged &lt;interpreters&gt; &amp; you — Ryujin Hatakeyama</title>"
+            )
+        );
+        assert!(html.contains(r#"<a href="/miscellany/" aria-current="page">Miscellany</a>"#));
+        let main = main_of(&html);
+        assert_eq!(main.matches("<h1").count(), 1);
+        assert!(main.contains(r#"<article class="miscellany-note" lang="en"><header><h1>Staged &lt;interpreters&gt; &amp; you</h1><p class="summary">How a staged interpreter becomes a compiler.</p></header>"#));
+        for fragment in [
+            "<h2>Background</h2>",
+            "<code>inline code</code>",
+            r#"<a href="https://example.org/paper">reference</a>"#,
+            "<ul>\n<li>first</li>",
+            "<blockquote>\n<p>A quotation.</p>",
+            r#"<pre><code class="language-ocaml">let rec power n x = if n = 0 then .&lt;1&gt;."#,
+            r#"<span class="katex">"#,
+            r#"<span class="katex-display">"#,
+            "<annotation encoding=\"application/x-tex\">x^2</annotation>",
+            r#"class="footnote-definition""#,
+        ] {
+            assert!(main.contains(fragment), "{fragment}");
+        }
+        assert!(main.contains(
+            r#"<nav class="jump-links miscellany-nav" aria-label="Miscellany sections">"#
+        ));
+        // The navigation stays outside the language-marked article.
+        assert!(main.find("miscellany-nav").unwrap() < main.find("<article").unwrap());
+    }
+
+    #[test]
+    fn japanese_notes_are_marked_as_japanese() {
+        let notes = miscellany("items: []", &[NOTE_JA], &[]);
+        let note = notes.public_notes().next().unwrap();
+        let html = note_detail(note).into_string();
+        assert!(html.contains(r#"<article class="miscellany-note longform-ja" lang="ja"><header><h1>クリプキ意味論の覚え書き</h1></header>"#));
+        assert!(html.contains("<h2>可能世界</h2>"));
+        assert!(!html.contains("summary"));
+        assert!(
+            notes_page(&notes)
+                .into_string()
+                .contains(r#"<li lang="ja">"#)
+        );
+    }
+
+    #[test]
+    fn diary_shows_entries_newest_first_in_full_with_stable_anchors() {
+        let entries = miscellany("items: []", &[], &[DIARY_OLD, DIARY_DRAFT, DIARY_NEW]);
+        let html = diary_page(&entries).into_string();
+        let newest = html
+            .find(r##"<article class="diary-entry longform-ja" id="diary-2026-10-10"><h2><a class="diary-date" href="#diary-2026-10-10"><time datetime="2026-10-10">10 October 2026</time></a><span class="diary-title" lang="ja">仙台にて</span></h2><div class="prose miscellany-prose" lang="ja"><p>今日は図書館で一日を過ごした。</p>"##)
+            .unwrap();
+        let older = html
+            .find(r##"<article class="diary-entry" id="diary-2026-03-01"><h2><a class="diary-date" href="#diary-2026-03-01"><time datetime="2026-03-01">1 March 2026</time></a></h2><div class="prose miscellany-prose" lang="en"><p>First paragraph.</p>
+<p>Second paragraph.</p>"##)
+            .unwrap();
+        assert!(newest < older);
+        assert!(!html.contains("Not public") && !html.contains("2026-10-11"));
+        assert_eq!(html.matches("<article").count(), 2);
+        assert!(!html.contains("Read more") && !html.contains("<nav class=\"pagination"));
+    }
+
+    #[test]
+    fn existing_routes_and_feed_are_unchanged_by_miscellany() {
+        let content = ValidatedSiteContent::with_miscellany(miscellany(
+            "items:\n  - title: Fixture work\n",
+            &[NOTE_EN],
+            &[DIARY_OLD],
+        ));
+        let paths: Vec<_> = pages(&content)
+            .into_iter()
+            .map(|page| page.output_path)
+            .collect();
+        for path in [
+            "index.html",
+            "research/index.html",
+            "cv/index.html",
+            "updates/index.html",
+            "updates/academia/index.html",
+            "writings/index.html",
+            "404.html",
+            "miscellany/index.html",
+            "miscellany/reading/index.html",
+            "miscellany/notes/index.html",
+            "miscellany/diary/index.html",
+            "miscellany/notes/staged-interpreters/index.html",
+        ] {
+            assert!(paths.contains(&path.to_owned()), "{path}");
+        }
+        // Miscellany is never announced as an update.
+        let feed = super::rss(content.updates());
+        assert!(!feed.contains("<item>") && !feed.contains("miscellany"));
+        let updates = page_html(&content, "updates/index.html");
+        assert!(
+            !main_of(&updates).contains("Staged") && !main_of(&updates).contains("First paragraph")
+        );
+        let home = page_html(&content, "index.html");
+        assert!(!main_of(&home).contains("miscellany"));
     }
 }

@@ -697,6 +697,173 @@ const fn default_true() -> bool {
     true
 }
 
+/// The reading record: works in the author's chosen order, never re-sorted.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReadingList {
+    #[serde(default)]
+    pub items: Vec<ReadingItem>,
+}
+
+impl ReadingList {
+    pub fn validate(&self, source: &str) -> Result<()> {
+        for (index, item) in self.items.iter().enumerate() {
+            item.validate(&format!("{source} (item {})", index + 1))?;
+        }
+        Ok(())
+    }
+}
+
+/// One work in the reading record. The title is the original title, kept as
+/// written; `lang` marks the language of the title and author's name, and
+/// `noteLang` that of the personal note, when either differs from English.
+/// The author is optional because some works are anonymous.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReadingItem {
+    pub author: Option<String>,
+    pub title: String,
+    pub lang: Option<LanguageTag>,
+    pub url: Option<String>,
+    pub note: Option<String>,
+    pub note_lang: Option<LanguageTag>,
+}
+
+impl ReadingItem {
+    fn validate(&self, source: &str) -> Result<()> {
+        ensure!(
+            !self.title.trim().is_empty(),
+            "{source}: title must not be empty"
+        );
+        if let Some(author) = &self.author {
+            ensure!(
+                !author.trim().is_empty(),
+                "{source}: author must not be empty when given"
+            );
+        }
+        if let Some(note) = &self.note {
+            ensure!(
+                !note.trim().is_empty(),
+                "{source}: note must not be empty when given"
+            );
+        }
+        ensure!(
+            self.note_lang.is_none() || self.note.is_some(),
+            "{source}: noteLang requires a note"
+        );
+        for tag in [&self.lang, &self.note_lang].into_iter().flatten() {
+            tag.validate()
+                .with_context(|| format!("{source}: invalid language tag {:?}", tag.0))?;
+        }
+        if let Some(url) = &self.url {
+            validate_http_url(url).with_context(|| format!("{source}: invalid url {url:?}"))?;
+        }
+        Ok(())
+    }
+}
+
+/// A BCP 47 language tag such as `ja`, `de`, or `zh-Hant`, checked for shape
+/// only: a 2–3 letter lowercase primary language, then alphanumeric subtags.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(transparent)]
+pub struct LanguageTag(pub String);
+
+impl LanguageTag {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    fn validate(&self) -> Result<()> {
+        let mut parts = self.0.split('-');
+        let primary = parts.next().unwrap_or_default();
+        ensure!(
+            (2..=3).contains(&primary.len()) && primary.bytes().all(|b| b.is_ascii_lowercase()),
+            "language tag must begin with a 2–3 letter lowercase language code"
+        );
+        ensure!(
+            parts.all(|part| (1..=8).contains(&part.len())
+                && part.bytes().all(|b| b.is_ascii_alphanumeric())),
+            "language subtags must be 1–8 ASCII letters or digits"
+        );
+        Ok(())
+    }
+}
+
+/// A study note, published at `/miscellany/notes/<slug>/`. Notes carry no
+/// date; the index follows the optional editorial `order` (lowest first),
+/// then the slug.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NoteFrontMatter {
+    pub slug: String,
+    pub title: String,
+    pub lang: Language,
+    pub description: Option<String>,
+    pub order: Option<u32>,
+    #[serde(default)]
+    pub math: bool,
+    #[serde(default = "default_true")]
+    pub draft: bool,
+}
+
+impl NoteFrontMatter {
+    pub fn validate(&self, source: &str) -> Result<()> {
+        validate_slug(&self.slug).with_context(|| format!("{source}: invalid note slug"))?;
+        ensure!(
+            !self.title.trim().is_empty(),
+            "{source}: title must not be empty"
+        );
+        if let Some(description) = &self.description {
+            ensure!(
+                !description.trim().is_empty(),
+                "{source}: description must not be empty when given"
+            );
+        }
+        Ok(())
+    }
+}
+
+/// A diary entry, shown in full on `/miscellany/diary/`. Its date is the
+/// date the author gives the entry. The optional `slug` distinguishes entries
+/// that share a date, and the optional `title` is shown when given.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DiaryFrontMatter {
+    pub date: NaiveDate,
+    pub slug: Option<String>,
+    pub title: Option<String>,
+    pub lang: Language,
+    #[serde(default)]
+    pub math: bool,
+    #[serde(default = "default_true")]
+    pub draft: bool,
+}
+
+impl DiaryFrontMatter {
+    pub fn validate(&self, source: &str) -> Result<()> {
+        if let Some(slug) = &self.slug {
+            validate_slug(slug).with_context(|| format!("{source}: invalid diary slug"))?;
+        }
+        if let Some(title) = &self.title {
+            ensure!(
+                !title.trim().is_empty(),
+                "{source}: title must not be empty when given"
+            );
+        }
+        Ok(())
+    }
+
+    /// The entry's fragment identifier on the Diary page, derived only from
+    /// its stated date and slug so that links stay stable as entries are
+    /// added.
+    pub fn anchor(&self) -> String {
+        match &self.slug {
+            Some(slug) => format!("diary-{}-{slug}", self.date.format("%Y-%m-%d")),
+            None => format!("diary-{}", self.date.format("%Y-%m-%d")),
+        }
+    }
+}
+
 pub fn validate_slug(value: &str) -> Result<()> {
     ensure!(!value.is_empty(), "slug must not be empty");
     ensure!(

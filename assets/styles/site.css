@@ -598,6 +598,8 @@ main { min-height: 64vh; }
   padding: 1.25rem 0 2.25rem;
 }
 
+.footer-privacy { flex-basis: 100%; color: var(--ink-faint); }
+
 .page-intro {
   display: block;
   max-width: 48rem;
@@ -660,7 +662,24 @@ main { min-height: 64vh; }
   letter-spacing: -.02em;
   line-height: 1.3;
 }
-.name-japanese { margin: 0; color: var(--ink-soft); font-family: var(--sans); font-size: .88rem; letter-spacing: .04em; }
+/* The Latin and Japanese names share one heading and one baseline, and wrap
+   onto two lines only when the row is too narrow for both. */
+.identity-block .person-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: .6em;
+}
+.identity-block .name-japanese {
+  margin: 0;
+  color: inherit;
+  font-family: var(--sans);
+  font-size: .78em;
+  font-weight: 500;
+  font-synthesis: none;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
 .name-pronunciation { margin: .08rem 0 1rem; color: var(--ink-faint); font-family: var(--sans); font-size: .76rem; line-height: 1.5; }
 .home-bio {
   max-width: 46rem;
@@ -863,4 +882,60 @@ main { min-height: 64vh; }
   .update-meta { flex-direction: row; }
   .publication-index { margin-bottom: 0; }
   .cv-entry { grid-template-columns: 1fr; gap: .15rem; }
+}
+
+/* Miscellany: overview, reading record, study notes, and diary. Scoped to
+   its own classes so that the Research, CV, and Updates layouts are
+   unaffected; long-form text reuses the shared .prose styles. */
+.miscellany-overview { max-width: 48rem; }
+.miscellany-overview .content-section + .content-section { margin-top: 2.25rem; }
+.miscellany-overview .content-section > h2 { margin-bottom: .2rem; }
+.miscellany-overview .content-section > p { margin: 0; color: var(--ink-soft); font-size: .92rem; }
+
+.miscellany-nav { margin: 0 0 1.5rem; }
+.miscellany-nav a[aria-current='page'] { color: var(--ink); text-decoration-color: var(--accent); }
+div.miscellany-header { padding-top: 3.75rem; }
+
+.reading-list, .miscellany-list { max-width: 48rem; margin: 0; padding: 0; list-style: none; }
+.reading-list > li, .miscellany-list > li { padding: .85rem 0 .95rem; border-top: 1px solid var(--rule); }
+.reading-list > li:first-child, .miscellany-list > li:first-child { border-top: 0; padding-top: 0; }
+.reading-title { margin: 0; font-size: 1rem; font-weight: 550; line-height: 1.45; }
+.reading-title cite { font-style: normal; }
+.reading-author { margin: .1rem 0 0; color: var(--ink-soft); font-size: .88rem; }
+.reading-note { max-width: 43rem; margin: .35rem 0 0; font-size: .9rem; line-height: 1.6; }
+.miscellany-list h2 { margin: 0; font-family: var(--sans); font-size: 1rem; font-weight: 550; line-height: 1.45; }
+.miscellany-list p { max-width: 43rem; margin: .2rem 0 0; color: var(--ink-soft); font-size: .88rem; line-height: 1.6; }
+
+.miscellany-note { max-width: var(--reading); padding-bottom: 1rem; }
+.miscellany-note header { margin-bottom: 2.2rem; }
+.miscellany-note h1 { margin: 0 0 .65rem; font-family: var(--sans); font-size: clamp(1.85rem, 4vw, 2.35rem); font-weight: 600; letter-spacing: -.025em; line-height: 1.2; }
+.miscellany-note .summary { margin: 0; color: var(--ink-soft); font-size: 1rem; }
+
+.miscellany-prose { width: auto; margin: 0; overflow-wrap: break-word; }
+.miscellany-prose > :last-child { margin-bottom: 0; }
+.miscellany-prose h2 { margin-top: 2.4em; }
+.miscellany-prose blockquote { margin: 1.8rem 0; font-size: 1em; }
+.miscellany-prose .katex-display { overflow-x: auto; overflow-y: hidden; padding: .15rem 0; }
+.miscellany-prose table { display: block; max-width: 100%; overflow-x: auto; margin: 0 0 1.5em; border-collapse: collapse; font-size: .9em; }
+.miscellany-prose th, .miscellany-prose td { padding: .3rem .8rem .3rem 0; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top; }
+
+.diary { max-width: var(--reading); }
+.diary-entry { padding: 1.7rem 0 1.9rem; border-top: 1px solid var(--rule); scroll-margin-top: 1rem; }
+.diary-entry:first-child { padding-top: 0; border-top: 0; }
+.diary-entry h2 { margin: 0 0 .9rem; font-family: var(--sans); font-size: 1.05rem; font-weight: 600; line-height: 1.4; }
+.diary-date { color: var(--ink-soft); font-family: var(--mono); font-size: .76rem; font-weight: 500; text-decoration: none; }
+.diary-date:hover { text-decoration: underline; }
+.diary-title { display: block; margin-top: .2rem; color: var(--ink); }
+
+@media (max-width: 36rem) {
+  div.miscellany-header { padding-top: 2.8rem; }
+}
+
+/* Five primary sections fit on one row down to 320px wide. */
+@media (max-width: 24rem) {
+  .primary-nav { gap: .8rem; }
+}
+
+@media print {
+  .miscellany-nav { display: none; }
 }
