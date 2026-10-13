@@ -190,9 +190,16 @@ fn validate_html(root: &Path, files: &[PathBuf]) -> Result<()> {
             "{} has no labelled primary navigation",
             relative.display()
         );
+        let primary_nav = html
+            .split_once("<nav class=\"primary-nav\"")
+            .and_then(|(_, rest)| rest.split_once("</nav>"))
+            .map_or("", |(nav, _)| nav);
         ensure!(
-            html.contains("<a href=\"/updates/\"") && html.contains("<a href=\"/miscellany/\""),
-            "{} has an incomplete primary navigation",
+            primary_nav.matches("<a href=").count() == 3
+                && ["\"/\"", "\"/research/\"", "\"/miscellany/\""]
+                    .iter()
+                    .all(|href| primary_nav.contains(&format!("<a href={href}"))),
+            "{} must have exactly Home, Research and Miscellany in its primary navigation",
             relative.display()
         );
         if relative.starts_with("miscellany") {

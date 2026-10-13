@@ -409,8 +409,6 @@ fn header(current_path: &str) -> Markup {
             nav.primary-nav aria-label="Primary navigation" {
                 (nav_link("/", "Home", current_path == "/"))
                 (nav_link("/research/", "Research", current_path.starts_with("/research/")))
-                (nav_link("/cv/", "CV", current_path.starts_with("/cv/")))
-                (nav_link("/updates/", "Updates", current_path.starts_with("/updates/")))
                 (nav_link("/miscellany/", "Miscellany", current_path.starts_with("/miscellany/")))
             }
             div.header-tools {
@@ -641,10 +639,13 @@ fn research(
     html! {
         header.plain-page-header {
             h1 { "Research" }
-            nav.jump-links aria-label="Research sections" {
+            // The CV has no primary navigation item, so Research links to it
+            // after its own sections.
+            nav.jump-links aria-label="Research contents" {
                 a href="#publications" { "Publications" }
                 @if !projects.is_empty() { a href="#projects" { "Projects" } }
                 a href="#presentations" { "Talks & Presentations" }
+                a href="/cv/" { "CV" }
             }
         }
         div.research-page {
@@ -2333,33 +2334,39 @@ mod tests {
     }
 
     #[test]
-    fn cv_is_a_primary_navigation_item() {
-        let html = header("/cv/").into_string();
-        let order: Vec<_> = [
-            r#"href="/">Home<"#,
-            r#"href="/research/">Research<"#,
-            r#"href="/cv/""#,
-            r#"href="/updates/">Updates<"#,
-        ]
-        .iter()
-        .map(|needle| html.find(needle).unwrap())
-        .collect();
-        assert!(order.windows(2).all(|pair| pair[0] < pair[1]));
-        assert!(html.contains(r#"<a href="/cv/" aria-current="page">CV</a>"#));
-        assert_eq!(html.matches(r#"aria-current="page""#).count(), 1);
-        assert!(
-            header("/research/")
-                .into_string()
-                .contains(r#"<a href="/cv/">CV</a>"#)
-        );
+    fn primary_navigation_has_three_sections() {
+        for path in ["/", "/research/", "/cv/", "/updates/", "/miscellany/"] {
+            let html = header(path).into_string();
+            let nav = &html[html.find("<nav").unwrap()..html.find("</nav>").unwrap()];
+            let hrefs: Vec<_> = nav
+                .match_indices("href=\"")
+                .map(|(at, _)| &nav[at + 6..])
+                .collect();
+            assert_eq!(hrefs.len(), 3, "{path}");
+            for (href, expected) in hrefs.iter().zip(["/\"", "/research/\"", "/miscellany/\""]) {
+                assert!(href.starts_with(expected), "{path}");
+            }
+        }
+        // CV and Updates stay reachable from Home and Research rather than
+        // the header, so neither page marks a primary section as current.
+        for path in ["/cv/", "/updates/", "/updates/item/x/"] {
+            assert!(
+                !header(path).into_string().contains("aria-current"),
+                "{path}"
+            );
+        }
     }
 
     #[test]
-    fn research_page_has_no_redundant_cv_section() {
+    fn research_links_to_the_cv_after_its_sections() {
         let html = research(&[], &[], &[]).into_string();
         assert!(!html.contains(r##"href="#cv""##));
         assert!(!html.contains(r#"id="cv""#));
-        assert!(!html.contains(r#"href="/cv/""#));
+        assert_eq!(html.matches(r#"href="/cv/""#).count(), 1);
+        let nav = &html[html.find("<nav").unwrap()..html.find("</nav>").unwrap()];
+        assert!(
+            nav.find("#presentations").unwrap() < nav.find(r#"<a href="/cv/">CV</a>"#).unwrap()
+        );
     }
 
     #[test]
@@ -2701,7 +2708,7 @@ mod miscellany_tests {
     const DIARY_DRAFT: &str = "---\ndate: 2026-10-11\nlang: en\n---\n\nNot public.\n";
 
     #[test]
-    fn miscellany_is_the_fifth_primary_section_and_current_below_its_route() {
+    fn miscellany_is_the_third_primary_section_and_current_below_its_route() {
         for path in [
             "/miscellany/",
             "/miscellany/reading/",
@@ -2710,7 +2717,7 @@ mod miscellany_tests {
             "/miscellany/diary/",
         ] {
             let html = header(path).into_string();
-            let order: Vec<_> = ["Home<", "Research<", "CV<", "Updates<", "Miscellany<"]
+            let order: Vec<_> = ["Home<", "Research<", "Miscellany<"]
                 .iter()
                 .map(|label| html.find(label).unwrap())
                 .collect();
