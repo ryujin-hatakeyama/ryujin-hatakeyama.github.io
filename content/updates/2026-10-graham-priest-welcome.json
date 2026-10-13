@@ -1,10 +1,10 @@
 {
   "id": "welcome-graham-priest-2026",
-  "title": { "en": "Planned attendance at the workshop welcoming Graham Priest to Sendai" },
+  "title": { "en": "Attended the workshop welcoming Graham Priest to Sendai" },
   "title_link": { "text": "workshop welcoming Graham Priest to Sendai", "url": "https://sites.google.com/view/welcome-graham/" },
-  "summary": { "en": "I plan to attend a workshop welcoming Graham Priest to Sendai at Tohoku University on October 11. よろしくお願いしますm(_ _)m" },
+  "summary": { "en": "Attended a workshop welcoming Graham Priest to Sendai at Tohoku University on October 11." },
   "date": "2026-10-11",
-  "event_status": "planned",
+  "event_status": "completed",
   "categories": ["academia"],
   "kind": { "type": "participation" },
   "links": [],
