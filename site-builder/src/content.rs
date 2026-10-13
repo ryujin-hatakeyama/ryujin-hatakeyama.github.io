@@ -991,6 +991,7 @@ fn render_markdown_with(source: &str, rules: MarkdownRules) -> Result<RenderedMa
     }
     if rules.inline_languages {
         events = mark_inline_languages(events)?;
+        events = mark_highlights(events);
     }
     let mut output = String::new();
     html::push_html(&mut output, events.into_iter());
@@ -1066,6 +1067,80 @@ fn push_marked_text(text: String, output: &mut Vec<Event<'_>>) -> Result<()> {
         output.push(Event::Text(rest.to_owned().into()));
     }
     Ok(())
+}
+
+/// Marks `==text==` with `<mark>`, as Obsidian and Typora do (and as the
+/// Writing Studio writes highlights). Like inline language marks, this works
+/// on the parsed event stream: only within one run of plain text, never in
+/// code, so the highlighted words are plain escaped text. The opening `==`
+/// must be followed, and the closing one preceded, by a non-space; `===` and
+/// an unpaired `==` stay as written.
+fn mark_highlights(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
+    let mut output = Vec::with_capacity(events.len());
+    let mut text = String::new();
+    let mut verbatim_depth = 0_usize;
+    for event in events {
+        match event {
+            Event::Text(run) if verbatim_depth == 0 => text.push_str(&run),
+            other => {
+                push_highlighted_text(std::mem::take(&mut text), &mut output);
+                match &other {
+                    Event::Start(Tag::CodeBlock(_) | Tag::Image { .. }) => verbatim_depth += 1,
+                    Event::End(TagEnd::CodeBlock | TagEnd::Image) => verbatim_depth -= 1,
+                    _ => {}
+                }
+                output.push(other);
+            }
+        }
+    }
+    push_highlighted_text(text, &mut output);
+    output
+}
+
+fn push_highlighted_text(text: String, output: &mut Vec<Event<'_>>) {
+    let mut rest = text.as_str();
+    while let Some((before, inner, after)) = next_highlight(rest) {
+        if !before.is_empty() {
+            output.push(Event::Text(before.to_owned().into()));
+        }
+        output.push(Event::InlineHtml("<mark>".into()));
+        output.push(Event::Text(inner.to_owned().into()));
+        output.push(Event::InlineHtml("</mark>".into()));
+        rest = after;
+    }
+    if !rest.is_empty() {
+        output.push(Event::Text(rest.to_owned().into()));
+    }
+}
+
+/// The first `==inner==` in `text`, as (before, inner, after).
+fn next_highlight(text: &str) -> Option<(&str, &str, &str)> {
+    let bytes = text.as_bytes();
+    let is_marker = |i: usize| {
+        bytes.get(i) == Some(&b'=')
+            && bytes.get(i + 1) == Some(&b'=')
+            && (i == 0 || bytes[i - 1] != b'=')
+            && bytes.get(i + 2) != Some(&b'=')
+    };
+    let mut open = 0;
+    while open + 1 < bytes.len() {
+        if is_marker(open)
+            && text[open + 2..]
+                .chars()
+                .next()
+                .is_some_and(|c| !c.is_whitespace())
+        {
+            let mut close = open + 3;
+            while close + 1 < bytes.len() {
+                if is_marker(close) && !text[..close].ends_with(char::is_whitespace) {
+                    return Some((&text[..open], &text[open + 2..close], &text[close + 2..]));
+                }
+                close += 1;
+            }
+        }
+        open += 1;
+    }
+    None
 }
 
 fn render_math_event<'a>(formula: &str, display: bool) -> Result<Event<'a>> {
@@ -1235,6 +1310,35 @@ impl StdError for CollectedErrors {}
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn highlights_are_marked_only_in_plain_text() {
+        let rules = || super::MarkdownRules {
+            math: false,
+            highest_heading: pulldown_cmark::HeadingLevel::H2,
+            footnotes: false,
+            footnote_prefix: None,
+            inline_languages: true,
+        };
+        let html = |source: &str| super::render_markdown_with(source, rules()).unwrap().0;
+        assert_eq!(
+            html("A ==marked phrase== here."),
+            "<p>A <mark>marked phrase</mark> here.</p>\n"
+        );
+        assert_eq!(
+            html("==日本語の強調==と=="),
+            "<p><mark>日本語の強調</mark>と==</p>\n"
+        );
+        // Not inside code, not across spaces, not with three signs, and escaped text stays text.
+        assert_eq!(html("`==code==`"), "<p><code>==code==</code></p>\n");
+        assert_eq!(html("a == b == c"), "<p>a == b == c</p>\n");
+        assert_eq!(html("x ===y=== z"), "<p>x ===y=== z</p>\n");
+        assert_eq!(html("==a < b=="), "<p><mark>a &lt; b</mark></p>\n");
+        assert_eq!(
+            html("```\n==block==\n```"),
+            "<pre><code>==block==\n</code></pre>\n"
+        );
+    }
+
     use super::{
         Miscellany, ValidatedHome, ValidatedSiteContent, ValidatedWriting, load_miscellany,
         load_records, planned_updates_needing_review, render_markdown, sort_updates,

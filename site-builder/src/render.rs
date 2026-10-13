@@ -1,4 +1,5 @@
 use std::fmt::Write as _;
+use std::sync::LazyLock;
 
 use chrono::NaiveDate;
 use maud::{DOCTYPE, Markup, PreEscaped, html};
@@ -16,13 +17,22 @@ use crate::model::{
 const SITE_ORIGIN: &str = "https://ryujin-hatakeyama.github.io";
 const SITE_NAME: &str = "Ryujin Hatakeyama";
 /// The date of the last substantive content revision, shown in the footer.
-/// It is editorial metadata maintained by hand: change it deliberately with
-/// each such revision. It is never taken from the clock, Git, or deployment,
-/// so builds stay reproducible.
-const LAST_UPDATED: NaiveDate = match NaiveDate::from_ymd_opt(2026, 10, 10) {
-    Some(date) => date,
-    None => panic!("LAST_UPDATED must be a real date"),
-};
+/// It is editorial metadata, kept in `content/last-updated.txt` (one line,
+/// `YYYY-MM-DD`): change it deliberately with each such revision, by hand or
+/// when the Writing Studio publishes. It is never taken from the clock, Git,
+/// or deployment, so builds stay reproducible.
+static LAST_UPDATED: LazyLock<NaiveDate> = LazyLock::new(|| {
+    parse_last_updated(include_str!("../../content/last-updated.txt"))
+        .expect("content/last-updated.txt must hold one date, YYYY-MM-DD")
+});
+
+fn parse_last_updated(text: &str) -> Option<NaiveDate> {
+    let line = text.strip_suffix('\n').unwrap_or(text);
+    if line.len() != 10 || line.contains(char::is_whitespace) {
+        return None;
+    }
+    NaiveDate::parse_from_str(line, "%Y-%m-%d").ok()
+}
 /// GoatCounter's public counting endpoint and official script. These are
 /// public configuration values, not credentials.
 const GOATCOUNTER_ENDPOINT: &str = "https://hatakeyama.goatcounter.com/count";
@@ -2603,12 +2613,44 @@ mod tests {
     }
 
     #[test]
+    fn last_updated_is_one_exact_date_line() {
+        assert_eq!(
+            super::parse_last_updated("2026-10-10\n"),
+            chrono::NaiveDate::from_ymd_opt(2026, 10, 10)
+        );
+        assert_eq!(
+            super::parse_last_updated("2026-10-10"),
+            chrono::NaiveDate::from_ymd_opt(2026, 10, 10)
+        );
+        for bad in [
+            "",
+            "2026-10-1\n",
+            " 2026-10-10\n",
+            "2026-10-10\n\n",
+            "2026-02-30\n",
+            "10 October 2026\n",
+        ] {
+            assert_eq!(super::parse_last_updated(bad), None, "{bad:?}");
+        }
+        // The file in the repository is valid.
+        assert_eq!(
+            *super::LAST_UPDATED,
+            super::parse_last_updated(include_str!("../../content/last-updated.txt")).unwrap()
+        );
+    }
+
+    #[test]
     fn footer_shows_the_editorial_last_updated_date_and_no_rss_link() {
         let html = footer().into_string();
         assert!(html.contains(r#"<p class="footer-name">© 2026 Ryujin Hatakeyama</p>"#));
-        assert!(html.contains(
-            r#"<p class="footer-updated">Last updated <time datetime="2026-10-10">10 October 2026</time></p>"#
-        ));
+        // The date is whatever content/last-updated.txt says (the Writing
+        // Studio may set it when publishing), so it is read from there.
+        let line = include_str!("../../content/last-updated.txt").trim_end();
+        let date = chrono::NaiveDate::parse_from_str(line, "%Y-%m-%d").unwrap();
+        assert!(html.contains(&format!(
+            r#"<p class="footer-updated">Last updated <time datetime="{line}">{}</time></p>"#,
+            date.format("%-d %B %Y")
+        )));
         assert!(!html.contains("rss.xml") && !html.contains(">RSS<"));
     }
 

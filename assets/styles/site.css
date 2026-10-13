@@ -918,6 +918,9 @@ div.miscellany-header { padding-top: 3.75rem; }
 .miscellany-prose h2 { margin-top: 2.4em; }
 .miscellany-prose blockquote { margin: 1.8rem 0; font-size: 1em; }
 .miscellany-prose .katex-display { overflow-x: auto; overflow-y: hidden; padding: .15rem 0; }
+/* ==Highlights== written in the Writing Studio: a faint wash of the accent
+   under the lower half of the line, never a marker-pen yellow. */
+.prose mark { padding: 0; background: linear-gradient(transparent 52%, color-mix(in srgb, var(--accent) 24%, transparent) 52%); color: inherit; }
 .miscellany-prose table { display: block; max-width: 100%; overflow-x: auto; margin: 0 0 1.5em; border-collapse: collapse; font-size: .9em; }
 .miscellany-prose th, .miscellany-prose td { padding: .3rem .8rem .3rem 0; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top; }
 
