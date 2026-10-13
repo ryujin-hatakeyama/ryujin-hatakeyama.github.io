@@ -176,7 +176,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
             true,
             PageMetadata {
                 title: "Notes",
-                description: "Study notes and guides by Ryujin Hatakeyama.",
+                description: "Study notes by Ryujin Hatakeyama.",
                 current_path: "/miscellany/notes/",
                 noindex: false,
                 article: false,
@@ -1091,8 +1091,17 @@ fn writing_detail(writing: &ValidatedWriting) -> Markup {
 /// The three Miscellany sections, with their functional labels.
 const MISCELLANY_SECTIONS: [(&str, &str, &str); 3] = [
     ("/miscellany/reading/", "Reading", "Books and papers"),
-    ("/miscellany/notes/", "Notes", "Study notes and guides"),
+    ("/miscellany/notes/", "Notes", "Study notes"),
     ("/miscellany/diary/", "Diary", "Occasional entries"),
+];
+
+/// The Writing Studio's category icons (studio/src/page.ts), drawn on the
+/// same 24-unit grid and stroke, in `MISCELLANY_SECTIONS` order: an open
+/// book, a notebook, and a calendar.
+const MISCELLANY_ICONS: [&str; 3] = [
+    r#"<path d="M3.5 5.5A3.5 3.5 0 0 1 7 3h4v16H7a3.5 3.5 0 0 0-3.5 2V5.5Z"/><path d="M20.5 5.5A3.5 3.5 0 0 0 17 3h-4v16h4a3.5 3.5 0 0 1 3.5 2V5.5Z"/>"#,
+    r#"<path d="M6 3.5h12a2 2 0 0 1 2 2v15H6a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z"/><path d="M8 8h8M8 12h5M3 7h2M3 11h2M3 15h2"/>"#,
+    r#"<path d="M6 3v3M18 3v3M4 8h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"/><path d="M8 12h3M8 16h7"/>"#,
 ];
 
 fn note_path(slug: &str) -> String {
@@ -1110,9 +1119,17 @@ fn miscellany_overview(miscellany: &Miscellany) -> Markup {
             @if miscellany.has_multilingual_entry() { p { (MULTILINGUAL_NOTE) } }
         }
         div.miscellany-overview {
-            @for (href, label, description) in MISCELLANY_SECTIONS {
+            @for ((href, label, description), icon) in MISCELLANY_SECTIONS.iter().zip(MISCELLANY_ICONS) {
                 section.content-section {
-                    h2 { a href=(href) { (label) } }
+                    // The icon is decorative; the link's name is the label.
+                    h2 {
+                        a href=(href) {
+                            svg.miscellany-icon aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" {
+                                (PreEscaped(icon))
+                            }
+                            span { (label) }
+                        }
+                    }
                     p { (description) }
                 }
             }
@@ -2676,7 +2693,8 @@ mod tests {
 #[cfg(test)]
 mod miscellany_tests {
     use super::{
-        diary_page, header, miscellany_overview, note_detail, notes_page, pages, reading_page,
+        MISCELLANY_ICONS, diary_page, header, miscellany_overview, note_detail, notes_page, pages,
+        reading_page,
     };
     use crate::content::{Miscellany, ValidatedSiteContent};
 
@@ -2740,22 +2758,38 @@ mod miscellany_tests {
         assert_eq!(html.matches("<h1").count(), 1);
         assert!(html.contains("<h1>Miscellany</h1>"));
         let sections = [
-            r#"<h2><a href="/miscellany/reading/">Reading</a></h2><p>Books and papers</p>"#,
-            r#"<h2><a href="/miscellany/notes/">Notes</a></h2><p>Study notes and guides</p>"#,
-            r#"<h2><a href="/miscellany/diary/">Diary</a></h2><p>Occasional entries</p>"#,
+            (
+                "reading",
+                "Reading",
+                "Books and papers",
+                MISCELLANY_ICONS[0],
+            ),
+            ("notes", "Notes", "Study notes", MISCELLANY_ICONS[1]),
+            ("diary", "Diary", "Occasional entries", MISCELLANY_ICONS[2]),
         ];
-        let positions: Vec<_> = sections.iter().map(|s| html.find(s).unwrap()).collect();
+        let positions: Vec<_> = sections
+            .iter()
+            .map(|(slug, label, description, icon)| {
+                let start = html
+                    .find(&format!(r#"<h2><a href="/miscellany/{slug}/"><svg"#))
+                    .unwrap();
+                let section = &html[start..];
+                // The icon leads the link, is hidden from assistive
+                // technology, and leaves the label as the link's only name.
+                let expected = format!(
+                    r#"aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{icon}</svg><span>{label}</span></a></h2><p>{description}</p>"#
+                );
+                assert!(section.starts_with(&format!(
+                    r#"<h2><a href="/miscellany/{slug}/"><svg class="miscellany-icon" {expected}"#
+                )));
+                start
+            })
+            .collect();
         assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
         assert_eq!(html.matches("<section").count(), 3);
-        for decoration in [
-            "card",
-            "badge",
-            "tab",
-            "<svg",
-            "<img",
-            "No entries",
-            "role=",
-        ] {
+        assert_eq!(html.matches("<svg").count(), 3);
+        assert!(!html.contains("guides"));
+        for decoration in ["card", "badge", "tab", "<img", "No entries", "role="] {
             assert!(!html.contains(decoration), "{decoration}");
         }
     }

@@ -893,6 +893,12 @@ main { min-height: 64vh; }
 .miscellany-overview .content-section + .content-section { margin-top: 2.25rem; }
 .miscellany-overview .content-section > h2 { margin-bottom: .2rem; }
 .miscellany-overview .content-section > p { margin: 0; color: var(--ink-soft); font-size: .92rem; }
+/* The Writing Studio's category icons at its size and spacing. The
+   description is indented by the same amount so it starts under the label. */
+.miscellany-overview { --miscellany-icon-size: .95rem; --miscellany-icon-gap: .35rem; }
+.miscellany-overview .content-section > h2 > a { display: inline-flex; align-items: center; gap: var(--miscellany-icon-gap); }
+.miscellany-icon { flex: none; width: var(--miscellany-icon-size); height: var(--miscellany-icon-size); }
+.miscellany-overview .content-section > p { padding-left: calc(var(--miscellany-icon-size) + var(--miscellany-icon-gap)); }
 
 .miscellany-nav { margin: 0 0 1.5rem; }
 .miscellany-nav a[aria-current='page'] { color: var(--ink); text-decoration-color: var(--accent); }
