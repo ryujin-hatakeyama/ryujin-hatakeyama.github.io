@@ -32,7 +32,18 @@ The English summary may contain inline links written as `[text](https://…)`; o
 
 While a record is a draft awaiting confirmation, `date` may be omitted rather than guessed; a published record must have it.
 
-`event_status` is required and is either `completed` or `planned`. It is the record's editorial status: whether the recorded activity has taken place (`completed`) or is still intended (`planned`). It is unrelated to `status`, which only controls whether the record is a draft. A `planned` record should be worded as an intention ("I plan to attend …"). Planned records are listed under "Upcoming", soonest start first, and completed records under "Recent Updates", most recently ended first (then latest start, then `id`); the homepage previews each section with its own limit. Planned records are never converted automatically. Once a planned event has begun, the Rust build stops with an editorial-review error rather than publish a past event as upcoming; then either set the record to `draft` or, if you attended, reword it and set `event_status` to `completed`.
+`event_status` is required and is either `completed` or `planned`. It is the record's editorial status: whether the recorded activity has taken place (`completed`) or is still intended (`planned`). It is unrelated to `status`, which only controls whether the record is a draft. A `planned` record should be worded as an intention ("I plan to attend …"). Only the author changes it: the build never converts a planned record, because an event having begun or ended does not mean that you took part.
+
+Where a record appears depends on that status and on the build day, a calendar day in Asia/Tokyo; nothing derived from the day is stored in the record. A single-day event ends on its `date`.
+
+| `event_status` | Build day | Shown under |
+| --- | --- | --- |
+| `planned` | before `date` | Upcoming |
+| `planned` | from `date` to the last day | Upcoming, marked "Ongoing" |
+| `planned` | after the last day | "Previously announced" on the Updates pages, and a build warning |
+| `completed` | any | Recent Updates |
+
+Upcoming is ordered soonest start first; Recent Updates and Previously announced most recently ended first (then latest start, then `id`). The homepage previews Upcoming and Recent Updates, each with its own limit, and leaves plans that have ended to the Updates pages. "Ongoing" describes the event's dates, not your attendance. A plan that has ended stays published with its wording, anchor, and RSS item unchanged, and the build succeeds with a warning that names it; then either set it to `draft` or, if you attended, reword it in the past tense and set `event_status` to `completed`. See `docs/update-dates.md` for the date rules and why pages change only when the site is rebuilt.
 
 Allowed categories are exactly `research`, `academia`, and `writing`; `academia` is displayed as "Activities" and keeps its `/updates/academia/` route. Classify each record by its actual context:
 

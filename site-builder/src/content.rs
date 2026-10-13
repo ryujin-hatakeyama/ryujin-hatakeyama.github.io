@@ -12,9 +12,9 @@ use serde::de::DeserializeOwned;
 use chrono::NaiveDate;
 
 use crate::model::{
-    DiaryFrontMatter, DisplayLanguage, EventStatus, HomeSource, Language, LanguageTag,
-    NoteFrontMatter, Paragraph, PassageFrontMatter, PassageLanguage, Project, ProjectFrontMatter,
-    Publication, ReadingComment, ReadingItem, ReadingList, Update, WritingFrontMatter,
+    DiaryFrontMatter, DisplayLanguage, HomeSource, Language, LanguageTag, NoteFrontMatter,
+    Paragraph, PassageFrontMatter, PassageLanguage, Project, ProjectFrontMatter, Publication,
+    ReadingComment, ReadingItem, ReadingList, Update, UpdatePhase, WritingFrontMatter,
     validate_markdown_url,
 };
 
@@ -530,6 +530,12 @@ fn load_updates(path: &Path) -> Result<Vec<Update>> {
             index + 1
         )));
     }
+    // The OCaml generator rejects duplicate ids already; the check is
+    // repeated here because ids name the Updates anchors and RSS guids.
+    diagnostics.extend(validate_unique(
+        records.iter().map(|record| record.id.as_str()),
+        "update id",
+    ));
     diagnostics.finish("generated update validation failed")?;
     sort_updates(&mut records);
     Ok(records)
@@ -537,8 +543,8 @@ fn load_updates(path: &Path) -> Result<Vec<Update>> {
 
 /// Orders updates by event date, most recently held first (see
 /// `Update::most_recent_first`). This deterministic order is the RSS feed's;
-/// pages separate planned from completed records and put Upcoming soonest
-/// first (see `render::split_upcoming`).
+/// pages group records by their phase on the build day and put Upcoming
+/// soonest first (see `render::UpdateSections`).
 fn sort_updates(records: &mut [Update]) {
     records.sort_by(Update::most_recent_first);
 }
@@ -1225,16 +1231,14 @@ fn validate_relations(
     errors
 }
 
-/// Published updates that still describe a planned activity although the event
-/// has begun by `today`. Their wording is a historical claim, so they are
-/// reported for factual review rather than rewritten or reclassified.
-pub(crate) fn planned_updates_needing_review(
-    updates: &[Update],
-    today: NaiveDate,
-) -> impl Iterator<Item = &Update> {
+/// Published updates that still describe a planned activity although the
+/// event ended before `today`. Whether the activity took place is the
+/// author's to record, so they are reported for editorial review rather than
+/// rewritten, reclassified, or withheld.
+pub(crate) fn past_plans(updates: &[Update], today: NaiveDate) -> impl Iterator<Item = &Update> {
     updates
         .iter()
-        .filter(move |update| update.event_status == EventStatus::Planned && update.date <= today)
+        .filter(move |update| update.phase_on(today) == UpdatePhase::PastPlan)
 }
 
 pub(crate) fn public_english_writings(
@@ -1341,8 +1345,7 @@ mod tests {
 
     use super::{
         Miscellany, ValidatedHome, ValidatedSiteContent, ValidatedWriting, load_miscellany,
-        load_records, planned_updates_needing_review, render_markdown, sort_updates,
-        split_front_matter,
+        load_records, load_updates, past_plans, render_markdown, sort_updates, split_front_matter,
     };
     use crate::model::{
         Category, EventKind, EventStatus, Language, Localized, Related, Update, WritingFrontMatter,
@@ -1470,16 +1473,59 @@ mod tests {
     }
 
     #[test]
-    fn planned_updates_are_flagged_once_the_event_begins_without_being_changed() {
+    fn generated_updates_with_a_duplicate_id_are_rejected() {
+        let path = std::env::temp_dir().join(format!(
+            "site-builder-duplicate-updates-{}.json",
+            std::process::id()
+        ));
+        let record = |date: &str| {
+            format!(
+                r#"{{"id":"same","title":{{"en":"x"}},"summary":{{"en":"x"}},"date":"{date}",
+                "eventStatus":"planned","categories":["academia"],
+                "kind":{{"type":"participation"}},"links":[],"related":{{}},"detail":false}}"#
+            )
+        };
+        std::fs::write(
+            &path,
+            format!("[{},{}]", record("2026-10-16"), record("2026-10-17")),
+        )
+        .unwrap();
+        let duplicated = load_updates(&path).map(|_| ());
+        std::fs::write(&path, format!("[{}]", record("2026-10-16"))).unwrap();
+        let single = load_updates(&path).map(|records| records.len());
+        std::fs::remove_file(&path).unwrap();
+        let message = format!("{:#}", duplicated.unwrap_err());
+        assert!(
+            message.contains(r#"duplicate update id "same""#),
+            "{message}"
+        );
+        assert_eq!(single.unwrap(), 1);
+    }
+
+    #[test]
+    fn planned_updates_are_flagged_only_after_the_event_ends_without_being_changed() {
         let updates = vec![
-            dated_update("wakate", (10, 16), None, EventStatus::Planned),
+            dated_update("wakate", (10, 16), Some((10, 18)), EventStatus::Planned),
+            dated_update("talk", (10, 16), None, EventStatus::Planned),
             dated_update("poster", (10, 9), None, EventStatus::Completed),
         ];
         let day = |day| NaiveDate::from_ymd_opt(2026, 10, day).unwrap();
-        assert_eq!(planned_updates_needing_review(&updates, day(15)).count(), 0);
-        let flagged: Vec<_> = planned_updates_needing_review(&updates, day(16)).collect();
-        assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].event_status, EventStatus::Planned);
+        let flagged = |today| -> Vec<_> {
+            past_plans(&updates, today)
+                .map(|update| update.id.as_str())
+                .collect()
+        };
+        assert!(flagged(day(15)).is_empty());
+        assert!(flagged(day(16)).is_empty());
+        assert_eq!(flagged(day(17)), ["talk"]);
+        assert_eq!(flagged(day(18)), ["talk"]);
+        assert_eq!(flagged(day(19)), ["wakate", "talk"]);
+        assert!(
+            updates
+                .iter()
+                .filter(|update| update.id != "poster")
+                .all(|update| update.event_status == EventStatus::Planned)
+        );
     }
 
     #[test]
@@ -1551,7 +1597,7 @@ mod tests {
             home: ValidatedHome::from_json(r#"{"bio":["Synthetic biography."]}"#).unwrap(),
         };
         let started = Instant::now();
-        let pages = render::pages(&content);
+        let pages = render::pages(&content, NaiveDate::from_ymd_opt(2026, 10, 1).unwrap());
         let rendering_time = started.elapsed();
         let bytes = pages.iter().map(|page| page.html.len()).sum::<usize>();
         std::hint::black_box(&pages);

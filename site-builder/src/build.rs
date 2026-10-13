@@ -1,39 +1,30 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
-use chrono::{Days, NaiveDate};
+use chrono::NaiveDate;
 
 use anyhow::{Context, Result, bail, ensure};
 
 use crate::artifact::ArtifactSet;
 use crate::content::{self, ValidatedSiteContent};
+use crate::model::Update;
 use crate::publish::{self, StagedOutput};
 use crate::render::{self, GeneratedPage};
+use crate::site_date;
 
 pub fn build(root: &Path, output_relative: &Path) -> Result<()> {
     let output = publish::prepare_destination(root, output_relative)?;
     let total_started = Instant::now();
 
+    let today = site_date::current()?;
     let started = Instant::now();
     let content = content::load(root)?;
     let content_time = started.elapsed();
-    // A planned event that has begun would otherwise be published under
-    // "Upcoming". Stop before staging, so the previous output is kept, and
-    // leave the editorial decision to the author.
-    if let Some(today) = utc_today() {
-        let stale: Vec<_> = content::planned_updates_needing_review(content.updates(), today)
-            .map(|update| format!("{:?} (event began {})", update.id, update.date))
-            .collect();
-        ensure!(
-            stale.is_empty(),
-            "planned updates need editorial review because their events have begun: {}. Set each to draft, or record what actually happened with event_status \"completed\"",
-            stale.join(", ")
-        );
-    }
+    report_editorial_review(&editorial_review(content.updates(), today));
 
     let started = Instant::now();
-    let pages = render::pages(&content);
+    let pages = render::pages(&content, today);
     let render_time = started.elapsed();
     let route_count = pages.len();
 
@@ -54,7 +45,7 @@ pub fn build(root: &Path, output_relative: &Path) -> Result<()> {
     let install_time = started.elapsed();
 
     println!(
-        "Built and validated {route_count} public HTML routes in {}.",
+        "Built and validated {route_count} public HTML routes in {} for {today} (Asia/Tokyo).",
         output.display()
     );
     if let Some(warning) = report.warning {
@@ -74,11 +65,35 @@ pub fn build(root: &Path, output_relative: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Today's UTC date, used only to stop the build for stale planned updates so
-/// that generated output never depends on the build date.
-fn utc_today() -> Option<NaiveDate> {
-    let seconds = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
-    NaiveDate::from_ymd_opt(1970, 1, 1)?.checked_add_days(Days::new(seconds / 86_400))
+/// Planned updates whose events ended before `today`. They stay published,
+/// listed apart from completed records, and the build goes on: whether each
+/// activity took place is for the author to record, and it is no reason to
+/// withhold unrelated pages. Structural problems in the same records still
+/// stop the build while the content is loaded.
+fn editorial_review(updates: &[Update], today: NaiveDate) -> Vec<String> {
+    content::past_plans(updates, today)
+        .map(|update| {
+            format!(
+                "update {:?} is still planned, but its event ended on {} (build day {today}, Asia/Tokyo). It is shown under \"Previously announced\" on the Updates pages. Record what happened with event_status \"completed\" and past-tense wording, or set it to draft; it is never changed automatically.",
+                update.id,
+                update.last_event_day()
+            )
+        })
+        .collect()
+}
+
+/// Prints each review item as a warning, and also as a GitHub Actions
+/// annotation when running there so that it appears on the run's summary.
+fn report_editorial_review(review: &[String]) {
+    let annotate = std::env::var_os("GITHUB_ACTIONS").is_some_and(|value| value == "true");
+    for message in review {
+        eprintln!("site-builder warning: {message}");
+        if annotate {
+            // Workflow commands end at a newline and decode percent escapes.
+            let escaped = message.replace('%', "%25");
+            println!("::warning title=Update needs editorial review::{escaped}");
+        }
+    }
 }
 
 fn print_timings(

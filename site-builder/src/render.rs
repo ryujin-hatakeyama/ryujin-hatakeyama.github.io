@@ -10,7 +10,7 @@ use crate::content::{
 };
 use crate::model::{
     Category, DisplayLanguage, EventStatus, Inline, Language, LanguageTag, Link, Paragraph,
-    PassageLanguage, Project, Publication, ReadingComment, SummarySegment, Update,
+    PassageLanguage, Project, Publication, ReadingComment, SummarySegment, Update, UpdatePhase,
     summary_plain_text, summary_segments,
 };
 
@@ -60,7 +60,9 @@ struct PageMetadata<'a> {
     article: bool,
 }
 
-pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
+/// The site's pages as of `today`, a calendar day in Asia/Tokyo that places
+/// each update under Upcoming, Recent Updates, or Previously announced.
+pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<GeneratedPage> {
     let public_publications: Vec<_> = content
         .publications()
         .iter()
@@ -90,7 +92,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
                 noindex: false,
                 article: false,
             },
-            home(content.home(), content.updates()),
+            home(content.home(), content.updates(), today),
         ),
         page(
             "cv/index.html",
@@ -129,7 +131,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
                 noindex: false,
                 article: false,
             },
-            updates_page(content.updates(), None),
+            updates_page(content.updates(), None, today),
         ),
         page(
             "writings/index.html",
@@ -240,7 +242,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent) -> Vec<GeneratedPage> {
             &title,
             &description,
             &path,
-            updates_page_refs(&category_updates, Some(category)),
+            updates_page_refs(&category_updates, Some(category), today),
         ));
     }
 
@@ -460,9 +462,15 @@ fn footer() -> Markup {
 const HOME_UPCOMING_LIMIT: usize = 3;
 const HOME_RECENT_LIMIT: usize = 5;
 
-fn home(home: &ValidatedHome, updates: &[Update]) -> Markup {
+/// Planned events that have ended are listed only on the Updates pages, under
+/// Previously announced, until the author records what happened.
+fn home(home: &ValidatedHome, updates: &[Update], today: NaiveDate) -> Markup {
     let refs: Vec<_> = updates.iter().collect();
-    let (mut upcoming, mut recent) = split_upcoming(&refs);
+    let UpdateSections {
+        mut upcoming,
+        mut recent,
+        ..
+    } = UpdateSections::on(&refs, today);
     upcoming.truncate(HOME_UPCOMING_LIMIT);
     recent.truncate(HOME_RECENT_LIMIT);
     let email = "hatakeyama.ryujin.q7@dc.tohoku.ac.jp";
@@ -507,7 +515,7 @@ fn home(home: &ValidatedHome, updates: &[Update]) -> Markup {
                 header.home-news-heading {
                     h2 id="upcoming-heading" { "Upcoming" }
                 }
-                (upcoming_list(&upcoming, true))
+                (upcoming_list(&upcoming, true, today))
             }
         }
         @if !recent.is_empty() || upcoming.is_empty() {
@@ -760,20 +768,24 @@ fn classification(publication: &Publication, presentations: bool) -> String {
     )
 }
 
-fn updates_page(updates: &[Update], active: Option<Category>) -> Markup {
+fn updates_page(updates: &[Update], active: Option<Category>, today: NaiveDate) -> Markup {
     let refs: Vec<_> = updates.iter().collect();
-    updates_page_refs(&refs, active)
+    updates_page_refs(&refs, active, today)
 }
 
-fn updates_page_refs(updates: &[&Update], active: Option<Category>) -> Markup {
-    let (upcoming, recent) = split_upcoming(updates);
+fn updates_page_refs(updates: &[&Update], active: Option<Category>, today: NaiveDate) -> Markup {
+    let UpdateSections {
+        upcoming,
+        recent,
+        past_plans,
+    } = UpdateSections::on(updates, today);
     html! {
         (page_intro(active.map_or("Updates", Category::label)))
         (update_filters(active))
         @if !upcoming.is_empty() {
             section.update-section.upcoming-updates aria-labelledby="upcoming-heading" {
                 h2 id="upcoming-heading" { "Upcoming" }
-                (upcoming_list(&upcoming, false))
+                (upcoming_list(&upcoming, false, today))
             }
         }
         @if !recent.is_empty() {
@@ -781,33 +793,66 @@ fn updates_page_refs(updates: &[&Update], active: Option<Category>) -> Markup {
                 h2 id="recent-heading" { "Recent Updates" }
                 (update_list(&recent, false))
             }
-        } @else if upcoming.is_empty() {
+        } @else if upcoming.is_empty() && past_plans.is_empty() {
             (update_list(&recent, false))
+        }
+        // Plans whose events have ended keep their original wording and
+        // anchors until the author records what happened; they are neither
+        // presented as completed nor removed.
+        @if !past_plans.is_empty() {
+            section.update-section.past-plans aria-labelledby="past-plans-heading" {
+                h2 id="past-plans-heading" { "Previously announced" }
+                (update_list(&past_plans, false))
+            }
         }
     }
 }
 
-/// Separates planned events (Upcoming), soonest first, from completed ones
-/// (Recent Updates), most recently held first: by the event's final day, then
-/// its first day, then id. Both orders use when the activity takes place. The split depends only on each record's stated
-/// status, never on the build date; a planned record whose event has begun
-/// stops the build for editorial review instead.
-fn split_upcoming<'a>(updates: &[&'a Update]) -> (Vec<&'a Update>, Vec<&'a Update>) {
-    let (mut upcoming, mut recent): (Vec<&Update>, Vec<&Update>) = updates
-        .iter()
-        .copied()
-        .partition(|update| update.event_status == EventStatus::Planned);
-    upcoming.sort_by(|left, right| {
-        left.date
-            .cmp(&right.date)
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    recent.sort_by(|left, right| Update::most_recent_first(left, right));
-    (upcoming, recent)
+/// Updates grouped by their phase on the build day (see `Update::phase_on`).
+/// Every record falls in exactly one group.
+struct UpdateSections<'a> {
+    /// Planned events that have not ended, ongoing and upcoming, soonest
+    /// first: by first day, then id.
+    upcoming: Vec<&'a Update>,
+    /// Completed records, most recently held first: by the event's final
+    /// day, then its first day, then id.
+    recent: Vec<&'a Update>,
+    /// Planned events that have ended, most recently held first.
+    past_plans: Vec<&'a Update>,
 }
 
-/// Planned events lead with their event date.
-fn upcoming_list(updates: &[&Update], compact: bool) -> Markup {
+impl<'a> UpdateSections<'a> {
+    fn on(updates: &[&'a Update], today: NaiveDate) -> Self {
+        let mut sections = Self {
+            upcoming: Vec::new(),
+            recent: Vec::new(),
+            past_plans: Vec::new(),
+        };
+        for &update in updates {
+            match update.phase_on(today) {
+                UpdatePhase::Upcoming | UpdatePhase::Ongoing => sections.upcoming.push(update),
+                UpdatePhase::Completed => sections.recent.push(update),
+                UpdatePhase::PastPlan => sections.past_plans.push(update),
+            }
+        }
+        sections.upcoming.sort_by(|left, right| {
+            left.date
+                .cmp(&right.date)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        sections
+            .recent
+            .sort_by(|left, right| Update::most_recent_first(left, right));
+        sections
+            .past_plans
+            .sort_by(|left, right| Update::most_recent_first(left, right));
+        sections
+    }
+}
+
+/// Planned events lead with their event date; one under way on `today` is
+/// marked Ongoing, which describes the event's dates, not attendance.
+fn upcoming_list(updates: &[&Update], compact: bool, today: NaiveDate) -> Markup {
     let class = if compact {
         "update-list upcoming-list compact"
     } else {
@@ -820,6 +865,9 @@ fn upcoming_list(updates: &[&Update], compact: bool) -> Markup {
                     article id=[(!compact).then(|| format!("update-{}", update.id))] {
                         div.update-meta {
                             (event_dates(update))
+                            @if update.phase_on(today) == UpdatePhase::Ongoing {
+                                span.phase-label { "Ongoing" }
+                            }
                             span.kind-label { (update.kind.label()) }
                             @if let Some(label) = visible_category_labels(update) {
                                 span.category-label { (label) }
@@ -1504,12 +1552,19 @@ fn escape_xml(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+/// The build day for tests that are not about it: before every planned
+/// fixture event, so planned records are upcoming.
+#[cfg(test)]
+fn fixture_today() -> NaiveDate {
+    NaiveDate::from_ymd_opt(2026, 10, 1).unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        classification, cv, escape_xml, filterable_publications, footer, format_date,
-        format_date_range, header, home, publication_list, research, rss, update_detail,
-        update_list, update_summary, updates_page_refs,
+        classification, cv, escape_xml, filterable_publications, fixture_today, footer,
+        format_date, format_date_range, header, home, publication_list, research, rss,
+        update_detail, update_list, update_summary, updates_page_refs,
     };
     use crate::content::ValidatedHome;
     use crate::model::{Category, EventStatus, Publication};
@@ -1535,7 +1590,7 @@ mod tests {
             ]}"#,
         )
         .unwrap();
-        let html = home(&home_content, &[]).into_string();
+        let html = home(&home_content, &[], fixture_today()).into_string();
         assert_eq!(
             bio_section(&html),
             concat!(
@@ -1563,7 +1618,7 @@ mod tests {
             home_content.bio().len(),
             raw["bio"].as_array().unwrap().len()
         );
-        let html = home(&home_content, &[]).into_string();
+        let html = home(&home_content, &[], fixture_today()).into_string();
         let section = bio_section(&html);
         assert_eq!(
             section.matches(r#"<p class="home-bio">"#).count(),
@@ -1776,7 +1831,7 @@ mod tests {
     #[test]
     fn homepage_previews_upcoming_and_recent_updates_separately() {
         let updates = mixed_updates();
-        let html = home(&fixture_home(), &updates).into_string();
+        let html = home(&fixture_home(), &updates, fixture_today()).into_string();
 
         assert!(html.contains(r#"<h2 id="upcoming-heading">Upcoming</h2>"#));
         assert!(html.contains(r#"<h2 id="updates-heading">Recent Updates</h2>"#));
@@ -1815,7 +1870,7 @@ mod tests {
             .into_iter()
             .filter(|update| update.id.starts_with("completed-"))
             .collect();
-        let html = home(&fixture_home(), &updates).into_string();
+        let html = home(&fixture_home(), &updates, fixture_today()).into_string();
         assert!(!html.contains("Upcoming"));
         assert!(html.contains(r#"<h2 id="updates-heading">Recent Updates</h2>"#));
         assert!(html.contains(r#"<a href="/updates/">All updates</a>"#));
@@ -1827,7 +1882,7 @@ mod tests {
     fn updates_page_shows_upcoming_and_recent_updates_in_full() {
         let updates = mixed_updates();
         let refs: Vec<_> = updates.iter().collect();
-        let html = updates_page_refs(&refs, None).into_string();
+        let html = updates_page_refs(&refs, None, fixture_today()).into_string();
 
         assert!(html.contains(r#"<h2 id="upcoming-heading">Upcoming</h2>"#));
         assert!(html.contains(r#"<h2 id="recent-heading">Recent Updates</h2>"#));
@@ -1854,12 +1909,12 @@ mod tests {
         assert!(!html.contains("Completed") && !html.contains("· Planned"));
 
         let completed: Vec<_> = refs[4..].to_vec();
-        let without_plans = updates_page_refs(&completed, None).into_string();
+        let without_plans = updates_page_refs(&completed, None, fixture_today()).into_string();
         assert!(!without_plans.contains("Upcoming"));
         assert!(without_plans.contains(r#"<h2 id="recent-heading">Recent Updates</h2>"#));
         assert_eq!(without_plans.matches(r#"<article id="update-"#).count(), 7);
 
-        let without_records = updates_page_refs(&[], None).into_string();
+        let without_records = updates_page_refs(&[], None, fixture_today()).into_string();
         assert!(without_records.contains("No updates yet.") && !without_records.contains("<h2"));
     }
 
@@ -1873,7 +1928,8 @@ mod tests {
             "research",
         );
         let talk = test_update_in("talk", "2026-09-10", "", "completed", "research");
-        let html = updates_page_refs(&[&ranged, &talk], Some(Category::Research)).into_string();
+        let html = updates_page_refs(&[&ranged, &talk], Some(Category::Research), fixture_today())
+            .into_string();
         assert!(html.contains("<h1>Research</h1>"));
         assert!(html.contains(r#"<a href="/updates/research/" aria-current="page">Research</a>"#));
         assert!(html.contains(r#"<h2 id="upcoming-heading">Upcoming</h2>"#));
@@ -1883,7 +1939,8 @@ mod tests {
         ));
 
         // A filter that leaves only planned records shows no empty Recent Updates.
-        let only_planned = updates_page_refs(&[&ranged], Some(Category::Research)).into_string();
+        let only_planned =
+            updates_page_refs(&[&ranged], Some(Category::Research), fixture_today()).into_string();
         assert!(
             !only_planned.contains("Recent Updates") && !only_planned.contains("No updates yet.")
         );
@@ -1929,9 +1986,9 @@ mod tests {
         // one-day event follows it (earlier start), and remaining ties go by id.
         let expected = ["poster", "alpha", "talk", "camp", "seminar", "visit"];
 
-        let full = updates_page_refs(&refs, None).into_string();
+        let full = updates_page_refs(&refs, None, fixture_today()).into_string();
         assert_eq!(ids_in_order(&full), expected);
-        let home_html = home(&fixture_home(), &updates).into_string();
+        let home_html = home(&fixture_home(), &updates, fixture_today()).into_string();
         let (start, end) = section_bounds(&home_html, "updates-heading");
         assert_eq!(ids_in_order(&home_html[start..end]), expected[..5]);
         let research: Vec<_> = refs
@@ -1939,7 +1996,8 @@ mod tests {
             .copied()
             .filter(|update| update.categories.contains(&Category::Research))
             .collect();
-        let category = updates_page_refs(&research, Some(Category::Research)).into_string();
+        let category =
+            updates_page_refs(&research, Some(Category::Research), fixture_today()).into_string();
         assert_eq!(
             ids_in_order(&category),
             ["alpha", "talk", "camp", "seminar"]
@@ -2041,11 +2099,17 @@ mod tests {
         let updates = [aie, llal];
         let refs: Vec<_> = updates.iter().collect();
         let views = [
-            ("home", home(&fixture_home(), &updates).into_string()),
-            ("updates", updates_page_refs(&refs, None).into_string()),
+            (
+                "home",
+                home(&fixture_home(), &updates, fixture_today()).into_string(),
+            ),
+            (
+                "updates",
+                updates_page_refs(&refs, None, fixture_today()).into_string(),
+            ),
             (
                 "activities",
-                updates_page_refs(&refs, Some(Category::Academia)).into_string(),
+                updates_page_refs(&refs, Some(Category::Academia), fixture_today()).into_string(),
             ),
         ];
         for (view, html) in &views {
@@ -2096,6 +2160,195 @@ mod tests {
                 "{file} has a non-English title: {title}"
             );
         }
+    }
+
+    /// Every published record, as the OCaml generator exports it, in the
+    /// loader's order.
+    fn source_updates() -> Vec<crate::model::Update> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../content/updates");
+        let mut files: Vec<_> = std::fs::read_dir(root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .filter(|name| name.ends_with(".json"))
+            .collect();
+        files.sort();
+        let mut updates: Vec<_> = files
+            .iter()
+            .filter(|file| update_source(file)["status"] == "published")
+            .map(|file| update_from_source(file))
+            .collect();
+        updates.sort_by(crate::model::Update::most_recent_first);
+        updates
+    }
+
+    fn october(day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 10, day).unwrap()
+    }
+
+    /// The section of a full Updates page that holds a record's entry.
+    fn section_of<'h>(html: &'h str, id: &str) -> &'h str {
+        let at = html.find(&format!(r#"id="update-{id}""#)).unwrap();
+        let start = html[..at].rfind("<section").unwrap();
+        let heading = &html[start..at];
+        if heading.contains("upcoming-heading") {
+            "upcoming"
+        } else if heading.contains("recent-heading") {
+            "recent"
+        } else if heading.contains("past-plans-heading") {
+            "past-plans"
+        } else {
+            panic!("{id} is outside every section")
+        }
+    }
+
+    /// 数学基礎論若手の会2026 (16–18 October) across its dates: upcoming,
+    /// then ongoing, then a past plan awaiting review — never completed and
+    /// never dropped, whatever the build day.
+    #[test]
+    fn the_wakate_record_moves_by_date_without_changing_status() {
+        const ID: &str = "wakate-no-kai-2026-attendance";
+        let updates = source_updates();
+        let refs: Vec<_> = updates.iter().collect();
+        let page = |today| updates_page_refs(&refs, None, today).into_string();
+        let homepage = |today| home(&fixture_home(), &updates, today).into_string();
+        let ongoing = r#"<span class="phase-label">Ongoing</span>"#;
+
+        let before = page(october(15));
+        assert_eq!(section_of(&before, ID), "upcoming");
+        assert!(!before.contains(ongoing) && !before.contains("Previously announced"));
+
+        for day in [16, 17, 18] {
+            let during = page(october(day));
+            assert_eq!(section_of(&during, ID), "upcoming", "{day}");
+            assert_eq!(during.matches(ongoing).count(), 1, "{day}");
+            let entry = &during[during.find(&format!(r#"id="update-{ID}""#)).unwrap()..];
+            assert!(entry[..entry.find("</article>").unwrap()].contains(ongoing));
+            assert!(homepage(october(day)).contains(ongoing), "{day}");
+        }
+
+        for after in [october(19), NaiveDate::from_ymd_opt(2027, 4, 1).unwrap()] {
+            let html = page(after);
+            assert_eq!(section_of(&html, ID), "past-plans");
+            assert!(html.contains(r#"<h2 id="past-plans-heading">Previously announced</h2>"#));
+            assert!(!html.contains(ongoing) && !html.contains("Needs review"));
+            // The past plan is not presented as completed: it stays apart
+            // from Recent Updates, with its original wording.
+            let (recent_start, recent_end) = section_bounds(&html, "recent-heading");
+            assert!(!html[recent_start..recent_end].contains(ID));
+            assert!(html.contains("Planned attendance at "));
+            // The homepage previews only upcoming and completed records.
+            let home_html = homepage(after);
+            assert!(!home_html.contains("数学基礎論若手の会2026"));
+            assert!(!home_html.contains("Previously announced"));
+        }
+
+        let wakate = updates.iter().find(|update| update.id == ID).unwrap();
+        assert_eq!(wakate.event_status, EventStatus::Planned);
+    }
+
+    /// Whatever the build day, every record keeps exactly one anchor on the
+    /// full Updates page and on each of its category pages, the anchors that
+    /// RSS guids name keep resolving, and the homepage previews never repeat a
+    /// record or exceed their limits.
+    #[test]
+    fn date_phases_never_drop_or_duplicate_records() {
+        let updates = source_updates();
+        let refs: Vec<_> = updates.iter().collect();
+        let feed = rss(&updates);
+        let days = [
+            october(1),
+            october(15),
+            october(16),
+            october(18),
+            october(19),
+            NaiveDate::from_ymd_opt(2099, 12, 31).unwrap(),
+        ];
+        for today in days {
+            let html = updates_page_refs(&refs, None, today).into_string();
+            assert_eq!(
+                html.matches(r#"<article id="update-"#).count(),
+                updates.len()
+            );
+            for update in &updates {
+                let anchor = format!(r#"id="update-{}""#, update.id);
+                assert_eq!(html.matches(&anchor).count(), 1, "{} on {today}", update.id);
+                // Detail pages are linked rather than anchored; every other
+                // guid names the record's anchor here.
+                if !update.detail {
+                    assert!(feed.contains(&format!(
+                        "<guid>https://ryujin-hatakeyama.github.io/updates/#update-{}</guid>",
+                        update.id
+                    )));
+                }
+            }
+            for category in Category::ALL {
+                let members: Vec<_> = refs
+                    .iter()
+                    .copied()
+                    .filter(|update| update.categories.contains(&category))
+                    .collect();
+                let page = updates_page_refs(&members, Some(category), today).into_string();
+                assert_eq!(
+                    page.matches(r#"<article id="update-"#).count(),
+                    members.len()
+                );
+                assert!(members.is_empty() || !page.contains("No updates yet."));
+            }
+
+            let home_html = home(&fixture_home(), &updates, today).into_string();
+            let preview = |heading| {
+                let html = &home_html;
+                html.find(&format!(r#"aria-labelledby="{heading}""#))
+                    .map_or(String::new(), |start| {
+                        html[start..start + html[start..].find("</section>").unwrap()].to_owned()
+                    })
+            };
+            let (upcoming, recent) = (preview("upcoming-heading"), preview("updates-heading"));
+            assert!(upcoming.matches("<li>").count() <= 3);
+            assert!(recent.matches("<li>").count() <= 5);
+            for update in &updates {
+                let shown = [&upcoming, &recent]
+                    .iter()
+                    .filter(|section| section.contains(&update.title.en))
+                    .count();
+                assert!(shown <= 1, "{} twice on {today}", update.id);
+                if update.event_status == EventStatus::Planned {
+                    assert!(!recent.contains(&update.title.en));
+                }
+            }
+        }
+        // The feed does not depend on the build day at all.
+        assert!(!feed.contains("Ongoing") && !feed.contains("Previously announced"));
+    }
+
+    #[test]
+    fn past_plans_keep_category_pages_from_looking_empty() {
+        let past = test_update_in("workshop", "2026-09-01", "", "planned", "research");
+        let html = updates_page_refs(&[&past], Some(Category::Research), october(19)).into_string();
+        assert!(html.contains(r#"<h2 id="past-plans-heading">Previously announced</h2>"#));
+        assert!(!html.contains("No updates yet.") && !html.contains("Recent Updates"));
+        assert!(!html.contains("Upcoming"));
+        let empty = updates_page_refs(&[], Some(Category::Research), october(19)).into_string();
+        assert!(empty.contains("No updates yet.") && !empty.contains("Previously announced"));
+    }
+
+    #[test]
+    fn ongoing_and_upcoming_events_share_the_upcoming_section_soonest_first() {
+        let ongoing = test_update_in(
+            "meeting",
+            "2026-10-16",
+            r#","endDate":"2026-10-18""#,
+            "planned",
+            "academia",
+        );
+        let single = test_update("talk", "2026-10-17", "planned");
+        let later = test_update("visit", "2026-11-02", "planned");
+        let html = updates_page_refs(&[&later, &single, &ongoing], None, october(17)).into_string();
+        let at = |id: &str| html.find(&format!(r#"id="update-{id}""#)).unwrap();
+        assert!(at("meeting") < at("talk") && at("talk") < at("visit"));
+        // Both events under way that day are marked; the later one is not.
+        assert_eq!(html.matches(">Ongoing<").count(), 2);
+        assert!(!html[at("visit")..].contains(">Ongoing<"));
     }
 
     #[test]
@@ -2218,7 +2471,7 @@ mod tests {
         );
         let guard = "<script>if(location.hostname!=='ryujin-hatakeyama.github.io')window.goatcounter={no_onload:true};</script>";
         let tag = r#"<script data-goatcounter="https://hatakeyama.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>"#;
-        for page in super::pages(&content) {
+        for page in super::pages(&content, fixture_today()) {
             let html = &page.html;
             assert_eq!(html.matches("gc.zgo.at").count(), 1, "{}", page.output_path);
             assert_eq!(html.matches("data-goatcounter=").count(), 1);
@@ -2260,7 +2513,7 @@ mod tests {
 
     #[test]
     fn homepage_heading_holds_both_forms_of_the_name() {
-        let html = home(&fixture_home(), &[]).into_string();
+        let html = home(&fixture_home(), &[], fixture_today()).into_string();
         assert_eq!(html.matches("<h1").count(), 1);
         assert!(html.contains(r#"<h1 class="person-name" id="home-name"><span class="name-latin" lang="en">Ryujin Hatakeyama</span> <span class="name-japanese" lang="ja">畠山竜迅</span></h1>"#));
         assert_eq!(html.matches("畠山竜迅").count(), 1);
@@ -2280,7 +2533,7 @@ mod tests {
         both.categories.push(Category::Research);
         let refs = [&activity, &research, &both];
         let pages = [
-            updates_page_refs(&refs, None).into_string(),
+            updates_page_refs(&refs, None, fixture_today()).into_string(),
             update_list(&refs, true).into_string(),
         ];
         for html in &pages {
@@ -2302,8 +2555,12 @@ mod tests {
         assert!(filters.contains(r#"href="/updates/research/""#));
         assert!(!filters.contains("/updates/academia/"));
         // The Activities page remains for existing links, under its title.
-        let academia =
-            updates_page_refs(&[&activity, &both], Some(Category::Academia)).into_string();
+        let academia = updates_page_refs(
+            &[&activity, &both],
+            Some(Category::Academia),
+            fixture_today(),
+        )
+        .into_string();
         assert!(academia.contains("<h1>Activities</h1>"));
         assert!(!academia.contains(r#"aria-current="page""#));
         // A detail page has no empty Categories row.
@@ -2332,7 +2589,7 @@ mod tests {
         let content = crate::content::ValidatedSiteContent::with_miscellany(
             crate::content::Miscellany::default(),
         );
-        let page = super::pages(&content)
+        let page = super::pages(&content, fixture_today())
             .into_iter()
             .find(|page| page.output_path == "privacy/index.html")
             .unwrap();
@@ -2388,7 +2645,7 @@ mod tests {
 
     #[test]
     fn homepage_has_one_all_updates_link_after_both_previews() {
-        let html = home(&fixture_home(), &mixed_updates()).into_string();
+        let html = home(&fixture_home(), &mixed_updates(), fixture_today()).into_string();
         assert_eq!(
             html.matches(r#"<a href="/updates/">All updates</a>"#)
                 .count(),
@@ -2417,11 +2674,13 @@ mod tests {
             .copied()
             .filter(|u| u.categories.contains(&Category::Academia))
             .collect();
-        let research_page = updates_page_refs(&research, Some(Category::Research)).into_string();
-        let academia_page = updates_page_refs(&academia, Some(Category::Academia)).into_string();
+        let research_page =
+            updates_page_refs(&research, Some(Category::Research), fixture_today()).into_string();
+        let academia_page =
+            updates_page_refs(&academia, Some(Category::Academia), fixture_today()).into_string();
         let pages = [
-            home(&fixture_home(), &updates).into_string(),
-            updates_page_refs(&refs, None).into_string(),
+            home(&fixture_home(), &updates, fixture_today()).into_string(),
+            updates_page_refs(&refs, None, fixture_today()).into_string(),
             research_page.clone(),
             academia_page.clone(),
         ];
@@ -2693,8 +2952,8 @@ mod tests {
 #[cfg(test)]
 mod miscellany_tests {
     use super::{
-        MISCELLANY_ICONS, diary_page, header, miscellany_overview, note_detail, notes_page, pages,
-        reading_page,
+        MISCELLANY_ICONS, diary_page, fixture_today, header, miscellany_overview, note_detail,
+        notes_page, pages, reading_page,
     };
     use crate::content::{Miscellany, ValidatedSiteContent};
 
@@ -2710,7 +2969,7 @@ mod miscellany_tests {
     }
 
     fn page_html(content: &ValidatedSiteContent, output_path: &str) -> String {
-        pages(content)
+        pages(content, fixture_today())
             .into_iter()
             .find(|page| page.output_path == output_path)
             .unwrap_or_else(|| panic!("missing {output_path}"))
@@ -2815,7 +3074,7 @@ mod miscellany_tests {
             assert_eq!(main.matches(r#"aria-current="page""#).count(), 1);
         }
         assert!(
-            !pages(&content)
+            !pages(&content, fixture_today())
                 .iter()
                 .any(|page| page.output_path.starts_with("miscellany/notes/")
                     && page.output_path != "miscellany/notes/index.html")
@@ -2869,7 +3128,7 @@ mod miscellany_tests {
         assert!(english < japanese);
         assert!(!index.contains("Unfinished") && !index.contains("/unfinished/"));
 
-        let paths: Vec<_> = pages(&content)
+        let paths: Vec<_> = pages(&content, fixture_today())
             .into_iter()
             .map(|page| page.output_path)
             .collect();
@@ -2948,7 +3207,7 @@ mod miscellany_tests {
             &[NOTE_EN],
             &[DIARY_OLD],
         ));
-        let paths: Vec<_> = pages(&content)
+        let paths: Vec<_> = pages(&content, fixture_today())
             .into_iter()
             .map(|page| page.output_path)
             .collect();
@@ -2982,7 +3241,10 @@ mod miscellany_tests {
 
 #[cfg(test)]
 mod multilingual_tests {
-    use super::{diary_page, miscellany_overview, note_detail, notes_page, pages, reading_page};
+    use super::{
+        diary_page, fixture_today, miscellany_overview, note_detail, notes_page, pages,
+        reading_page,
+    };
     use crate::content::{Miscellany, ValidatedSiteContent};
     use crate::model::DisplayLanguage;
 
@@ -3022,7 +3284,7 @@ mod multilingual_tests {
             &[MOON_EN, MOON_JA, ONLY_EN, ONLY_JA, MIXED],
             &[],
         ));
-        let paths: Vec<_> = pages(&content)
+        let paths: Vec<_> = pages(&content, fixture_today())
             .into_iter()
             .map(|page| page.output_path)
             .collect();
@@ -3053,7 +3315,7 @@ mod multilingual_tests {
             r#"<li lang="ja"><h2><a href="/miscellany/notes/moon/">月について</a></h2></li>"#
         ));
         assert!(!index.contains("On &lt;the&gt; moon") && !index.contains("data-language"));
-        for page in pages(&content) {
+        for page in pages(&content, fixture_today()) {
             assert!(!page.html.contains("hreflang"), "{}", page.output_path);
         }
     }
@@ -3149,7 +3411,7 @@ mod multilingual_tests {
             &[MOON_JA, MOON_EN, ONLY_JA],
             &[DIARY_JA, DIARY_EN],
         ));
-        for page in pages(&content)
+        for page in pages(&content, fixture_today())
             .iter()
             .filter(|page| page.output_path.starts_with("miscellany/"))
         {

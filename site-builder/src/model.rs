@@ -336,6 +336,19 @@ impl Update {
         self.end_date.unwrap_or(self.date)
     }
 
+    /// Where the record stands on `today`, a calendar day in Asia/Tokyo (see
+    /// `site_date`). A completed record is always `Completed`; a planned one
+    /// is placed by its event dates alone, a single-day event ending on the
+    /// day it begins. The phase is never stored and never changes the record.
+    pub fn phase_on(&self, today: NaiveDate) -> UpdatePhase {
+        match self.event_status {
+            EventStatus::Completed => UpdatePhase::Completed,
+            EventStatus::Planned if today < self.date => UpdatePhase::Upcoming,
+            EventStatus::Planned if today <= self.last_event_day() => UpdatePhase::Ongoing,
+            EventStatus::Planned => UpdatePhase::PastPlan,
+        }
+    }
+
     /// Most recently held first: by the event's final day, then its first day,
     /// both newest first, then by id for determinism.
     pub fn most_recent_first(left: &Self, right: &Self) -> std::cmp::Ordering {
@@ -534,8 +547,9 @@ pub fn summary_plain_text(summary: &str) -> String {
 
 /// The record's editorial status: whether the recorded activity has taken place
 /// or is still intended. This is independent of the record's draft/published
-/// visibility and is never derived from the current date; a planned record
-/// whose event has begun stops the build for editorial review instead.
+/// visibility and is never derived from the current date: only the author
+/// changes it. Where a planned record falls on a given day is the separate,
+/// derived `UpdatePhase`.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum EventStatus {
@@ -550,6 +564,23 @@ impl EventStatus {
             Self::Completed => "Completed",
         }
     }
+}
+
+/// Where an update falls on a given day, derived from its `EventStatus` and
+/// event dates. Only `Completed` reflects the author's statement that the
+/// activity took place: `Ongoing` says the event's dates include the day, not
+/// that the author is attending, and `PastPlan` marks a plan whose event has
+/// ended without the author having recorded what happened.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UpdatePhase {
+    /// Planned, and the event has not begun.
+    Upcoming,
+    /// Planned, and the day falls between the event's first and last days.
+    Ongoing,
+    /// Still planned after the event's last day; awaiting the author's review.
+    PastPlan,
+    /// Recorded by the author as having taken place.
+    Completed,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1299,9 +1330,10 @@ fn is_safe_root_relative(value: &str) -> bool {
 mod tests {
     use super::{
         Category, EventKind, EventStatus, Inline, Language, Link, LinkTarget, LinkType, Paragraph,
-        Publication, SummarySegment, Update, summary_plain_text, summary_segments,
+        Publication, SummarySegment, Update, UpdatePhase, summary_plain_text, summary_segments,
         validate_markdown_url, validate_slug,
     };
+    use chrono::NaiveDate;
 
     fn link(text: &str, target: &str) -> Inline {
         Inline::Link {
@@ -1386,6 +1418,41 @@ mod tests {
             "kind":{{"type":"participation"}},"related":{{}}}}"#
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn planned_events_are_upcoming_then_ongoing_then_past_plans() {
+        let day = |day| NaiveDate::from_ymd_opt(2026, 10, day).unwrap();
+        let wakate = update("2026-10-16", Some("2026-10-18"), "planned");
+        assert_eq!(wakate.phase_on(day(15)), UpdatePhase::Upcoming);
+        assert_eq!(wakate.phase_on(day(16)), UpdatePhase::Ongoing);
+        assert_eq!(wakate.phase_on(day(17)), UpdatePhase::Ongoing);
+        assert_eq!(wakate.phase_on(day(18)), UpdatePhase::Ongoing);
+        assert_eq!(wakate.phase_on(day(19)), UpdatePhase::PastPlan);
+        assert_eq!(
+            wakate.phase_on(NaiveDate::from_ymd_opt(2027, 4, 1).unwrap()),
+            UpdatePhase::PastPlan
+        );
+        // Deriving a phase never changes the author's status.
+        assert_eq!(wakate.event_status, EventStatus::Planned);
+    }
+
+    #[test]
+    fn single_day_events_end_on_the_day_they_begin() {
+        let day = |day| NaiveDate::from_ymd_opt(2026, 10, day).unwrap();
+        let talk = update("2026-10-16", None, "planned");
+        assert_eq!(talk.phase_on(day(15)), UpdatePhase::Upcoming);
+        assert_eq!(talk.phase_on(day(16)), UpdatePhase::Ongoing);
+        assert_eq!(talk.phase_on(day(17)), UpdatePhase::PastPlan);
+    }
+
+    #[test]
+    fn completed_records_are_completed_on_every_day() {
+        let completed = update("2026-10-16", Some("2026-10-18"), "completed");
+        for day in [1, 15, 16, 18, 19, 31] {
+            let today = NaiveDate::from_ymd_opt(2026, 10, day).unwrap();
+            assert_eq!(completed.phase_on(today), UpdatePhase::Completed);
+        }
     }
 
     #[test]

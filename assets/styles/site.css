@@ -376,7 +376,7 @@ main { min-height: 64vh; }
   padding: 1.6rem 0 1.8rem;
 }
 
-.update-meta { display: flex; flex-direction: column; align-items: flex-start; gap: .45rem; color: var(--ink-faint); font-family: var(--mono); font-size: .67rem; }
+.update-meta { display: flex; flex-direction: column; flex-wrap: wrap; align-items: flex-start; gap: .45rem; color: var(--ink-faint); font-family: var(--mono); font-size: .67rem; }
 .kind-label { color: var(--ink-soft); text-transform: uppercase; letter-spacing: .07em; }
 .update-copy h3 { margin: 0 0 .45rem; font-family: var(--serif); font-size: clamp(1.25rem, 2vw, 1.6rem); font-weight: 520; line-height: 1.25; }
 .update-copy h3 a { color: var(--ink); }
@@ -386,6 +386,10 @@ main { min-height: 64vh; }
 .update-section > h2 { margin: 0 0 .35rem; color: var(--ink-soft); font-family: var(--sans); font-size: .86rem; font-weight: 600; }
 /* For planned events the event date leads the metadata column. */
 .upcoming-list .update-meta > time { color: var(--ink); }
+/* An event under way on the build day; it describes the dates, not attendance. */
+.phase-label { color: var(--accent-strong); text-transform: uppercase; letter-spacing: .07em; }
+/* Plans whose events have ended, kept as announced until reviewed. */
+.past-plans { margin-top: 2.25rem; }
 
 .update-list.compact article { grid-template-columns: 8rem 1fr; padding: 1.1rem 0; }
 .update-list.compact .update-meta .kind-label { display: none; }
