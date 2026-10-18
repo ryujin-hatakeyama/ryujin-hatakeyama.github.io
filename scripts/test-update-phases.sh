@@ -1,21 +1,43 @@
 #!/bin/sh
-# Builds the real site as of fixed Asia/Tokyo days around 数学基礎論若手の会2026
-# (16–18 October 2026) and long after every planned event, and checks that
-# each build succeeds and passes the built-site validation, that the Updates
-# pages place the record by date without changing it, and that pages unrelated
-# to Updates, and the RSS feed, do not depend on the day. It also checks that
-# the update generator still rejects structural errors. Run it after
-# ./scripts/build-site.sh, which prepares the generated inputs.
+# Builds the real site, with one made-up planned event added (16–18 October
+# 2026), as of fixed Asia/Tokyo days around that event and long after it, and
+# checks that each build succeeds and passes the built-site validation, that
+# the Updates pages place the made-up record by date without changing it, and
+# that pages unrelated to Updates, and the RSS feed, do not depend on the day.
+# The published records' own statuses do not matter here: an event that has
+# happened may be recorded as completed at any time. It also checks that the
+# update generator still rejects structural errors. Run it after
+# ./scripts/build-site.sh, which prepares the generated inputs; the generated
+# updates are made again from content/updates when it ends.
 set -eu
 
-record=wakate-no-kai-2026-attendance
+record=phase-fixture-planned
+title="Planned attendance at the phase fixture"
 base=target/update-phases
+generated=target/generated/updates.json
 fail() {
   echo "$1" >&2
   exit 1
 }
+generate() {
+  dune exec --display=quiet ./ocaml/generate_updates.exe -- "$1" "$2"
+}
+restore() {
+  generate content/updates "$generated"
+}
+fixture() {
+  printf '{"id":"%s","title":{"en":"x"},"summary":{"en":"x"},"date":"%s",%s"event_status":"planned","categories":["academia"],"kind":{"type":"participation"},"status":"published"}\n' "$@"
+}
 rm -rf "$base"
-mkdir -p "$base"
+mkdir -p "$base/sources"
+
+# The published records, and the made-up planned event beside them.
+cp content/updates/*.json "$base/sources/"
+printf '{"id":"%s","title":{"en":"%s"},"summary":{"en":"x"},"date":"2026-10-16","end_date":"2026-10-18","event_status":"planned","categories":["academia"],"kind":{"type":"participation"},"status":"published"}\n' \
+  "$record" "$title" > "$base/sources/zz-$record.json"
+cp "$base/sources/zz-$record.json" "$base/fixture.json"
+trap restore EXIT
+generate "$base/sources" "$generated"
 
 section_of() {
   # Prints the section heading id that precedes the record on a page.
@@ -27,6 +49,14 @@ section_of() {
         if (token == anchor) { print heading; exit }
         line = substr(line, RSTART + RLENGTH)
       } }' "$1"
+}
+
+entry_of() {
+  # Prints the record's entry on a page, from its anchor to its </article>.
+  awk -v anchor="id=\"update-$record\"" '
+    { text = text $0 "\n" }
+    END { at = index(text, anchor); if (!at) exit
+          rest = substr(text, at); print substr(rest, 1, index(rest, "</article>")) }' "$1"
 }
 
 expect_section() {
@@ -50,22 +80,28 @@ expect_section 2026-10-16 upcoming
 expect_section 2026-10-18 upcoming
 expect_section 2026-10-19 past-plans
 expect_section 2099-12-31 past-plans
-grep -q '<span class="phase-label">Ongoing</span>' "$base/2026-10-16/index.html"
-grep -q '<span class="phase-label">Ongoing</span>' "$base/2026-10-18/updates/index.html"
-if grep -q 'phase-label' "$base/2026-10-15/updates/index.html"; then fail "Ongoing before the event"; fi
-if grep -q 'phase-label' "$base/2026-10-19/updates/index.html"; then fail "Ongoing after the event"; fi
-if grep -q 'Previously announced' "$base/2026-10-18/updates/index.html"; then fail "past plan during the event"; fi
+ongoing='<span class="phase-label">Ongoing</span>'
+grep -q "$ongoing" "$base/2026-10-16/index.html"
+for day in 2026-10-16 2026-10-18; do
+  entry_of "$base/$day/updates/index.html" | grep -q "$ongoing" || fail "not Ongoing on $day"
+done
+for day in 2026-10-15 2026-10-19; do
+  if entry_of "$base/$day/updates/index.html" | grep -q 'phase-label'; then fail "Ongoing on $day"; fi
+done
 grep -q '<h2 id="past-plans-heading">Previously announced</h2>' "$base/2026-10-19/updates/index.html"
 grep -q '<h2 id="past-plans-heading">Previously announced</h2>' "$base/2026-10-19/updates/academia/index.html"
-if grep -q "数学基礎論若手の会2026" "$base/2026-10-19/index.html"; then fail "past plan on the homepage"; fi
-grep -q "数学基礎論若手の会2026" "$base/2026-10-18/index.html"
+entry_of "$base/2026-10-19/updates/index.html" | grep -q "$title" || fail "the past plan lost its wording"
+if grep -q "$title" "$base/2026-10-19/index.html"; then fail "past plan on the homepage"; fi
+grep -q "$title" "$base/2026-10-18/index.html"
 
 # Only an ended plan produces the editorial warning, and it does not stop the build.
-if grep -q 'is still planned' "$base/2026-10-18.log"; then fail "warning during the event"; fi
+if grep -q "update \"$record\" is still planned" "$base/2026-10-18.log"; then fail "warning during the event"; fi
 grep -q "update \"$record\" is still planned, but its event ended on 2026-10-18" "$base/2026-10-19.log"
 
-# The record itself is unchanged, and so is everything not derived from the day.
-grep -q '"event_status": "planned"' content/updates/2026-10-wakate-no-kai.json
+# No build changes a record: the made-up one is as written, and the published
+# ones are as committed. So is everything not derived from the day.
+cmp -s "$base/fixture.json" "$base/sources/zz-$record.json" || fail "the made-up record changed"
+git diff --quiet -- content/updates || fail "a build changed content/updates"
 # Only the homepage and the Updates listing pages may differ between days.
 for day in 2026-10-16 2026-10-18 2026-10-19 2099-12-31; do
   unexpected=$(diff -r -q "$base/2026-10-15" "$base/$day" |
@@ -81,9 +117,6 @@ if SITE_BUILD_DATE=2026-10-32 cargo run --quiet --locked --release -p site-build
 fi
 
 # Structural errors in update sources still stop the pipeline.
-fixture() {
-  printf '{"id":"%s","title":{"en":"x"},"summary":{"en":"x"},"date":"%s",%s"event_status":"planned","categories":["academia"],"kind":{"type":"participation"},"status":"published"}\n' "$@"
-}
 expect_rejected() {
   label=$1 directory=$2
   if dune exec --display=quiet ./ocaml/generate_updates.exe -- "$directory" "$base/$label.json" \

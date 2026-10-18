@@ -1562,9 +1562,10 @@ fn fixture_today() -> NaiveDate {
 #[cfg(test)]
 mod tests {
     use super::{
-        classification, cv, escape_xml, filterable_publications, fixture_today, footer,
-        format_date, format_date_range, header, home, publication_list, research, rss,
-        update_detail, update_list, update_summary, updates_page_refs,
+        HOME_RECENT_LIMIT, HOME_UPCOMING_LIMIT, UpdateSections, classification, cv, escape_xml,
+        filterable_publications, fixture_today, footer, format_date, format_date_range, header,
+        home, publication_list, research, rss, update_detail, update_list, update_summary,
+        updates_page_refs,
     };
     use crate::content::ValidatedHome;
     use crate::model::{Category, EventStatus, Publication};
@@ -2201,49 +2202,75 @@ mod tests {
         }
     }
 
-    /// 数学基礎論若手の会2026 (16–18 October) across its dates: upcoming,
-    /// then ongoing, then a past plan awaiting review — never completed and
-    /// never dropped, whatever the build day.
+    /// A record's entry on a full Updates page, from its anchor to the end of
+    /// its article.
+    fn entry_of<'h>(html: &'h str, id: &str) -> &'h str {
+        let entry = &html[html.find(&format!(r#"id="update-{id}""#)).unwrap()..];
+        &entry[..entry.find("</article>").unwrap()]
+    }
+
+    /// A planned event (made up, 16–18 October) across its dates, listed
+    /// beside every published record: upcoming, then ongoing, then a past
+    /// plan awaiting review — never completed and never dropped, whatever the
+    /// build day. A completed event with the same dates is listed as done.
+    /// The published records' own statuses do not matter here.
     #[test]
-    fn the_wakate_record_moves_by_date_without_changing_status() {
-        const ID: &str = "wakate-no-kai-2026-attendance";
-        let updates = source_updates();
+    fn a_planned_record_moves_by_date_without_changing_status() {
+        const PLANNED: &str = "phase-fixture-planned";
+        const DONE: &str = "phase-fixture-completed";
+        let dates = r#","endDate":"2026-10-18""#;
+        let fixtures = vec![
+            test_update_in(PLANNED, "2026-10-16", dates, "planned", "academia"),
+            test_update_in(DONE, "2026-10-16", dates, "completed", "academia"),
+        ];
+        let mut updates = source_updates();
+        updates.extend(fixtures.iter().cloned());
+        updates.sort_by(crate::model::Update::most_recent_first);
         let refs: Vec<_> = updates.iter().collect();
         let page = |today| updates_page_refs(&refs, None, today).into_string();
-        let homepage = |today| home(&fixture_home(), &updates, today).into_string();
+        // The homepage is checked with the made-up records alone, so that
+        // published records can never crowd them out of its limits.
+        let homepage = |today| home(&fixture_home(), &fixtures, today).into_string();
         let ongoing = r#"<span class="phase-label">Ongoing</span>"#;
+        let planned_title = format!("title-{PLANNED}");
 
         let before = page(october(15));
-        assert_eq!(section_of(&before, ID), "upcoming");
-        assert!(!before.contains(ongoing) && !before.contains("Previously announced"));
+        assert_eq!(section_of(&before, PLANNED), "upcoming");
+        assert!(!entry_of(&before, PLANNED).contains(ongoing));
 
         for day in [16, 17, 18] {
             let during = page(october(day));
-            assert_eq!(section_of(&during, ID), "upcoming", "{day}");
-            assert_eq!(during.matches(ongoing).count(), 1, "{day}");
-            let entry = &during[during.find(&format!(r#"id="update-{ID}""#)).unwrap()..];
-            assert!(entry[..entry.find("</article>").unwrap()].contains(ongoing));
-            assert!(homepage(october(day)).contains(ongoing), "{day}");
+            assert_eq!(section_of(&during, PLANNED), "upcoming", "{day}");
+            assert!(entry_of(&during, PLANNED).contains(ongoing), "{day}");
+            let home_html = homepage(october(day));
+            assert!(home_html.contains(&planned_title), "{day}");
+            assert!(home_html.contains(ongoing), "{day}");
         }
 
         for after in [october(19), NaiveDate::from_ymd_opt(2027, 4, 1).unwrap()] {
             let html = page(after);
-            assert_eq!(section_of(&html, ID), "past-plans");
+            assert_eq!(section_of(&html, PLANNED), "past-plans");
             assert!(html.contains(r#"<h2 id="past-plans-heading">Previously announced</h2>"#));
-            assert!(!html.contains(ongoing) && !html.contains("Needs review"));
+            let entry = entry_of(&html, PLANNED);
+            assert!(!entry.contains(ongoing) && !entry.contains("Needs review"));
             // The past plan is not presented as completed: it stays apart
             // from Recent Updates, with its original wording.
             let (recent_start, recent_end) = section_bounds(&html, "recent-heading");
-            assert!(!html[recent_start..recent_end].contains(ID));
-            assert!(html.contains("Planned attendance at "));
+            assert!(!html[recent_start..recent_end].contains(PLANNED));
+            assert!(entry.contains(&planned_title));
+            // A completed record is a past result, under Recent Updates.
+            assert_eq!(section_of(&html, DONE), "recent");
+            assert!(!entry_of(&html, DONE).contains(ongoing));
             // The homepage previews only upcoming and completed records.
             let home_html = homepage(after);
-            assert!(!home_html.contains("数学基礎論若手の会2026"));
+            assert!(!home_html.contains(&planned_title));
             assert!(!home_html.contains("Previously announced"));
+            assert!(home_html.contains(&format!("title-{DONE}")));
         }
 
-        let wakate = updates.iter().find(|update| update.id == ID).unwrap();
-        assert_eq!(wakate.event_status, EventStatus::Planned);
+        // Rendering never changes a record's status.
+        let planned = updates.iter().find(|update| update.id == PLANNED).unwrap();
+        assert_eq!(planned.event_status, EventStatus::Planned);
     }
 
     /// Whatever the build day, every record keeps exactly one anchor on the
@@ -2687,8 +2714,9 @@ mod tests {
         for (update, (file, url)) in updates.iter().zip(LINKED_EVENTS) {
             assert_eq!(update.title_link.as_ref().unwrap().url, url, "{file}");
         }
-        // Each record is listed once on the homepage and the full page, and
-        // once on the page of each of its categories.
+        // Each record is listed once on the full page and once on the page of
+        // each of its categories; on the homepage, once if its preview
+        // includes it (which depends on the records' statuses and dates).
         for update in &updates {
             let heading = linked_heading(update);
             for (category, page) in [
@@ -2699,11 +2727,21 @@ mod tests {
                 assert_eq!(page.matches(&heading).count(), expected, "{}", update.id);
             }
         }
-        for page in &pages[..2] {
-            for update in &updates {
+        let UpdateSections {
+            mut upcoming,
+            mut recent,
+            ..
+        } = UpdateSections::on(&refs, fixture_today());
+        upcoming.truncate(HOME_UPCOMING_LIMIT);
+        recent.truncate(HOME_RECENT_LIMIT);
+        let previewed: Vec<_> = upcoming.iter().chain(&recent).map(|u| &u.id).collect();
+        assert!(!previewed.is_empty());
+        for update in &updates {
+            let on_home = usize::from(previewed.contains(&&update.id));
+            for (page, expected) in [(&pages[0], on_home), (&pages[1], 1)] {
                 assert_eq!(
                     page.matches(&linked_heading(update)).count(),
-                    1,
+                    expected,
                     "{}",
                     update.id
                 );
