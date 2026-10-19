@@ -449,6 +449,70 @@ main { min-height: 64vh; }
 .prose hr { margin: 4rem auto; width: 5rem; border: 0; border-top: 1px solid var(--rule-strong); }
 .prose .footnotes { margin-top: 5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: .82em; }
 
+/* A music card (site-builder/src/music.rs): the work in one row, the
+   controls in the next: the services (a sliding choice), "Play here", and
+   the chosen service's page. Only "Play here" makes a player; the site's
+   script does that (client/site.ts), one player on the page at a time. */
+.music-card { container-type: inline-size; box-sizing: border-box; max-width: 32rem; margin: 2rem 0; padding: .75rem; border: 1px solid var(--rule); border-radius: 12px; background: var(--paper-raised); font-family: var(--sans); font-size: .9rem; line-height: 1.4; }
+.music-card-body { display: flex; gap: .85rem; align-items: center; min-width: 0; }
+.music-art { flex: none; width: 4.5rem; height: 4.5rem; border-radius: 7px; object-fit: cover; background: var(--rule); }
+.music-art-none { display: block; }
+.music-caption { display: grid; gap: .1rem; min-width: 0; }
+.music-title, .music-artist, .music-detail { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.music-title { color: var(--ink); font-weight: 600; }
+.music-artist { color: var(--ink-soft); }
+.music-detail { color: var(--ink-faint); font-size: .8rem; -webkit-line-clamp: 1; }
+.music-actions { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; margin-top: .7rem; }
+/* The services: halves of one pill, equal when both names fit, else each
+   as wide as its name (never cut); the chosen one is a raised lighter pill
+   (and bolder), which the script slides across. Where the three controls
+   do not fit on one row, the others go to a second row. */
+.music-switch { position: relative; display: grid; flex: 1 1 0; grid-template-columns: 1fr 1fr; height: 2.75rem; box-sizing: border-box; padding: 3px; border: 1px solid var(--rule); border-radius: 999px; background: var(--paper); }
+.music-switch[data-count='1'] { grid-template-columns: 1fr; }
+/* Placed by the script on the chosen service (client/site.ts); until then,
+   and without it, the chosen service is itself the raised pill. */
+.music-switch::before { position: absolute; top: 3px; bottom: 3px; left: 0; display: none; width: var(--music-w); box-sizing: border-box; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--paper-raised); content: ""; transform: translateX(var(--music-x)); transition: transform .18s cubic-bezier(.3, .7, .4, 1), width .18s cubic-bezier(.3, .7, .4, 1); }
+.music-switch[data-placed]::before { display: block; }
+.music-switch:not([data-placed]):not([data-count='1']) .music-option[aria-current='true'] { border: 1px solid var(--rule-strong); background: var(--paper-raised); }
+.music-option { position: relative; display: flex; gap: .3rem; align-items: center; justify-content: center; box-sizing: border-box; padding: 0 .25rem; border-radius: 999px; color: var(--ink-soft); font-size: .8rem; text-decoration: none; white-space: nowrap; -webkit-tap-highlight-color: transparent; }
+.music-switch[data-count='1'] .music-option { justify-content: flex-start; padding-left: .85rem; }
+.music-option[aria-current='true'], .music-option[aria-checked='true'] { color: var(--ink); font-weight: 600; }
+/* The services' colours only as this small mark. */
+.music-option::before { flex: none; width: .45rem; height: .45rem; border-radius: 50%; background: var(--music-mark); content: ""; }
+.music-option[data-service='apple-music'] { --music-mark: #fa243c; }
+.music-option[data-service='spotify'] { --music-mark: #1db954; }
+.music-play { display: inline-flex; flex: none; gap: .3rem; align-items: center; height: 2.75rem; box-sizing: border-box; padding: 0 .55rem; border: 0; border-radius: 999px; background: var(--ink); color: var(--paper); font: inherit; font-size: .8rem; font-weight: 600; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.music-play-icon { flex: none; width: .6rem; height: .7rem; background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.music-play[aria-expanded='true'] .music-play-icon { width: .6rem; height: .6rem; clip-path: none; border-radius: 1px; }
+/* Without the script there is no playing here: the button keeps its place, unseen. */
+.music-card:not(.music-ready) .music-play { visibility: hidden; }
+.music-open { display: grid; flex: none; place-items: center; width: 2.75rem; height: 2.75rem; box-sizing: border-box; border: 1px solid var(--rule); border-radius: 999px; color: var(--ink-soft); font-size: 1rem; text-decoration: none; }
+.music-open:hover, .music-option:hover { color: var(--ink); }
+.music-option:focus-visible, .music-play:focus-visible, .music-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.music-player { position: relative; margin-top: .7rem; overflow: hidden; border-radius: 12px; background: var(--paper); }
+.music-player[hidden] { display: none; }
+.music-player-status { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-faint); font-size: .8rem; }
+.music-player iframe { position: relative; display: block; width: 100%; border: 0; color-scheme: normal; }
+/* On a phone a Diary card may use the quiet date column while its surrounding
+   prose stays aligned beside the date. This is enough room for all three
+   controls, including the words “Play here”, on an ordinary iPhone width. */
+@media (max-width: 36rem) {
+  .diary-body .music-card {
+    width: calc(100% + var(--diary-day-column) + .9rem);
+    margin-left: calc(-1 * (var(--diary-day-column) + .9rem));
+  }
+}
+/* Where the three controls need more than the card holds (about 19.1rem
+   inside its padding, with these names), the services take a row of their
+   own, and "Play here" and the link the next: every name whole, nothing an
+   icon only. */
+@container (max-width: 19.5rem) {
+  .music-switch { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .music-switch::before { transition: none; }
+}
+
 .detail-sheet { width: min(100%, 52rem); margin: 0 auto; padding: clamp(5rem, 10vw, 9rem) 0; }
 .detail-sheet header { margin-bottom: 4rem; }
 .detail-sheet h1 { margin: 1rem 0; font-family: var(--serif); font-size: clamp(2.5rem, 6vw, 5rem); font-weight: 430; line-height: 1; }
@@ -1118,5 +1182,6 @@ div.miscellany-header { padding-top: 3.75rem; }
 }
 
 @media print {
+  .music-player, .music-play { display: none !important; }
   .miscellany-nav, .miscellany-search, .diary-month-nav, .diary-days { display: none; }
 }

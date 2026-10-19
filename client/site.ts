@@ -71,6 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setUpLanguageFilters();
   forwardDiaryAnchor();
   setUpSearch();
+  setUpMusicCards();
 
   for (const control of document.querySelectorAll<HTMLElement>('[data-email-code]')) {
     control.addEventListener('click', (event) => {
@@ -521,4 +522,165 @@ function setUpSearch(): void {
   read();
   void run();
   if (!input.value) input.focus();
+}
+
+// ---------------------------------------------------------------- music cards
+
+/*
+ * A music card (site-builder/src/music.rs). The services are a choice that
+ * plays nothing; only "Play here" makes the chosen service's own player,
+ * below the card, and one player is on the page at a time: opening
+ * another, closing it, or choosing the other service removes it (and so
+ * its sound). Nothing starts by itself: the services' players start when
+ * their own play button is pressed. Only the two services' player
+ * addresses are accepted.
+ */
+const PLAYERS: Record<string, { name: string; pattern: RegExp }> = {
+  'apple-music': {
+    name: 'Apple Music',
+    pattern: /^https:\/\/embed\.music\.apple\.com\/[a-z]{2}\/(?:album|song|playlist)\/(?:[A-Za-z0-9._~%-]+\/)?(?:\d+|pl\.[A-Za-z0-9-]+)(?:\?i=\d+)?$/,
+  },
+  spotify: {
+    name: 'Spotify',
+    pattern: /^https:\/\/open\.spotify\.com\/embed\/(?:track|album|playlist)\/[A-Za-z0-9]{22}$/,
+  },
+};
+
+/** The one player on the page, if any. */
+let openPlayer: { close: () => void } | null = null;
+let playerCount = 0;
+/** Places each switch's sliding pill again when its services change size (fonts, width). */
+const placeOnResize = new Map<Element, () => void>();
+let switchObserver: ResizeObserver | null = null;
+
+function setUpMusicCards(): void {
+  for (const card of document.querySelectorAll<HTMLElement>('[data-music-card]')) {
+    const options = Array.from(card.querySelectorAll<HTMLAnchorElement>('a.music-option'));
+    if (options.length === 0 || !options.every((o) => PLAYERS[o.dataset.service ?? '']?.pattern.test(o.dataset.embed ?? ''))) continue;
+    const toggle = card.querySelector<HTMLElement>('.music-switch');
+    const play = card.querySelector<HTMLButtonElement>('.music-play');
+    const open = card.querySelector<HTMLAnchorElement>('.music-open');
+    const label = card.querySelector<HTMLElement>('.music-play-label');
+    if (!toggle || !play || !open || !label) continue;
+    const title = card.querySelector('.music-title')?.textContent ?? '';
+    const playerId = `music-player-${++playerCount}`;
+    let chosen = 0;
+    let player: HTMLElement | null = null;
+
+    const name = () => PLAYERS[options[chosen]!.dataset.service!]!.name;
+    const close = (): void => {
+      player?.remove();
+      player = null;
+      play.setAttribute('aria-expanded', 'false');
+      play.setAttribute('aria-label', `Play here: open the ${name()} player`);
+      label.textContent = 'Play here';
+      if (openPlayer?.close === close) openPlayer = null;
+    };
+    // The pill under the chosen service, as wide as it: the two may differ.
+    const place = (): void => {
+      const option = options[chosen]!;
+      toggle.style.setProperty('--music-x', `${option.offsetLeft}px`);
+      toggle.style.setProperty('--music-w', `${option.offsetWidth}px`);
+      toggle.dataset.placed = '';
+    };
+    const choose = (n: number): void => {
+      if (n === chosen) return;
+      chosen = n;
+      // Another service: the player of the one before goes (with its sound), none starts.
+      if (player) close();
+      place();
+      options.forEach((o, i) => {
+        o.setAttribute('aria-checked', String(i === n));
+        o.tabIndex = i === n ? 0 : -1;
+      });
+      open.href = options[n]!.href;
+      open.setAttribute('aria-label', `Open in ${name()}`);
+      play.setAttribute('aria-label', `Play here: open the ${name()} player`);
+    };
+
+    if (options.length > 1) {
+      switchObserver ??= new ResizeObserver((entries) => {
+        for (const entry of entries) placeOnResize.get(entry.target)?.();
+      });
+      for (const option of options) {
+        placeOnResize.set(option, place);
+        switchObserver.observe(option);
+      }
+      toggle.setAttribute('role', 'radiogroup');
+      toggle.setAttribute('aria-label', `Service for ${title}`);
+      options.forEach((option, i) => {
+        option.removeAttribute('aria-current');
+        option.setAttribute('role', 'radio');
+        option.setAttribute('aria-checked', String(i === 0));
+        option.tabIndex = i === 0 ? 0 : -1;
+        option.addEventListener('click', (event) => {
+          // A modified click still opens the service's page, as a link would.
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+          event.preventDefault();
+          choose(i);
+        });
+        option.addEventListener('keydown', (event) => {
+          const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
+          if (step) {
+            event.preventDefault();
+            const next = (i + step + options.length) % options.length;
+            choose(next);
+            options[next]!.focus();
+          } else if (event.key === ' ') {
+            event.preventDefault();
+            choose(i);
+          }
+        });
+      });
+    } else {
+      // One service: its name, not a choice.
+      const only = options[0]!;
+      only.removeAttribute('href');
+      only.removeAttribute('aria-current');
+    }
+
+    play.disabled = false;
+    play.setAttribute('aria-controls', playerId);
+    play.setAttribute('aria-expanded', 'false');
+    play.setAttribute('aria-label', `Play here: open the ${name()} player`);
+    play.addEventListener('click', () => {
+      if (player) {
+        close();
+        return;
+      }
+      openPlayer?.close();
+      const option = options[chosen]!;
+      const box = document.createElement('div');
+      box.className = 'music-player';
+      box.id = playerId;
+      const status = document.createElement('p');
+      status.className = 'music-player-status';
+      status.textContent = `Loading the ${name()} player…`;
+      const frame = document.createElement('iframe');
+      frame.src = option.dataset.embed!;
+      frame.title = `${name()} player: ${title}`;
+      frame.height = String(Math.min(500, Math.max(80, Number(option.dataset.height) || 175)));
+      frame.referrerPolicy = 'strict-origin-when-cross-origin';
+      frame.allow = 'autoplay; encrypted-media; fullscreen; clipboard-write';
+      frame.setAttribute(
+        'sandbox',
+        'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-storage-access-by-user-activation allow-top-navigation-by-user-activation',
+      );
+      const waiting = window.setTimeout(() => {
+        status.textContent = `The ${name()} player has not loaded. Use ↗ to open ${name()}.`;
+      }, 15000);
+      frame.addEventListener('load', () => {
+        window.clearTimeout(waiting);
+        status.textContent = '';
+      });
+      box.append(status, frame);
+      card.append(box);
+      player = box;
+      openPlayer = { close };
+      play.setAttribute('aria-expanded', 'true');
+      play.setAttribute('aria-label', `Close the ${name()} player`);
+      label.textContent = 'Close';
+    });
+    card.classList.add('music-ready');
+  }
 }

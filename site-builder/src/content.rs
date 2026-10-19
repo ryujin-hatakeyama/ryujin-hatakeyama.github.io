@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 use katex::{Opts, render_with_opts};
 use pulldown_cmark::{CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd, html};
+
+use crate::music::{MusicMetadata, card_html, music_paragraph};
 use serde::de::DeserializeOwned;
 
 use chrono::NaiveDate;
@@ -393,6 +395,8 @@ trait ArticleMetadata: DeserializeOwned {
     fn id(&self) -> String;
     fn language(&self) -> PassageLanguage;
     fn math(&self) -> bool;
+    /// The details of the music cards in its first passage.
+    fn music(&self) -> &[MusicMetadata];
 }
 
 impl ArticleMetadata for NoteFrontMatter {
@@ -411,6 +415,9 @@ impl ArticleMetadata for NoteFrontMatter {
     }
     fn math(&self) -> bool {
         self.math
+    }
+    fn music(&self) -> &[MusicMetadata] {
+        &self.music
     }
 }
 
@@ -432,6 +439,9 @@ impl ArticleMetadata for SketchFrontMatter {
     fn math(&self) -> bool {
         self.math
     }
+    fn music(&self) -> &[MusicMetadata] {
+        &self.music
+    }
 }
 
 impl ArticleMetadata for DiaryFrontMatter {
@@ -452,6 +462,9 @@ impl ArticleMetadata for DiaryFrontMatter {
     }
     fn math(&self) -> bool {
         self.math
+    }
+    fn music(&self) -> &[MusicMetadata] {
+        &self.music
     }
 }
 
@@ -760,6 +773,7 @@ fn parse_article_source<M: ArticleMetadata>(file: SourceFile) -> Result<ArticleS
             metadata.lang,
             metadata.title,
             metadata.math,
+            &metadata.music,
         )?;
         Ok(ArticleSource::Companion {
             of: metadata.of,
@@ -775,6 +789,7 @@ fn parse_article_source<M: ArticleMetadata>(file: SourceFile) -> Result<ArticleS
             metadata.language(),
             None,
             metadata.math(),
+            metadata.music(),
         )?;
         Ok(ArticleSource::Primary {
             path,
@@ -790,6 +805,7 @@ fn render_passage<M: ArticleMetadata>(
     language: PassageLanguage,
     title: Option<String>,
     math: bool,
+    music: &[MusicMetadata],
 ) -> Result<Passage> {
     ensure!(
         !body.trim().is_empty(),
@@ -809,6 +825,7 @@ fn render_passage<M: ArticleMetadata>(
         // passages of one page never share an identifier.
         footnote_prefix: Some(language.code()),
         inline_languages: true,
+        music: Some(music),
     };
     let body = render_markdown_with(body, rules)
         .with_context(|| format!("failed to render {}", path.display()))?;
@@ -995,7 +1012,7 @@ fn split_front_matter<'a>(source: &'a str, path: &Path) -> Result<(&'a str, &'a 
 
 /// Constraints on a Markdown body beyond the shared safety rules.
 #[derive(Clone, Copy)]
-struct MarkdownRules {
+struct MarkdownRules<'a> {
     math: bool,
     /// The most prominent heading the body may contain, so that it fits
     /// beneath the headings of the page it appears on.
@@ -1006,6 +1023,9 @@ struct MarkdownRules {
     footnote_prefix: Option<&'static str>,
     /// Whether `[phrase]{lang=xx}` marks the language of a phrase.
     inline_languages: bool,
+    /// Whether a paragraph of music addresses becomes a music card, and the
+    /// details the file gives for them (src/music.rs).
+    music: Option<&'a [MusicMetadata]>,
 }
 
 fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown> {
@@ -1017,11 +1037,12 @@ fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown>
             footnotes: true,
             footnote_prefix: None,
             inline_languages: false,
+            music: None,
         },
     )
 }
 
-fn render_markdown_with(source: &str, rules: MarkdownRules) -> Result<RenderedMarkdown> {
+fn render_markdown_with(source: &str, rules: MarkdownRules<'_>) -> Result<RenderedMarkdown> {
     let mut options = Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TABLES
@@ -1032,7 +1053,34 @@ fn render_markdown_with(source: &str, rules: MarkdownRules) -> Result<RenderedMa
     }
 
     let mut events = Vec::new();
-    for event in Parser::new_ext(source, options) {
+    // How deep in blocks the parser is: a music card stands only at the top
+    // level, never inside a list, quotation, table, or footnote.
+    let mut depth = 0_usize;
+    // Inside a paragraph that became a music card: its events are dropped.
+    let mut in_card = false;
+    for (event, range) in Parser::new_ext(source, options).into_offset_iter() {
+        if in_card {
+            if matches!(event, Event::End(TagEnd::Paragraph)) {
+                in_card = false;
+                depth -= 1;
+            }
+            continue;
+        }
+        if let (Event::Start(Tag::Paragraph), 0, Some(metadata)) = (&event, depth, rules.music) {
+            // The paragraph's whole lines, from the start of its first.
+            let line_start = source[..range.start].rfind('\n').map_or(0, |i| i + 1);
+            if let Some(links) = music_paragraph(&source[line_start..range.end]) {
+                events.push(Event::Html(card_html(&links, metadata).into()));
+                in_card = true;
+                depth += 1;
+                continue;
+            }
+        }
+        match &event {
+            Event::Start(_) => depth += 1,
+            Event::End(_) => depth = depth.saturating_sub(1),
+            _ => {}
+        }
         match &event {
             Event::Html(_) | Event::InlineHtml(_) => {
                 bail!("raw HTML is not permitted in Markdown content")
@@ -1074,7 +1122,7 @@ fn render_markdown_with(source: &str, rules: MarkdownRules) -> Result<RenderedMa
     Ok(RenderedMarkdown(output))
 }
 
-fn prefixed<'a>(label: CowStr<'a>, rules: &MarkdownRules) -> CowStr<'a> {
+fn prefixed<'a>(label: CowStr<'a>, rules: &MarkdownRules<'_>) -> CowStr<'a> {
     match rules.footnote_prefix {
         Some(prefix) => format!("{prefix}-{label}").into(),
         None => label,
@@ -1385,6 +1433,51 @@ impl StdError for CollectedErrors {}
 #[cfg(test)]
 mod tests {
     #[test]
+    fn music_addresses_alone_in_a_top_level_paragraph_become_a_card() {
+        use crate::music::MusicMetadata;
+        let apple = "https://music.apple.com/jp/album/x/1440806071?i=1440806402";
+        let spotify = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC";
+        let metadata = [MusicMetadata {
+            url: apple.into(),
+            title: "Symphony No. 9 in D Minor, Op. 125: IV. Presto".into(),
+            artist: Some("Wiener Philharmoniker & Karl Böhm".into()),
+            detail: None,
+            artwork: Some("https://is1-ssl.mzstatic.com/image/thumb/Music/x/300x300bb.jpg".into()),
+        }];
+        let rules = |music| super::MarkdownRules {
+            math: false,
+            highest_heading: pulldown_cmark::HeadingLevel::H2,
+            footnotes: true,
+            footnote_prefix: Some("ja"),
+            inline_languages: true,
+            music,
+        };
+        let source = format!(
+            "Today.[^1]\n\n{apple}\n{spotify}\n\nIn a sentence: {apple}\n\n> {apple}\n\n- {spotify}\n\n{spotify}\n\n[^1]: A note: {apple}\n"
+        );
+        let html = super::render_markdown_with(&source, rules(Some(&metadata)))
+            .unwrap()
+            .0;
+        assert_eq!(
+            html.matches("<figure class=\"music-card\"").count(),
+            2,
+            "{html}"
+        );
+        assert!(html.contains("Symphony No. 9 in D Minor, Op. 125: IV. Presto"));
+        assert!(html.contains("A song on Spotify"));
+        // Everywhere else the address stays text.
+        assert!(html.contains(&format!("<p>In a sentence: {apple}</p>")));
+        assert!(html.contains(&format!("<blockquote>\n<p>{apple}</p>")));
+        assert!(html.contains(&format!("<li>{spotify}</li>")));
+        assert!(html.contains(&format!("A note: {apple}")));
+        assert!(html.contains("footnote-reference"));
+        assert!(!html.contains("<iframe"));
+        // Where cards are not offered (not an article), the paragraph is text.
+        let plain = super::render_markdown_with(apple, rules(None)).unwrap().0;
+        assert_eq!(plain, format!("<p>{apple}</p>\n"));
+    }
+
+    #[test]
     fn highlights_are_marked_only_in_plain_text() {
         let rules = || super::MarkdownRules {
             math: false,
@@ -1392,6 +1485,7 @@ mod tests {
             footnotes: false,
             footnote_prefix: None,
             inline_languages: true,
+            music: None,
         };
         let html = |source: &str| super::render_markdown_with(source, rules()).unwrap().0;
         assert_eq!(

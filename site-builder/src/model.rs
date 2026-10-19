@@ -4,6 +4,8 @@ use anyhow::{Context, Result, bail, ensure};
 use chrono::NaiveDate;
 use serde::Deserialize;
 
+use crate::music::{MusicMetadata, validate_metadata as validate_music};
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Publication {
@@ -1127,12 +1129,17 @@ pub struct NoteFrontMatter {
     pub order: Option<u32>,
     #[serde(default)]
     pub math: bool,
+    /// What the Writing Studio found out about the music addresses in the
+    /// text, for their cards (src/music.rs).
+    #[serde(default)]
+    pub music: Vec<MusicMetadata>,
     #[serde(default = "default_true")]
     pub draft: bool,
 }
 
 impl NoteFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
+        validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
         validate_slug(&self.slug).with_context(|| format!("{source}: invalid note slug"))?;
         ensure!(
             !self.title.trim().is_empty(),
@@ -1169,12 +1176,17 @@ pub struct SketchFrontMatter {
     pub description: Option<String>,
     #[serde(default)]
     pub math: bool,
+    /// What the Writing Studio found out about the music addresses in the
+    /// text, for their cards (src/music.rs).
+    #[serde(default)]
+    pub music: Vec<MusicMetadata>,
     #[serde(default = "default_true")]
     pub draft: bool,
 }
 
 impl SketchFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
+        validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
         validate_slug(&self.slug).with_context(|| format!("{source}: invalid sketch slug"))?;
         ensure!(
             !self.title.trim().is_empty(),
@@ -1208,12 +1220,17 @@ pub struct DiaryFrontMatter {
     pub lang: PassageLanguage,
     #[serde(default)]
     pub math: bool,
+    /// What the Writing Studio found out about the music addresses in the
+    /// text, for their cards (src/music.rs).
+    #[serde(default)]
+    pub music: Vec<MusicMetadata>,
     #[serde(default = "default_true")]
     pub draft: bool,
 }
 
 impl DiaryFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
+        validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
         if let Some(slug) = &self.slug {
             validate_slug(slug).with_context(|| format!("{source}: invalid diary slug"))?;
         }
@@ -1273,10 +1290,15 @@ pub struct PassageFrontMatter {
     pub title: Option<String>,
     #[serde(default)]
     pub math: bool,
+    /// What the Writing Studio found out about the music addresses in the
+    /// text, for their cards (src/music.rs).
+    #[serde(default)]
+    pub music: Vec<MusicMetadata>,
 }
 
 impl PassageFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
+        validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
         ensure!(
             !self.of.trim().is_empty(),
             "{source}: of must name the article"

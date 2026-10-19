@@ -51,4 +51,17 @@ Inside any Markdown passage, mark the language of a phrase with `[Stimme]{lang=d
 
 To add a selectable language, add it to `DisplayLanguage` in `site-builder/src/model.rs` with its code, its own name, and its English name; nothing else needs to change.
 
+## Music
+
+In a note, diary entry, or sketch, a paragraph that holds nothing but an Apple Music address, a Spotify address, or one of each (on two lines, or separated by a space) becomes a music card: the work's title, its performers, and its cover, and a choice of the two services' players. Only songs, albums, and playlists at `https://music.apple.com/…` and `https://open.spotify.com/…` are recognised; an address anywhere else (in a sentence, a list, a quotation, a footnote) stays text.
+
+The details come from the file's front matter, written by the Writing Studio when it publishes, one entry per address:
+
+```yaml
+music:
+  - {"url": "https://music.apple.com/jp/album/x/1440806071?i=1440806402", "title": "…", "artist": "…", "artwork": "https://is1-ssl.mzstatic.com/…"}
+```
+
+`url` is the address without tracking parameters; `artist`, `detail` (a further line, such as a song’s album), and `artwork` are optional, and `artwork` must be on the services' own image servers. Without an entry, the card says what it is (“A song on Spotify”) and still links there. The build never asks either service anything; see `docs/music.md`.
+
 Notes, diary entries, and sketches are documented in `notes/README.md`, `diary/README.md`, and `sketches/README.md`.
