@@ -2,7 +2,7 @@
 
 This repository contains the source of [my personal website](https://ryujin-hatakeyama.github.io/).
 
-The pages are generated in Rust with [Maud](https://maud.lambda.xyz/). A small OCaml program validates and orders the update records before the Rust generator reads them, while TypeScript handles the appearance and email controls in the browser. The result is a static site published through GitHub Pages.
+The pages are generated in Rust with [Maud](https://maud.lambda.xyz/). A small OCaml program validates and orders the update records before the Rust generator reads them, while TypeScript handles the appearance and email controls and the Miscellany search in the browser. The search index is built from the published Miscellany pages with [Pagefind](https://pagefind.app/) (see `docs/search.md`). The result is a static site published through GitHub Pages.
 
 ## Build
 

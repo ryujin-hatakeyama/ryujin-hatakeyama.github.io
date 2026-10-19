@@ -21,6 +21,8 @@ const REQUIRED_FILES: &[&str] = &[
     "miscellany/reading/index.html",
     "miscellany/notes/index.html",
     "miscellany/diary/index.html",
+    "miscellany/sketches/index.html",
+    "miscellany/search/index.html",
     "privacy/index.html",
     "404.html",
     "rss.xml",
@@ -55,6 +57,7 @@ pub fn dist(root: &Path, source_root: &Path) -> Result<()> {
     let files = collect_files(root)?;
     audit_public_files(root, source_root, &files)?;
     validate_html(root, &files)?;
+    validate_search_markers(root, &files)?;
     validate_css(root)?;
     validate_favicons(root)?;
     validate_expected_content(root)?;
@@ -64,6 +67,17 @@ pub fn dist(root: &Path, source_root: &Path) -> Result<()> {
 fn audit_public_files(root: &Path, source_root: &Path, files: &[PathBuf]) -> Result<()> {
     let allowed_extensions = [
         "css", "html", "js", "png", "svg", "ttf", "txt", "woff", "woff2", "xml",
+    ];
+    // The search index (scripts/search-index.mjs), written after this build
+    // and checked again here by `check-dist`. Its files are compressed; the
+    // indexer decodes and checks every one of them.
+    let search_extensions = [
+        "json",
+        "pagefind",
+        "pf_meta",
+        "pf_index",
+        "pf_fragment",
+        "pf_filter",
     ];
     let source_path = source_root.display().to_string();
     for path in files {
@@ -86,8 +100,10 @@ fn audit_public_files(root: &Path, source_root: &Path, files: &[PathBuf]) -> Res
                 .extension()
                 .and_then(|value| value.to_str())
                 .unwrap_or_default();
+            let in_search_index = relative.starts_with("pagefind");
             ensure!(
-                allowed_extensions.contains(&extension),
+                allowed_extensions.contains(&extension)
+                    || (in_search_index && search_extensions.contains(&extension)),
                 "unexpected public artifact {}",
                 relative.display()
             );
@@ -254,6 +270,57 @@ fn validate_html(root: &Path, files: &[PathBuf]) -> Result<()> {
             validate_reference(root, relative, reference, &ids)?;
         }
     }
+    Ok(())
+}
+
+/// The pages the search index may read, as whole paths: the Reading page,
+/// each note and sketch, and each month of the Diary. Every page marked
+/// for the index (`data-pagefind-body`, once) must be one of them; the
+/// overview, section indexes, Diary front page, and search page never are,
+/// so a text is found on one page only.
+pub(crate) const SEARCHABLE_PAGES: &[&str] = &[
+    r"^miscellany/reading/index\.html$",
+    r"^miscellany/notes/[a-z0-9]+(?:-[a-z0-9]+)*/index\.html$",
+    r"^miscellany/sketches/[a-z0-9]+(?:-[a-z0-9]+)*/index\.html$",
+    r"^miscellany/diary/[0-9]{4}/(?:0[1-9]|1[0-2])/index\.html$",
+];
+
+fn validate_search_markers(root: &Path, files: &[PathBuf]) -> Result<()> {
+    let allowed = SEARCHABLE_PAGES
+        .iter()
+        .map(|pattern| Regex::new(pattern))
+        .collect::<Result<Vec<_>, _>>()?;
+    for path in files {
+        if path.extension().and_then(|value| value.to_str()) != Some("html") {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(root)?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let html = fs::read_to_string(path)?;
+        let markers = html.matches("data-pagefind-body").count();
+        if markers == 0 {
+            continue;
+        }
+        ensure!(
+            markers == 1,
+            "{relative} marks {markers} elements for the search index; at most one is allowed"
+        );
+        ensure!(
+            allowed.iter().any(|pattern| pattern.is_match(&relative)),
+            "{relative} is marked for the search index but is not a searchable Miscellany page"
+        );
+        ensure!(
+            !html.contains("name=\"robots\" content=\"noindex"),
+            "{relative} is marked for the search index but is not for indexing"
+        );
+    }
+    let sitemap = fs::read_to_string(root.join("sitemap-0.xml"))?;
+    ensure!(
+        !sitemap.contains("/miscellany/search/"),
+        "sitemap includes the search page"
+    );
     Ok(())
 }
 
@@ -552,4 +619,62 @@ fn collect_files(root: &Path) -> Result<Vec<PathBuf>> {
     collect(root, &mut files)?;
     files.sort();
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+
+    use super::validate_search_markers;
+
+    fn site(name: &str, pages: &[(&str, &str)]) -> (PathBuf, Vec<PathBuf>) {
+        let root = std::env::temp_dir().join(format!(
+            "site-builder-search-markers-{name}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let mut files = Vec::new();
+        for (relative, html) in pages {
+            let path = root.join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, html).unwrap();
+            files.push(path);
+        }
+        fs::write(root.join("sitemap-0.xml"), "<urlset></urlset>").unwrap();
+        (root, files)
+    }
+
+    #[test]
+    fn only_listed_pages_may_be_marked_for_the_search_index() {
+        let marked = r#"<div data-pagefind-body>x</div>"#;
+        for (path, allowed) in [
+            ("miscellany/notes/a-note/index.html", true),
+            ("miscellany/sketches/a/index.html", true),
+            ("miscellany/diary/2026/10/index.html", true),
+            ("miscellany/reading/index.html", true),
+            ("miscellany/index.html", false),
+            ("miscellany/notes/index.html", false),
+            ("miscellany/diary/index.html", false),
+            ("miscellany/diary/2026/13/index.html", false),
+            ("miscellany/search/index.html", false),
+            ("archive/index.html", false),
+            ("updates/index.html", false),
+        ] {
+            let (root, files) = site("listed", &[(path, marked)]);
+            let result = validate_search_markers(&root, &files);
+            fs::remove_dir_all(&root).unwrap();
+            assert_eq!(result.is_ok(), allowed, "{path}");
+        }
+        let (root, files) = site(
+            "twice",
+            &[(
+                "miscellany/notes/a/index.html",
+                "<div data-pagefind-body></div><div data-pagefind-body></div>",
+            )],
+        );
+        let result = validate_search_markers(&root, &files);
+        fs::remove_dir_all(&root).unwrap();
+        assert!(result.is_err());
+    }
 }

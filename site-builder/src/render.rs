@@ -1,12 +1,13 @@
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 use crate::content::{
     Miscellany, Passage, Passages, ValidatedDiaryEntry, ValidatedHome, ValidatedNote,
-    ValidatedSiteContent, ValidatedWriting, public_english_writings,
+    ValidatedReadingItem, ValidatedSiteContent, ValidatedSketch, ValidatedWriting,
+    public_english_writings,
 };
 use crate::model::{
     Category, DisplayLanguage, EventStatus, Inline, Language, LanguageTag, Link, Paragraph,
@@ -152,7 +153,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
             true,
             PageMetadata {
                 title: "Miscellany",
-                description: "Reading, study notes, and occasional diary entries by Ryujin Hatakeyama.",
+                description: "Reading, study notes, occasional diary entries, and sketches by Ryujin Hatakeyama.",
                 current_path: "/miscellany/",
                 noindex: false,
                 article: false,
@@ -197,6 +198,34 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 article: false,
             },
             diary_page(content.miscellany()),
+        ),
+        page(
+            "miscellany/sketches/index.html",
+            "/miscellany/sketches/",
+            true,
+            PageMetadata {
+                title: "Sketches",
+                description: "Sketches by Ryujin Hatakeyama.",
+                current_path: "/miscellany/sketches/",
+                noindex: false,
+                article: false,
+            },
+            sketches_page(content.miscellany()),
+        ),
+        // Results depend on the query; the page itself is not for search
+        // engines and is not in the sitemap.
+        page(
+            "miscellany/search/index.html",
+            SEARCH_PATH,
+            false,
+            PageMetadata {
+                title: "Search",
+                description: "Search Reading, Notes, Diary, and Sketches by Ryujin Hatakeyama.",
+                current_path: SEARCH_PATH,
+                noindex: true,
+                article: false,
+            },
+            search_page(),
         ),
         page(
             "privacy/index.html",
@@ -290,6 +319,48 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
             &description,
             &path,
             note_detail(note, &content.miscellany().display_languages()),
+        ));
+    }
+
+    for sketch in content.miscellany().public_sketches() {
+        let metadata = sketch.metadata();
+        let path = sketch_path(&metadata.slug);
+        let description = metadata
+            .description
+            .clone()
+            .unwrap_or_else(|| format!("A sketch by Ryujin Hatakeyama: {}.", metadata.title));
+        pages.push(page_owned(
+            format!("miscellany/sketches/{}/index.html", metadata.slug),
+            path.clone(),
+            true,
+            &metadata.title,
+            &description,
+            &path,
+            sketch_detail(sketch, &content.miscellany().display_languages()),
+        ));
+    }
+
+    // Each month with published entries has its own page; months are linked
+    // to their neighbours with entries, skipping empty months.
+    let months = diary_months(content.miscellany());
+    for (index, month) in months.iter().enumerate() {
+        let path = month.path();
+        let title = format!("Diary, {}", month.name());
+        let description = format!("Diary entries by Ryujin Hatakeyama, {}.", month.name());
+        let languages = month_languages(month);
+        pages.push(page_owned(
+            month.output_path(),
+            path.clone(),
+            true,
+            &title,
+            &description,
+            &path,
+            diary_month_page(
+                month,
+                months.get(index + 1),
+                index.checked_sub(1).and_then(|newer| months.get(newer)),
+                &languages,
+            ),
         ));
     }
 
@@ -1136,24 +1207,78 @@ fn writing_detail(writing: &ValidatedWriting) -> Markup {
     }
 }
 
-/// The three Miscellany sections, with their functional labels.
-const MISCELLANY_SECTIONS: [(&str, &str, &str); 3] = [
-    ("/miscellany/reading/", "Reading", "Books and papers"),
-    ("/miscellany/notes/", "Notes", "Study notes"),
-    ("/miscellany/diary/", "Diary", "Occasional entries"),
+/// One Miscellany section: its route, label, functional description (empty
+/// when the author has given none), and the value its pages carry in the
+/// search index's `section` filter and in `/miscellany/search/?section=`.
+struct MiscellanySection {
+    path: &'static str,
+    label: &'static str,
+    description: &'static str,
+    key: &'static str,
+}
+
+/// The four Miscellany sections, in the order they are listed.
+const MISCELLANY_SECTIONS: [MiscellanySection; 4] = [
+    MiscellanySection {
+        path: "/miscellany/reading/",
+        label: "Reading",
+        description: "Books and papers",
+        key: "reading",
+    },
+    MiscellanySection {
+        path: "/miscellany/notes/",
+        label: "Notes",
+        description: "Study notes",
+        key: "notes",
+    },
+    MiscellanySection {
+        path: "/miscellany/diary/",
+        label: "Diary",
+        description: "Occasional entries",
+        key: "diary",
+    },
+    MiscellanySection {
+        path: "/miscellany/sketches/",
+        label: "Sketches",
+        description: "",
+        key: "sketches",
+    },
 ];
+
+const READING: &MiscellanySection = &MISCELLANY_SECTIONS[0];
+const NOTES: &MiscellanySection = &MISCELLANY_SECTIONS[1];
+const DIARY: &MiscellanySection = &MISCELLANY_SECTIONS[2];
+const SKETCHES: &MiscellanySection = &MISCELLANY_SECTIONS[3];
 
 /// The Writing Studio's category icons (studio/src/page.ts), drawn on the
 /// same 24-unit grid and stroke, in `MISCELLANY_SECTIONS` order: an open
-/// book, a notebook, and a calendar.
-const MISCELLANY_ICONS: [&str; 3] = [
+/// book, a notebook, a calendar, and a pencil.
+const MISCELLANY_ICONS: [&str; 4] = [
     r#"<path d="M3.5 5.5A3.5 3.5 0 0 1 7 3h4v16H7a3.5 3.5 0 0 0-3.5 2V5.5Z"/><path d="M20.5 5.5A3.5 3.5 0 0 0 17 3h-4v16h4a3.5 3.5 0 0 1 3.5 2V5.5Z"/>"#,
     r#"<path d="M6 3.5h12a2 2 0 0 1 2 2v15H6a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z"/><path d="M8 8h8M8 12h5M3 7h2M3 11h2M3 15h2"/>"#,
     r#"<path d="M6 3v3M18 3v3M4 8h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"/><path d="M8 12h3M8 16h7"/>"#,
+    r#"<path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/><path d="M13.5 7l3 3M12 20h8"/>"#,
 ];
+
+/// The search page, which reads the static index built from the published
+/// Reading, Notes, Diary, and Sketches pages (docs/search.md).
+const SEARCH_PATH: &str = "/miscellany/search/";
 
 fn note_path(slug: &str) -> String {
     format!("/miscellany/notes/{slug}/")
+}
+
+fn sketch_path(slug: &str) -> String {
+    format!("/miscellany/sketches/{slug}/")
+}
+
+/// The search index reads only an element marked `data-pagefind-body`,
+/// with its section as a filter. Only the published Reading, Notes, Diary
+/// month, and Sketches pages render one, and the indexer reads only files
+/// below `miscellany/` (scripts/search-index.mjs); everything outside the
+/// marked element (navigation, controls) is left out.
+fn search_filter(section: &MiscellanySection) -> String {
+    format!("section:{}", section.label)
 }
 
 /// The one editorial note about multilingual writing, shown on the overview
@@ -1166,51 +1291,86 @@ fn miscellany_overview(miscellany: &Miscellany) -> Markup {
             h1 { "Miscellany" }
             @if miscellany.has_multilingual_entry() { p { (MULTILINGUAL_NOTE) } }
         }
+        (search_form(None))
         div.miscellany-overview {
-            @for ((href, label, description), icon) in MISCELLANY_SECTIONS.iter().zip(MISCELLANY_ICONS) {
+            @for (section, icon) in MISCELLANY_SECTIONS.iter().zip(MISCELLANY_ICONS) {
                 section.content-section {
                     // The icon is decorative; the link's name is the label.
                     h2 {
-                        a href=(href) {
+                        a href=(section.path) {
                             svg.miscellany-icon aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" {
                                 (PreEscaped(icon))
                             }
-                            span { (label) }
+                            span { (section.label) }
                         }
                     }
-                    p { (description) }
+                    @if !section.description.is_empty() { p { (section.description) } }
                 }
             }
         }
     }
 }
 
-/// Text links back to the overview and between the three sections, shown
-/// above the heading of every page below `/miscellany/`.
-fn miscellany_nav(current_path: &str) -> Markup {
+/// A quiet search field that opens `/miscellany/search/`. From a section's
+/// pages it searches that section first; the search page offers the others.
+/// It is an ordinary form, so it works as a link to the search page even
+/// before the search script has loaded.
+fn search_form(section: Option<&MiscellanySection>) -> Markup {
+    let (label, placeholder) = match section {
+        Some(section) => (
+            format!("Search {}", section.label),
+            format!("Search {}", section.label),
+        ),
+        None => (
+            "Search Miscellany".to_owned(),
+            "Search Miscellany".to_owned(),
+        ),
+    };
     html! {
-        nav.jump-links.miscellany-nav aria-label="Miscellany sections" {
-            (nav_link("/miscellany/", "Overview", current_path == "/miscellany/"))
-            @for (href, label, _) in MISCELLANY_SECTIONS {
-                (nav_link(href, label, current_path == href))
+        form.miscellany-search action=(SEARCH_PATH) method="get" role="search" aria-label=(label) {
+            label.sr-only for="miscellany-search-query" { (label) }
+            input #miscellany-search-query type="search" name="q" placeholder=(placeholder) autocomplete="off" spellcheck="false" enterkeyhint="search";
+            @if let Some(section) = section {
+                input type="hidden" name="section" value=(section.key);
+            }
+            button type="submit" aria-label="Search" {
+                (search_icon())
             }
         }
     }
 }
 
-fn miscellany_section_header(
-    path: &str,
-    title: &str,
-    description: &str,
-    languages: &[DisplayLanguage],
-) -> Markup {
+fn search_icon() -> Markup {
+    html! {
+        svg.search-icon aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" {
+            circle cx="10.5" cy="10.5" r="6" {}
+            path d="M15 15l5 5" {}
+        }
+    }
+}
+
+/// Text links back to the overview and between the four sections, shown
+/// above the heading of every page below `/miscellany/`.
+fn miscellany_nav(current_path: &str) -> Markup {
+    html! {
+        nav.jump-links.miscellany-nav aria-label="Miscellany sections" {
+            (nav_link("/miscellany/", "Overview", current_path == "/miscellany/"))
+            @for section in &MISCELLANY_SECTIONS {
+                (nav_link(section.path, section.label, current_path == section.path))
+            }
+        }
+    }
+}
+
+fn miscellany_section_header(section: &MiscellanySection, languages: &[DisplayLanguage]) -> Markup {
     html! {
         header.plain-page-header.miscellany-header {
-            (miscellany_nav(path))
-            h1 { (title) }
-            p { (description) }
+            (miscellany_nav(section.path))
+            h1 { (section.label) }
+            @if !section.description.is_empty() { p { (section.description) } }
             (language_filter(languages))
         }
+        (search_form(Some(section)))
     }
 }
 
@@ -1257,6 +1417,8 @@ fn passage_group(
     }
 }
 
+/// The notice is the site's own wording, not the author's text, so the
+/// search index leaves it out.
 fn language_notice(languages: &[DisplayLanguage]) -> Markup {
     let names: Vec<_> = languages.iter().map(|l| l.english_name()).collect();
     let listed = match names.as_slice() {
@@ -1270,17 +1432,17 @@ fn language_notice(languages: &[DisplayLanguage]) -> Markup {
         _ => "Show the text".to_owned(),
     };
     html! {
-        p.language-notice data-language-notice hidden {
+        p.language-notice data-language-notice data-pagefind-ignore="all" hidden {
             "Written in " (listed) ". "
             button type="button" data-language-reveal { (action) }
         }
     }
 }
 
-/// One separately authored passage of a note or diary entry. A designated
-/// passage carries its language; a mixed passage carries none of its own, so
-/// phrases inside it keep whatever languages are marked inline. A passage
-/// title, when given, is a heading at `title_level`.
+/// One separately authored passage of a note, sketch, or diary entry. A
+/// designated passage carries its language; a mixed passage carries none of
+/// its own, so phrases inside it keep whatever languages are marked inline.
+/// A passage title, when given, is a heading at `title_level`.
 fn markdown_passage(passage: &Passage, title_level: u8) -> Markup {
     let designated = passage.language().designated();
     let class = if designated == Some(DisplayLanguage::Ja) {
@@ -1311,24 +1473,56 @@ fn article_passages(passages: &Passages, title_level: u8, offered: &[DisplayLang
     )
 }
 
+/// A stable fragment identifier for a reading item, which has no slug: a
+/// hash of its title and author, so it changes only if they do. Items with
+/// the same title and author are told apart by their order.
+fn reading_anchors(items: &[ValidatedReadingItem]) -> Vec<String> {
+    let mut seen: Vec<String> = Vec::new();
+    items
+        .iter()
+        .map(|item| {
+            let work = item.work();
+            let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+            let key = format!(
+                "{}\u{1f}{}",
+                work.title,
+                work.author.as_deref().unwrap_or_default()
+            );
+            for byte in key.bytes() {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+            let base = format!("reading-{:08x}", hash >> 32);
+            let repeats = seen.iter().filter(|anchor| **anchor == base).count();
+            seen.push(base.clone());
+            if repeats == 0 {
+                base
+            } else {
+                format!("{base}-{}", repeats + 1)
+            }
+        })
+        .collect()
+}
+
 /// The reading record in the author's order. Titles and names are shown as
 /// written, marked with their language when it is not English. The language
 /// filter applies to the author's commentary, never to the record itself.
+/// Each work has an anchor, so a search can lead to it.
 fn reading_page(miscellany: &Miscellany) -> Markup {
-    let (path, title, description) = MISCELLANY_SECTIONS[0];
     let languages = miscellany.display_languages();
     let items = miscellany.reading();
+    let anchors = reading_anchors(items);
     html! {
-        (miscellany_section_header(path, title, description, &languages))
+        (miscellany_section_header(READING, &languages))
         @if items.is_empty() {
             p.empty-state { "No entries yet." }
         } @else {
-            ol.reading-list {
-                @for item in items {
+            ol.reading-list data-pagefind-body data-pagefind-filter=(search_filter(READING)) data-pagefind-meta="title:Reading" {
+                @for (item, anchor) in items.iter().zip(&anchors) {
                     @let work = item.work();
                     @let lang = work.lang.as_ref().map(LanguageTag::as_str);
                     li {
-                        p.reading-title {
+                        h2.reading-title id=(anchor) {
                             cite lang=[lang] {
                                 @if let Some(url) = &work.url {
                                     a href=(url) { (&work.title) }
@@ -1376,10 +1570,9 @@ fn reading_comments(comments: &[ReadingComment], offered: &[DisplayLanguage]) ->
 /// Each logical note once, under its one title, whatever languages it is
 /// written in.
 fn notes_page(miscellany: &Miscellany) -> Markup {
-    let (path, title, description) = MISCELLANY_SECTIONS[1];
     let notes: Vec<_> = miscellany.public_notes().collect();
     html! {
-        (miscellany_section_header(path, title, description, &[]))
+        (miscellany_section_header(NOTES, &[]))
         @if notes.is_empty() {
             p.empty-state { "No notes yet." }
         } @else {
@@ -1400,55 +1593,320 @@ fn notes_page(miscellany: &Miscellany) -> Markup {
 
 fn note_detail(note: &ValidatedNote, languages: &[DisplayLanguage]) -> Markup {
     let metadata = note.metadata();
-    html! {
-        div.miscellany-header {
-            (miscellany_nav(&note_path(&metadata.slug)))
-            (language_filter(languages))
-        }
-        article.miscellany-note {
+    standalone_article(
+        &note_path(&metadata.slug),
+        languages,
+        NOTES,
+        html! {
             header {
-                h1 lang=[metadata.title_language()] { (&metadata.title) }
+                h1 lang=[metadata.title_language()] data-pagefind-meta="title" { (&metadata.title) }
                 @if let Some(description) = &metadata.description {
                     p.summary lang=[metadata.title_language()] { (description) }
                 }
             }
             (article_passages(note.passages(), 2, languages))
+        },
+    )
+}
+
+/// The page of one note or sketch: the Miscellany navigation and language
+/// choice, then the article, which alone is read by the search index.
+fn standalone_article(
+    path: &str,
+    languages: &[DisplayLanguage],
+    section: &MiscellanySection,
+    article: Markup,
+) -> Markup {
+    html! {
+        div.miscellany-header {
+            (miscellany_nav(path))
+            (language_filter(languages))
+        }
+        article.miscellany-note data-pagefind-body data-pagefind-filter=(search_filter(section)) {
+            (article)
         }
     }
 }
 
-/// Diary entries newest first, each shown in full under its date. The date
-/// links to the entry's own anchor; a title, when given, follows it.
-fn diary_page(miscellany: &Miscellany) -> Markup {
-    let (path, title, description) = MISCELLANY_SECTIONS[2];
-    let languages = miscellany.display_languages();
-    let entries: Vec<_> = miscellany.public_diary().collect();
+/// Sketches newest first, each with its title, date, and any description.
+fn sketches_page(miscellany: &Miscellany) -> Markup {
+    let sketches: Vec<_> = miscellany.public_sketches().collect();
     html! {
-        (miscellany_section_header(path, title, description, &languages))
-        @if entries.is_empty() {
-            p.empty-state { "No entries yet." }
+        (miscellany_section_header(SKETCHES, &[]))
+        @if sketches.is_empty() {
+            p.empty-state { "No sketches yet." }
         } @else {
-            div.diary {
-                @for entry in entries { (diary_entry(entry, &languages)) }
+            ol.miscellany-list.sketch-list {
+                @for sketch in sketches {
+                    @let metadata = sketch.metadata();
+                    li lang=[metadata.title_language()] {
+                        h2 { a href=(sketch_path(&metadata.slug)) { (&metadata.title) } }
+                        p.miscellany-date lang="en" {
+                            time datetime=(metadata.date.format("%Y-%m-%d")) { (metadata.date.format("%-d %B %Y")) }
+                        }
+                        @if let Some(description) = &metadata.description {
+                            p { (description) }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-fn diary_entry(entry: &ValidatedDiaryEntry, offered: &[DisplayLanguage]) -> Markup {
+fn sketch_detail(sketch: &ValidatedSketch, languages: &[DisplayLanguage]) -> Markup {
+    let metadata = sketch.metadata();
+    standalone_article(
+        &sketch_path(&metadata.slug),
+        languages,
+        SKETCHES,
+        html! {
+            header {
+                h1 lang=[metadata.title_language()] data-pagefind-meta="title" { (&metadata.title) }
+                // The date is in the index's metadata, not in its text.
+                p.article-date lang="en" data-pagefind-ignore {
+                    time datetime=(metadata.date.format("%Y-%m-%d")) data-pagefind-meta="date[datetime]" { (metadata.date.format("%-d %B %Y")) }
+                }
+                @if let Some(description) = &metadata.description {
+                    p.summary lang=[metadata.title_language()] { (description) }
+                }
+            }
+            (article_passages(sketch.passages(), 2, languages))
+        },
+    )
+}
+
+/// The published diary entries of one calendar month, oldest first (entries
+/// of one day in the order of their anchors).
+struct DiaryMonth<'a> {
+    first_day: NaiveDate,
+    entries: Vec<&'a ValidatedDiaryEntry>,
+}
+
+impl DiaryMonth<'_> {
+    fn path(&self) -> String {
+        format!("/miscellany/diary/{}/", self.first_day.format("%Y/%m"))
+    }
+
+    fn output_path(&self) -> String {
+        format!(
+            "miscellany/diary/{}/index.html",
+            self.first_day.format("%Y/%m")
+        )
+    }
+
+    fn name(&self) -> String {
+        self.first_day.format("%B %Y").to_string()
+    }
+}
+
+/// The months that have published entries, newest first. A month without
+/// one has no page and is not listed.
+fn diary_months(miscellany: &Miscellany) -> Vec<DiaryMonth<'_>> {
+    let mut months: Vec<DiaryMonth<'_>> = Vec::new();
+    for entry in miscellany.public_diary() {
+        let date = entry.metadata().date;
+        let first_day = date.with_day(1).expect("every month has a first day");
+        match months.iter_mut().find(|month| month.first_day == first_day) {
+            Some(month) => month.entries.push(entry),
+            None => months.push(DiaryMonth {
+                first_day,
+                entries: vec![entry],
+            }),
+        }
+    }
+    for month in &mut months {
+        month.entries.sort_by(|left, right| {
+            let key =
+                |entry: &ValidatedDiaryEntry| (entry.metadata().date, entry.metadata().anchor());
+            key(left).cmp(&key(right))
+        });
+    }
+    months.sort_by(|left, right| right.first_day.cmp(&left.first_day));
+    months
+}
+
+/// The Diary's front page: the months that have entries, by year, newest
+/// first. Each month is its own page.
+fn diary_page(miscellany: &Miscellany) -> Markup {
+    let months = diary_months(miscellany);
+    let mut years: Vec<(i32, Vec<&DiaryMonth<'_>>)> = Vec::new();
+    for month in &months {
+        let year = month.first_day.year();
+        match years.last_mut() {
+            Some((last, list)) if *last == year => list.push(month),
+            _ => years.push((year, vec![month])),
+        }
+    }
+    html! {
+        (miscellany_section_header(DIARY, &[]))
+        @if months.is_empty() {
+            p.empty-state { "No entries yet." }
+        } @else {
+            div.diary-archive data-diary-archive {
+                @for (year, list) in &years {
+                    section.diary-year aria-labelledby=(format!("diary-year-{year}")) {
+                        h2 id=(format!("diary-year-{year}")) { (year) }
+                        ol.diary-months {
+                            @for month in list {
+                                li {
+                                    a href=(month.path()) aria-label=(month.name()) {
+                                        (month.first_day.format("%B"))
+                                    }
+                                    " "
+                                    span.diary-month-count aria-hidden="true" {
+                                        (month.entries.len())
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The display languages of one month's passages, in display order: the
+/// language choice is offered on a month's page only when that month has a
+/// choice to make.
+fn month_languages(month: &DiaryMonth<'_>) -> Vec<DisplayLanguage> {
+    let mut languages: Vec<_> = month
+        .entries
+        .iter()
+        .flat_map(|entry| entry.passages().designated_languages())
+        .collect();
+    languages.sort();
+    languages.dedup();
+    languages
+}
+
+/// One month of the Diary: its entries in full, oldest first, under a
+/// heading and the way to the months before and after it.
+fn diary_month_page(
+    month: &DiaryMonth<'_>,
+    previous: Option<&DiaryMonth<'_>>,
+    next: Option<&DiaryMonth<'_>>,
+    languages: &[DisplayLanguage],
+) -> Markup {
+    let name = month.name();
+    html! {
+        header.plain-page-header.miscellany-header.diary-month-header {
+            (miscellany_nav(&month.path()))
+            h1 { time datetime=(month.first_day.format("%Y-%m")) { (name) } }
+            @if previous.is_some() || next.is_some() {
+                nav.diary-month-nav aria-label="Months" {
+                    @if let Some(previous) = previous {
+                        a.diary-previous href=(previous.path()) rel="prev" {
+                            span aria-hidden="true" { "← " } (previous.name())
+                        }
+                    }
+                    @if let Some(next) = next {
+                        a.diary-next href=(next.path()) rel="next" {
+                            (next.name()) span aria-hidden="true" { " →" }
+                        }
+                    }
+                }
+            }
+            @if month.entries.len() > 1 {
+                nav.diary-days aria-label=(format!("Days in {name}")) {
+                    @for (index, entry) in month.entries.iter().enumerate() {
+                        @let date = entry.metadata().date;
+                        @if index == 0 || month.entries[index - 1].metadata().date != date {
+                            a href=(format!("#{}", entry.metadata().anchor())) aria-label=(date.format("%-d %B").to_string()) {
+                                (date.format("%-d"))
+                            }
+                        }
+                    }
+                }
+            }
+            (language_filter(languages))
+        }
+        (search_form(Some(DIARY)))
+        div.diary data-pagefind-body data-pagefind-filter=(search_filter(DIARY)) data-pagefind-meta=(format!("title:{name}")) {
+            @for (index, entry) in month.entries.iter().enumerate() {
+                @let same_day = index > 0 && month.entries[index - 1].metadata().date == entry.metadata().date;
+                (diary_entry(entry, same_day, languages))
+            }
+        }
+        @if previous.is_some() || next.is_some() {
+            nav.diary-month-nav.diary-month-nav-end aria-label="Months, at the end of the page" {
+                @if let Some(previous) = previous {
+                    a.diary-previous href=(previous.path()) rel="prev" {
+                        span aria-hidden="true" { "← " } (previous.name())
+                    }
+                }
+                @if let Some(next) = next {
+                    a.diary-next href=(next.path()) rel="next" {
+                        (next.name()) span aria-hidden="true" { " →" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One diary entry: the day of the month and its weekday beside the text.
+/// The heading carries the entry's stable anchor; its accessible name is
+/// the full date (and the title, when there is one). The search index takes
+/// the date from the anchor, so the day and weekday are not indexed.
+fn diary_entry(entry: &ValidatedDiaryEntry, same_day: bool, offered: &[DisplayLanguage]) -> Markup {
     let metadata = entry.metadata();
     let anchor = metadata.anchor();
+    let date = metadata.date;
+    let class = match (&metadata.title, same_day) {
+        (Some(_), true) => "diary-entry has-title same-day",
+        (Some(_), false) => "diary-entry has-title",
+        (None, true) => "diary-entry same-day",
+        (None, false) => "diary-entry",
+    };
     html! {
-        article.diary-entry id=(anchor) {
-            h2 {
-                a.diary-date href=(format!("#{anchor}")) {
-                    time datetime=(metadata.date.format("%Y-%m-%d")) { (metadata.date.format("%-d %B %Y")) }
+        article class=(class) {
+            h2.diary-heading id=(anchor) {
+                a.diary-date href=(format!("#{anchor}")) aria-label=(date.format("%A %-d %B %Y").to_string()) data-pagefind-ignore="all" {
+                    time datetime=(date.format("%Y-%m-%d")) {
+                        span.diary-day { (date.format("%-d")) }
+                        " "
+                        span.diary-weekday { (date.format("%a")) }
+                    }
                 }
                 @if let Some(title) = &metadata.title {
                     span.diary-title lang=[metadata.title_language()] { (title) }
                 }
             }
-            (article_passages(entry.passages(), 3, offered))
+            div.diary-body { (article_passages(entry.passages(), 3, offered)) }
+        }
+    }
+}
+
+/// The search page. The form works without the script (it reloads this
+/// page with the query in its address); the results need the script, which
+/// reads the static index and keeps the query and section in the address.
+fn search_page() -> Markup {
+    html! {
+        header.plain-page-header.miscellany-header {
+            (miscellany_nav(SEARCH_PATH))
+            h1 { "Search" }
+        }
+        div.search-page data-search-page {
+            form.search-form action=(SEARCH_PATH) method="get" role="search" aria-label="Search Miscellany" data-search-form {
+                div.search-field {
+                    label.sr-only for="search-query" { "Search Miscellany" }
+                    input #search-query type="search" name="q" autocomplete="off" spellcheck="false" enterkeyhint="search" data-search-query;
+                    button type="submit" aria-label="Search" { (search_icon()) }
+                }
+                fieldset.search-scope {
+                    legend.sr-only { "Search in" }
+                    label { input type="radio" name="section" value="" checked; span { "All" } }
+                    @for section in &MISCELLANY_SECTIONS {
+                        label { input type="radio" name="section" value=(section.key); span { (section.label) } }
+                    }
+                }
+            }
+            p.search-status role="status" data-search-status {}
+            noscript { p.search-status { "Searching needs JavaScript. The sections can be read from the " a href="/miscellany/" { "overview" } "." } }
+            ol.search-results data-search-results {}
+            p.search-more { button type="button" data-search-more hidden { "More results" } }
         }
     }
 }
@@ -2990,8 +3448,8 @@ mod tests {
 #[cfg(test)]
 mod miscellany_tests {
     use super::{
-        MISCELLANY_ICONS, diary_page, fixture_today, header, miscellany_overview, note_detail,
-        notes_page, pages, reading_page,
+        MISCELLANY_ICONS, diary_months, diary_page, fixture_today, header, miscellany_overview,
+        note_detail, notes_page, pages, reading_page,
     };
     use crate::content::{Miscellany, ValidatedSiteContent};
 
@@ -3021,6 +3479,10 @@ mod miscellany_tests {
     const DIARY_OLD: &str = "---\ndate: 2026-03-01\nlang: en\ndraft: false\n---\n\nFirst paragraph.\n\nSecond paragraph.\n";
     const DIARY_NEW: &str = "---\ndate: 2026-10-10\nlang: ja\ntitle: 仙台にて\ndraft: false\n---\n\n今日は図書館で一日を過ごした。\n";
     const DIARY_DRAFT: &str = "---\ndate: 2026-10-11\nlang: en\n---\n\nNot public.\n";
+    const DIARY_NEW_EARLIER: &str =
+        "---\ndate: 2026-10-02\nlang: en\ndraft: false\n---\n\nEarlier in October.\n";
+    const DIARY_LAST_YEAR: &str =
+        "---\ndate: 2025-12-31\nlang: en\ndraft: false\n---\n\nLast year.\n";
 
     #[test]
     fn miscellany_is_the_third_primary_section_and_current_below_its_route() {
@@ -3050,7 +3512,7 @@ mod miscellany_tests {
     }
 
     #[test]
-    fn overview_has_one_heading_and_three_plain_sections() {
+    fn overview_has_one_heading_four_plain_sections_and_a_quiet_search() {
         let html = miscellany_overview(&Miscellany::default()).into_string();
         assert_eq!(html.matches("<h1").count(), 1);
         assert!(html.contains("<h1>Miscellany</h1>"));
@@ -3058,11 +3520,18 @@ mod miscellany_tests {
             (
                 "reading",
                 "Reading",
-                "Books and papers",
+                Some("Books and papers"),
                 MISCELLANY_ICONS[0],
             ),
-            ("notes", "Notes", "Study notes", MISCELLANY_ICONS[1]),
-            ("diary", "Diary", "Occasional entries", MISCELLANY_ICONS[2]),
+            ("notes", "Notes", Some("Study notes"), MISCELLANY_ICONS[1]),
+            (
+                "diary",
+                "Diary",
+                Some("Occasional entries"),
+                MISCELLANY_ICONS[2],
+            ),
+            // No description has been written for Sketches; none is invented.
+            ("sketches", "Sketches", None, MISCELLANY_ICONS[3]),
         ];
         let positions: Vec<_> = sections
             .iter()
@@ -3073,8 +3542,12 @@ mod miscellany_tests {
                 let section = &html[start..];
                 // The icon leads the link, is hidden from assistive
                 // technology, and leaves the label as the link's only name.
+                let after = match description {
+                    Some(text) => format!("<p>{text}</p>"),
+                    None => "</section>".to_owned(),
+                };
                 let expected = format!(
-                    r#"aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{icon}</svg><span>{label}</span></a></h2><p>{description}</p>"#
+                    r#"aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{icon}</svg><span>{label}</span></a></h2>{after}"#
                 );
                 assert!(section.starts_with(&format!(
                     r#"<h2><a href="/miscellany/{slug}/"><svg class="miscellany-icon" {expected}"#
@@ -3083,10 +3556,25 @@ mod miscellany_tests {
             })
             .collect();
         assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
-        assert_eq!(html.matches("<section").count(), 3);
-        assert_eq!(html.matches("<svg").count(), 3);
+        assert_eq!(html.matches("<section").count(), 4);
+        assert_eq!(
+            html.matches("<svg").count(),
+            5,
+            "four icons and the search icon"
+        );
+        // The search is one plain form that opens the search page.
+        assert!(html.contains(r#"<form class="miscellany-search" action="/miscellany/search/" method="get" role="search" aria-label="Search Miscellany"><label class="sr-only" for="miscellany-search-query">Search Miscellany</label><input id="miscellany-search-query" type="search" name="q""#));
+        assert!(!html.contains(r#"name="section""#));
+        assert_eq!(html.matches("role=").count(), 1);
         assert!(!html.contains("guides"));
-        for decoration in ["card", "badge", "tab", "<img", "No entries", "role="] {
+        for decoration in [
+            "card",
+            "badge",
+            "tab",
+            "<img",
+            "No entries",
+            "data-pagefind",
+        ] {
             assert!(!html.contains(decoration), "{decoration}");
         }
     }
@@ -3102,6 +3590,11 @@ mod miscellany_tests {
             ),
             ("miscellany/notes/index.html", "Notes", "No notes yet."),
             ("miscellany/diary/index.html", "Diary", "No entries yet."),
+            (
+                "miscellany/sketches/index.html",
+                "Sketches",
+                "No sketches yet.",
+            ),
         ] {
             let html = page_html(&content, path);
             let main = main_of(&html);
@@ -3110,7 +3603,17 @@ mod miscellany_tests {
             assert!(!main.contains("<article") && !main.contains("<li") && !main.contains("<h2"));
             assert!(main.contains(r#"<nav class="jump-links miscellany-nav" aria-label="Miscellany sections"><a href="/miscellany/">Overview</a>"#));
             assert_eq!(main.matches(r#"aria-current="page""#).count(), 1);
+            // Each section offers a search limited to it.
+            assert!(main.contains(r#"<input type="hidden" name="section" value=""#));
+            assert!(!main.contains("data-pagefind-body"), "{path}");
         }
+        assert!(
+            !pages(&content, fixture_today())
+                .iter()
+                .any(|page| page.output_path.starts_with("miscellany/diary/")
+                    && page.output_path != "miscellany/diary/index.html"),
+            "an empty Diary has no month pages"
+        );
         assert!(
             !pages(&content, fixture_today())
                 .iter()
@@ -3135,11 +3638,11 @@ mod miscellany_tests {
         assert!(order.windows(2).all(|pair| pair[0] < pair[1]));
         // The work's language marks its title and author; the commentary is
         // the author's own passage, in its own language.
-        assert!(html.contains(r#"<p class="reading-title"><cite lang="ja">こころ</cite></p><p class="reading-author" lang="ja">夏目漱石</p><div class="passages" data-passages><p class="reading-note" data-passage="en" lang="en">Read in the original.</p><p class="language-notice" data-language-notice hidden>Written in English. <button type="button" data-language-reveal>Read in English</button></p></div>"#));
-        assert!(html.contains(r#"<cite><a href="https://example.org/naming">Naming and Necessity</a></cite></p><p class="reading-author">Saul A. Kripke</p>"#));
+        assert!(html.contains(r#"<cite lang="ja">こころ</cite></h2><p class="reading-author" lang="ja">夏目漱石</p><div class="passages" data-passages><p class="reading-note" data-passage="en" lang="en">Read in the original.</p><p class="language-notice" data-language-notice data-pagefind-ignore="all" hidden>Written in English. <button type="button" data-language-reveal>Read in English</button></p></div>"#));
+        assert!(html.contains(r#"<cite><a href="https://example.org/naming">Naming and Necessity</a></cite></h2><p class="reading-author">Saul A. Kripke</p>"#));
         // An anonymous work has no author line; a Japanese note is marked.
         assert!(html.contains(
-            r#"<cite lang="ja">竹取物語</cite></p><div class="passages" data-passages><p class="reading-note" data-passage="ja" lang="ja">二度目。</p><p class="language-notice" data-language-notice hidden>Written in Japanese. <button type="button" data-language-reveal>Read in Japanese</button></p></div>"#
+            r#"<cite lang="ja">竹取物語</cite></h2><div class="passages" data-passages><p class="reading-note" data-passage="ja" lang="ja">二度目。</p><p class="language-notice" data-language-notice data-pagefind-ignore="all" hidden>Written in Japanese. <button type="button" data-language-reveal>Read in Japanese</button></p></div>"#
         ));
         assert!(html.contains("A &lt;b&gt; &amp; &quot;C&quot;"));
         assert!(!html.contains("<script>") && !html.contains("<b>"));
@@ -3184,7 +3687,7 @@ mod miscellany_tests {
         assert!(html.contains(r#"<a href="/miscellany/" aria-current="page">Miscellany</a>"#));
         let main = main_of(&html);
         assert_eq!(main.matches("<h1").count(), 1);
-        assert!(main.contains(r#"<article class="miscellany-note"><header><h1 lang="en">Staged &lt;interpreters&gt; &amp; you</h1><p class="summary" lang="en">How a staged interpreter becomes a compiler.</p></header><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose">"#));
+        assert!(main.contains(r#"<article class="miscellany-note" data-pagefind-body data-pagefind-filter="section:Notes"><header><h1 lang="en" data-pagefind-meta="title">Staged &lt;interpreters&gt; &amp; you</h1><p class="summary" lang="en">How a staged interpreter becomes a compiler.</p></header><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose">"#));
         for fragment in [
             "<h2>Background</h2>",
             "<code>inline code</code>",
@@ -3211,7 +3714,7 @@ mod miscellany_tests {
         let notes = miscellany("items: []", &[NOTE_JA], &[]);
         let note = notes.public_notes().next().unwrap();
         let html = note_detail(note, &[]).into_string();
-        assert!(html.contains(r#"<article class="miscellany-note"><header><h1 lang="ja">クリプキ意味論の覚え書き</h1></header><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja">"#));
+        assert!(html.contains(r#"<article class="miscellany-note" data-pagefind-body data-pagefind-filter="section:Notes"><header><h1 lang="ja" data-pagefind-meta="title">クリプキ意味論の覚え書き</h1></header><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja">"#));
         assert!(html.contains("<h2>可能世界</h2>"));
         assert!(!html.contains("summary"));
         assert!(
@@ -3222,20 +3725,89 @@ mod miscellany_tests {
     }
 
     #[test]
-    fn diary_shows_entries_newest_first_in_full_with_stable_anchors() {
-        let entries = miscellany("items: []", &[], &[DIARY_OLD, DIARY_DRAFT, DIARY_NEW]);
+    fn diary_lists_months_newest_first_and_each_month_has_its_page() {
+        let entries = miscellany(
+            "items: []",
+            &[],
+            &[
+                DIARY_OLD,
+                DIARY_DRAFT,
+                DIARY_NEW,
+                DIARY_NEW_EARLIER,
+                DIARY_LAST_YEAR,
+            ],
+        );
         let html = diary_page(&entries).into_string();
-        let newest = html
-            .find(r##"<article class="diary-entry" id="diary-2026-10-10"><h2><a class="diary-date" href="#diary-2026-10-10"><time datetime="2026-10-10">10 October 2026</time></a><span class="diary-title" lang="ja">仙台にて</span></h2><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja"><div class="prose miscellany-prose"><p>今日は図書館で一日を過ごした。</p>"##)
+        let year = html
+            .find(r#"<section class="diary-year" aria-labelledby="diary-year-2026"><h2 id="diary-year-2026">2026</h2><ol class="diary-months"><li><a href="/miscellany/diary/2026/10/" aria-label="October 2026">October</a> <span class="diary-month-count" aria-hidden="true">2</span></li><li><a href="/miscellany/diary/2026/03/" aria-label="March 2026">March</a> <span class="diary-month-count" aria-hidden="true">1</span></li></ol></section>"#)
             .unwrap();
-        let older = html
-            .find(r##"<article class="diary-entry" id="diary-2026-03-01"><h2><a class="diary-date" href="#diary-2026-03-01"><time datetime="2026-03-01">1 March 2026</time></a></h2><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose"><p>First paragraph.</p>
-<p>Second paragraph.</p>"##)
+        let earlier_year = html.find(r#"<h2 id="diary-year-2025">2025</h2>"#).unwrap();
+        assert!(year < earlier_year);
+        // The front page lists months; it shows no entry and is not indexed.
+        assert!(!html.contains("<article") && !html.contains("data-pagefind-body"));
+        assert!(!html.contains("Not public"));
+        // Months without entries (every month between March and October,
+        // and the draft's) have no page.
+        let months: Vec<_> = diary_months(&entries)
+            .iter()
+            .map(super::DiaryMonth::path)
+            .collect();
+        assert_eq!(
+            months,
+            [
+                "/miscellany/diary/2026/10/",
+                "/miscellany/diary/2026/03/",
+                "/miscellany/diary/2025/12/"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_month_shows_its_entries_oldest_first_with_stable_anchors_and_neighbours() {
+        let content = ValidatedSiteContent::with_miscellany(miscellany(
+            "items: []",
+            &[],
+            &[
+                DIARY_OLD,
+                DIARY_DRAFT,
+                DIARY_NEW,
+                DIARY_NEW_EARLIER,
+                DIARY_LAST_YEAR,
+            ],
+        ));
+        let html = page_html(&content, "miscellany/diary/2026/10/index.html");
+        assert!(html.contains("<title>Diary, October 2026 — Ryujin Hatakeyama</title>"));
+        assert!(html.contains(r#"<link rel="canonical" href="https://ryujin-hatakeyama.github.io/miscellany/diary/2026/10/">"#));
+        let main = main_of(&html);
+        assert!(main.contains(r#"<h1><time datetime="2026-10">October 2026</time></h1>"#));
+        // The previous month with entries is March, not September; there is
+        // no later month.
+        assert!(main.contains(r#"<a class="diary-previous" href="/miscellany/diary/2026/03/" rel="prev"><span aria-hidden="true">← </span>March 2026</a>"#));
+        assert!(!main.contains("diary-next"));
+        assert!(main.contains(r##"<nav class="diary-days" aria-label="Days in October 2026"><a href="#diary-2026-10-02" aria-label="2 October">2</a><a href="#diary-2026-10-10" aria-label="10 October">10</a></nav>"##));
+        let earlier = main
+            .find(r##"<article class="diary-entry"><h2 class="diary-heading" id="diary-2026-10-02"><a class="diary-date" href="#diary-2026-10-02" aria-label="Friday 2 October 2026" data-pagefind-ignore="all"><time datetime="2026-10-02"><span class="diary-day">2</span> <span class="diary-weekday">Fri</span></time></a></h2><div class="diary-body"><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose"><p>Earlier in October.</p>"##)
             .unwrap();
-        assert!(newest < older);
-        assert!(!html.contains("Not public") && !html.contains("2026-10-11"));
-        assert_eq!(html.matches("<article").count(), 2);
-        assert!(!html.contains("Read more") && !html.contains("<nav class=\"pagination"));
+        let later = main
+            .find(r##"<article class="diary-entry has-title"><h2 class="diary-heading" id="diary-2026-10-10"><a class="diary-date" href="#diary-2026-10-10" aria-label="Saturday 10 October 2026" data-pagefind-ignore="all"><time datetime="2026-10-10"><span class="diary-day">10</span> <span class="diary-weekday">Sat</span></time></a><span class="diary-title" lang="ja">仙台にて</span></h2><div class="diary-body"><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja"><div class="prose miscellany-prose"><p>今日は図書館で一日を過ごした。</p>"##)
+            .unwrap();
+        assert!(earlier < later, "oldest first within the month");
+        assert_eq!(main.matches("<article").count(), 2);
+        assert!(!main.contains("Not public") && !main.contains("2026-10-11"));
+        // Only the entries are read by the search index, filed under Diary.
+        assert_eq!(main.matches("data-pagefind-body").count(), 1);
+        assert!(main.contains(r#"<div class="diary" data-pagefind-body data-pagefind-filter="section:Diary" data-pagefind-meta="title:October 2026">"#));
+        assert!(main.find("data-pagefind-body").unwrap() > main.find("diary-days").unwrap());
+        // The section's search starts in the Diary.
+        assert!(main.contains(r#"<input type="hidden" name="section" value="diary">"#));
+
+        let march = page_html(&content, "miscellany/diary/2026/03/index.html");
+        let main = main_of(&march);
+        assert!(main.contains(r#"<a class="diary-next" href="/miscellany/diary/2026/10/" rel="next">October 2026<span aria-hidden="true"> →</span></a>"#));
+        assert!(main.contains(r#"href="/miscellany/diary/2025/12/" rel="prev""#));
+        // One entry: no list of days.
+        assert!(!main.contains("diary-days"));
+        assert!(main.contains("<p>First paragraph.</p>"));
     }
 
     #[test]
@@ -3261,6 +3833,9 @@ mod miscellany_tests {
             "miscellany/reading/index.html",
             "miscellany/notes/index.html",
             "miscellany/diary/index.html",
+            "miscellany/diary/2026/03/index.html",
+            "miscellany/sketches/index.html",
+            "miscellany/search/index.html",
             "miscellany/notes/staged-interpreters/index.html",
         ] {
             assert!(paths.contains(&path.to_owned()), "{path}");
@@ -3279,10 +3854,7 @@ mod miscellany_tests {
 
 #[cfg(test)]
 mod multilingual_tests {
-    use super::{
-        diary_page, fixture_today, miscellany_overview, note_detail, notes_page, pages,
-        reading_page,
-    };
+    use super::{fixture_today, miscellany_overview, note_detail, notes_page, pages, reading_page};
     use crate::content::{Miscellany, ValidatedSiteContent};
     use crate::model::DisplayLanguage;
 
@@ -3373,7 +3945,7 @@ mod multilingual_tests {
         assert!(html.contains(r#"<div class="passage longform-ja" data-passage="ja" lang="ja"><div class="prose miscellany-prose"><h2>見えるもの</h2>"#));
         // The article keeps its one title and heading.
         assert_eq!(html.matches("<h1").count(), 1);
-        assert!(html.contains(r#"<h1 lang="ja">月について</h1>"#));
+        assert!(html.contains(r#"<h1 lang="ja" data-pagefind-meta="title">月について</h1>"#));
         // Footnotes of the two passages never share an identifier.
         assert!(html.contains(r##"href="#en-1""##) && html.contains(r##"id="en-1""##));
         assert!(html.contains(r##"href="#ja-1""##) && html.contains(r##"id="ja-1""##));
@@ -3432,7 +4004,7 @@ mod multilingual_tests {
                 .unwrap()
         };
         let ja = note_detail(find("only-ja"), &languages).into_string();
-        assert!(ja.contains(r#"<p class="language-notice" data-language-notice hidden>Written in Japanese. <button type="button" data-language-reveal>Read in Japanese</button></p>"#));
+        assert!(ja.contains(r#"<p class="language-notice" data-language-notice data-pagefind-ignore="all" hidden>Written in Japanese. <button type="button" data-language-reveal>Read in Japanese</button></p>"#));
         let en = note_detail(find("only-en"), &languages).into_string();
         assert!(en.contains("Written in English. <button type=\"button\" data-language-reveal>Read in English</button>"));
         // A mixed passage is shown in every view: no notice, no language of
@@ -3457,7 +4029,8 @@ mod multilingual_tests {
             // Only the control and the notices start hidden.
             let hidden = html.matches(" hidden").count();
             let controls = html.matches("data-language-filter").count()
-                + html.matches("data-language-notice").count();
+                + html.matches("data-language-notice").count()
+                + html.matches("data-search-more hidden").count();
             assert_eq!(hidden, controls, "{}", page.output_path);
             assert!(
                 !html.contains("data-passage=\"en\" hidden")
@@ -3468,21 +4041,37 @@ mod multilingual_tests {
 
     #[test]
     fn diary_entries_keep_their_anchors_and_explicit_passages() {
-        let entries = miscellany(&[], &[DIARY_JA, DIARY_OTHER_SAME_DAY, DIARY_EN]);
-        let html = diary_page(&entries).into_string();
+        let content = ValidatedSiteContent::with_miscellany(miscellany(
+            &[],
+            &[DIARY_JA, DIARY_OTHER_SAME_DAY, DIARY_EN],
+        ));
+        let page = pages(&content, fixture_today())
+            .into_iter()
+            .find(|page| page.output_path == "miscellany/diary/2026/10/index.html")
+            .unwrap();
+        let html = page.html;
         // Two entries on one date stay two entries; the English passage joins
-        // only the entry it names.
+        // only the entry it names. The second is marked as of the same day,
+        // and the list of days names the day once.
         assert_eq!(html.matches("<article").count(), 2);
         let first = html
-            .find(r#"<article class="diary-entry" id="diary-2026-10-10">"#)
+            .find(
+                r#"<article class="diary-entry"><h2 class="diary-heading" id="diary-2026-10-10">"#,
+            )
             .unwrap();
         let second = html
-            .find(r#"<article class="diary-entry" id="diary-2026-10-10-evening">"#)
+            .find(r#"<article class="diary-entry same-day"><h2 class="diary-heading" id="diary-2026-10-10-evening">"#)
             .unwrap();
+        assert_eq!(
+            html.matches(r##"<a href="#diary-2026-10-10" aria-label="10 October">10</a>"##)
+                .count(),
+            1
+        );
+        assert!(!html.contains(r##"<a href="#diary-2026-10-10-evening" aria-label"##));
         assert_eq!(passage_markers(&html[first..second]), ["en", "ja"]);
         assert_eq!(passage_markers(&html[second..]), ["en"]);
         assert!(html[first..second].contains("A different, shorter English entry."));
-        assert!(html.contains(r##"<a class="diary-date" href="#diary-2026-10-10">"##));
+        assert!(html.contains(r##"<a class="diary-date" href="#diary-2026-10-10" aria-label="Saturday 10 October 2026""##));
         // The evening entry is English only, so it can be emptied by 日本語.
         assert!(html[second..].contains("Written in English."));
         assert!(!html[first..second].contains("data-language-notice"));
@@ -3495,7 +4084,7 @@ mod multilingual_tests {
         assert!(html.contains("data-language-filter"));
         // A Japanese title with English commentary: the work keeps its
         // language; the commentary is an English passage.
-        assert!(html.contains(r#"<cite lang="ja">架空の本</cite></p><p class="reading-author" lang="ja">作者</p><div class="passages" data-passages><p class="reading-note" data-passage="en" lang="en">My English commentary on a Japanese book.</p><p class="language-notice" data-language-notice hidden>Written in English."#));
+        assert!(html.contains(r#"<cite lang="ja">架空の本</cite></h2><p class="reading-author" lang="ja">作者</p><div class="passages" data-passages><p class="reading-note" data-passage="en" lang="en">My English commentary on a Japanese book.</p><p class="language-notice" data-language-notice data-pagefind-ignore="all" hidden>Written in English."#));
         // Two commentaries, English first, never a notice.
         assert!(html.contains(r#"<p class="reading-note" data-passage="en" lang="en">An English comment, not a translation.</p><p class="reading-note" data-passage="ja" lang="ja">日本語の感想。</p></div>"#));
         // A work without commentary is a plain record.
@@ -3528,5 +4117,226 @@ mod multilingual_tests {
         let html = miscellany_overview(&miscellany(&[MOON_JA, MOON_EN], &[])).into_string();
         assert_eq!(html.matches(NOTE).count(), 1);
         assert!(html.contains(&format!("<h1>Miscellany</h1><p>{NOTE}</p></header>")));
+    }
+}
+
+#[cfg(test)]
+mod sketches_and_search_tests {
+    use super::{fixture_today, pages, reading_anchors, sitemap};
+    use crate::content::{Miscellany, ValidatedSiteContent};
+    use crate::validate::SEARCHABLE_PAGES;
+    use regex::Regex;
+
+    // Made-up texts, parsed through the real validation and never written to
+    // the content directory. Every draft carries a word that must appear on
+    // no page and in no attribute of any page.
+    const SKETCH_NEW: &str = "---\nslug: on-borrowed-words\ntitle: 借りた言葉について\nlang: ja\ndate: 2026-09-19\ndescription: 合成された説明文。\nmath: true\ndraft: false\n---\n\n## 一\n\n[Begriff]{lang=de} と [jugement]{lang=fr} を並べてみる。$x \\le y$。[^a]\n\n> 引用。\n\n[^a]: 注。\n";
+    const SKETCH_OLD: &str = "---\nslug: an-older-piece\ntitle: An older piece\nlang: en\ndate: 2026-03-02\ndraft: false\n---\n\nPlain text.\n";
+    const SKETCH_DRAFT: &str = "---\nslug: unpublished-sketch\ntitle: CANARY-SKETCH-TITLE\nlang: en\ndate: 2026-10-01\n---\n\nCANARY-SKETCH-BODY\n";
+    const NOTE_DRAFT: &str = "---\nslug: unpublished-note\ntitle: CANARY-NOTE-TITLE\nlang: en\n---\n\nCANARY-NOTE-BODY\n";
+    const NOTE: &str =
+        "---\nslug: a-note\ntitle: A note\nlang: en\ndraft: false\n---\n\nNote text.\n";
+    const DIARY: &str = "---\ndate: 2026-10-10\nlang: en\ndraft: false\n---\n\nDiary text.\n";
+    const DIARY_DRAFT: &str = "---\ndate: 2026-11-01\nlang: en\n---\n\nCANARY-DIARY-BODY\n";
+    const READING: &str = "items:\n  - title: 架空の本\n    lang: ja\n  - title: Another\n    author: Someone\n  - title: 架空の本\n    lang: ja\n";
+
+    fn content() -> ValidatedSiteContent {
+        ValidatedSiteContent::with_miscellany(
+            Miscellany::from_all_sources(
+                READING,
+                &[NOTE, NOTE_DRAFT],
+                &[DIARY, DIARY_DRAFT],
+                &[SKETCH_OLD, SKETCH_DRAFT, SKETCH_NEW],
+            )
+            .unwrap(),
+        )
+    }
+
+    fn page(content: &ValidatedSiteContent, output_path: &str) -> String {
+        pages(content, fixture_today())
+            .into_iter()
+            .find(|page| page.output_path == output_path)
+            .unwrap_or_else(|| panic!("missing {output_path}"))
+            .html
+    }
+
+    #[test]
+    fn sketches_are_listed_newest_first_with_their_dates_and_have_pages() {
+        let content = content();
+        let index = page(&content, "miscellany/sketches/index.html");
+        assert!(index.contains("<h1>Sketches</h1>"));
+        let newer = index
+            .find(r#"<li lang="ja"><h2><a href="/miscellany/sketches/on-borrowed-words/">借りた言葉について</a></h2><p class="miscellany-date" lang="en"><time datetime="2026-09-19">19 September 2026</time></p><p>合成された説明文。</p></li>"#)
+            .unwrap();
+        let older = index
+            .find(r#"<li lang="en"><h2><a href="/miscellany/sketches/an-older-piece/">An older piece</a></h2><p class="miscellany-date" lang="en"><time datetime="2026-03-02">2 March 2026</time></p></li>"#)
+            .unwrap();
+        assert!(newer < older);
+        // The index adds no description of its own for the section.
+        assert!(index.contains("<h1>Sketches</h1></header>"));
+
+        let html = page(&content, "miscellany/sketches/on-borrowed-words/index.html");
+        assert!(html.contains(r#"<link rel="canonical" href="https://ryujin-hatakeyama.github.io/miscellany/sketches/on-borrowed-words/">"#));
+        assert!(html.contains(r#"<meta property="og:type" content="article">"#));
+        assert!(html.contains(r#"<article class="miscellany-note" data-pagefind-body data-pagefind-filter="section:Sketches"><header><h1 lang="ja" data-pagefind-meta="title">借りた言葉について</h1><p class="article-date" lang="en" data-pagefind-ignore><time datetime="2026-09-19" data-pagefind-meta="date[datetime]">19 September 2026</time></p><p class="summary" lang="ja">合成された説明文。</p></header>"#));
+        // The same Markdown as Notes: headings, inline languages, math,
+        // quotations, and footnotes.
+        for fragment in [
+            "<h2>一</h2>",
+            r#"<span lang="de">Begriff</span>"#,
+            r#"<span lang="fr">jugement</span>"#,
+            r#"<span class="katex">"#,
+            "<blockquote>",
+            r#"class="footnote-definition""#,
+        ] {
+            assert!(html.contains(fragment), "{fragment}");
+        }
+        assert!(html.contains(
+            r#"<nav class="jump-links miscellany-nav" aria-label="Miscellany sections">"#
+        ));
+        assert!(!html.contains(r#"<a href="/miscellany/sketches/" aria-current"#));
+    }
+
+    #[test]
+    fn sketch_slugs_must_be_unique_and_valid() {
+        let duplicate =
+            Miscellany::from_all_sources("items: []", &[], &[], &[SKETCH_OLD, SKETCH_OLD]);
+        assert!(format!("{:#}", duplicate.unwrap_err()).contains("sketch slug"));
+        let undated = "---\nslug: undated\ntitle: x\nlang: en\ndraft: false\n---\n\nx\n";
+        assert!(Miscellany::from_all_sources("items: []", &[], &[], &[undated]).is_err());
+        let bad = "---\nslug: Bad_Slug\ntitle: x\nlang: en\ndate: 2026-01-01\n---\n\nx\n";
+        assert!(Miscellany::from_all_sources("items: []", &[], &[], &[bad]).is_err());
+        // A sketch and a note may share a slug: their addresses differ.
+        let note = "---\nslug: an-older-piece\ntitle: x\nlang: en\n---\n\nx\n";
+        assert!(Miscellany::from_all_sources("items: []", &[note], &[], &[SKETCH_OLD]).is_ok());
+    }
+
+    #[test]
+    fn drafts_appear_on_no_page_and_only_listed_pages_are_marked_for_search() {
+        let content = content();
+        let all = pages(&content, fixture_today());
+        let listed: Vec<_> = SEARCHABLE_PAGES
+            .iter()
+            .map(|pattern| Regex::new(pattern).unwrap())
+            .collect();
+        let mut marked = Vec::new();
+        for page in &all {
+            for canary in ["CANARY", "unpublished-", "2026/11"] {
+                assert!(
+                    !page.html.contains(canary),
+                    "{} shows {canary}",
+                    page.output_path
+                );
+            }
+            let markers = page.html.matches("data-pagefind-body").count();
+            if markers > 0 {
+                assert_eq!(markers, 1, "{}", page.output_path);
+                assert!(
+                    listed
+                        .iter()
+                        .any(|pattern| pattern.is_match(&page.output_path)),
+                    "{} is marked for search",
+                    page.output_path
+                );
+                assert!(!page.html.contains("noindex"), "{}", page.output_path);
+                marked.push(page.output_path.as_str());
+            }
+        }
+        marked.sort_unstable();
+        assert_eq!(
+            marked,
+            [
+                "miscellany/diary/2026/10/index.html",
+                "miscellany/notes/a-note/index.html",
+                "miscellany/reading/index.html",
+                "miscellany/sketches/an-older-piece/index.html",
+                "miscellany/sketches/on-borrowed-words/index.html",
+            ]
+        );
+        // Each text is on one marked page only: notes and sketches on their
+        // own pages, diary entries on their month's, never on an index.
+        for (text, page) in [
+            ("Note text.", "miscellany/notes/a-note/index.html"),
+            ("Diary text.", "miscellany/diary/2026/10/index.html"),
+            (
+                "Plain text.",
+                "miscellany/sketches/an-older-piece/index.html",
+            ),
+        ] {
+            let holders: Vec<_> = all
+                .iter()
+                .filter(|candidate| candidate.html.contains(text))
+                .map(|candidate| candidate.output_path.as_str())
+                .collect();
+            assert_eq!(holders, [page], "{text}");
+        }
+    }
+
+    #[test]
+    fn the_search_page_is_neither_indexed_nor_in_the_sitemap() {
+        let content = content();
+        let all = pages(&content, fixture_today());
+        let search = all
+            .iter()
+            .find(|page| page.output_path == "miscellany/search/index.html")
+            .unwrap();
+        assert!(
+            search
+                .html
+                .contains(r#"<meta name="robots" content="noindex, nofollow">"#)
+        );
+        assert!(!search.html.contains("data-pagefind-body"));
+        // A plain form: it works as a request for the page without the script.
+        assert!(search.html.contains(r#"<form class="search-form" action="/miscellany/search/" method="get" role="search" aria-label="Search Miscellany" data-search-form>"#));
+        for (value, label) in [
+            ("", "All"),
+            ("reading", "Reading"),
+            ("notes", "Notes"),
+            ("diary", "Diary"),
+            ("sketches", "Sketches"),
+        ] {
+            assert!(
+                search.html.contains(&format!(
+                    r#"<input type="radio" name="section" value="{value}""#
+                )),
+                "{label}"
+            );
+            assert!(
+                search.html.contains(&format!("<span>{label}</span>")),
+                "{label}"
+            );
+        }
+        assert!(search.html.contains("<noscript>"));
+        let (map, _) = sitemap(&all);
+        assert!(!map.contains("/miscellany/search/"));
+        assert!(map.contains("/miscellany/sketches/on-borrowed-words/"));
+        assert!(map.contains("/miscellany/diary/2026/10/"));
+    }
+
+    #[test]
+    fn reading_items_have_stable_distinct_anchors() {
+        let content = content();
+        let reading = content.miscellany().reading();
+        let anchors = reading_anchors(reading);
+        assert_eq!(anchors.len(), 3);
+        assert!(anchors.iter().all(|anchor| {
+            Regex::new(r"^reading-[0-9a-f]{8}(-[0-9]+)?$")
+                .unwrap()
+                .is_match(anchor)
+        }));
+        // The same title and author twice: told apart by order.
+        assert_eq!(anchors[2], format!("{}-2", anchors[0]));
+        assert_ne!(anchors[0], anchors[1]);
+        // Derived from the work only, so adding another item changes nothing.
+        let more =
+            Miscellany::from_all_sources(&format!("{READING}  - title: New\n"), &[], &[], &[])
+                .unwrap();
+        assert_eq!(&reading_anchors(more.reading())[..3], &anchors[..]);
+        let html = page(&content, "miscellany/reading/index.html");
+        assert!(html.contains(&format!(
+            r#"<h2 class="reading-title" id="{}"><cite lang="ja">架空の本</cite></h2>"#,
+            anchors[0]
+        )));
+        assert!(html.contains(r#"<ol class="reading-list" data-pagefind-body data-pagefind-filter="section:Reading" data-pagefind-meta="title:Reading">"#));
     }
 }

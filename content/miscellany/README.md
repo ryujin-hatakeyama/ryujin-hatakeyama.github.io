@@ -1,12 +1,15 @@
 # Miscellany
 
-Source for `/miscellany/` and its three sections. Nothing here is announced in Updates or the RSS feed.
+Source for `/miscellany/` and its four sections. Nothing here is announced in Updates or the RSS feed.
 
 | Section | Source | Route |
 |---|---|---|
 | Reading | `reading.yaml` | `/miscellany/reading/` |
 | Notes | `notes/*.md` | `/miscellany/notes/` and `/miscellany/notes/<slug>/` |
-| Diary | `diary/*.md` | `/miscellany/diary/` |
+| Diary | `diary/*.md` | `/miscellany/diary/` (months) and `/miscellany/diary/<year>/<month>/` |
+| Sketches | `sketches/*.md` | `/miscellany/sketches/` and `/miscellany/sketches/<slug>/` |
+
+Published Reading, Notes, Diary, and Sketches are searchable at `/miscellany/search/` (see `docs/search.md`). Only those pages are indexed: drafts are never rendered, and no other page of the site is read by the index.
 
 Everything committed to this repository is public, including records marked `draft: true`. A draft flag only keeps a record off the generated site; it is not a privacy mechanism. Keep private material out of the repository.
 
@@ -40,7 +43,7 @@ Commentary languages are `en`, `ja`, `de`, or `mixed` (a comment that deliberate
 
 ## Languages
 
-Notes, diary entries, and reading commentary may be written in several languages. Each separately authored text is a *passage* with its own language; an article with several passages is still one article, with one URL or anchor and one entry in every list. The texts need not be translations of one another and need not share structure.
+Notes, diary entries, sketches, and reading commentary may be written in several languages. Each separately authored text is a *passage* with its own language; an article with several passages is still one article, with one URL or anchor and one entry in every list. The texts need not be translations of one another and need not share structure.
 
 When published passages use more than one language, Miscellany pages offer a small control: All, then each language used (English, 日本語, Deutsch). It is hidden without JavaScript, when every passage is shown. A choice hides passages designated in other languages; `mixed` passages are always shown. An entry left with nothing to show says which language it is written in and offers to show it.
 
@@ -48,4 +51,4 @@ Inside any Markdown passage, mark the language of a phrase with `[Stimme]{lang=d
 
 To add a selectable language, add it to `DisplayLanguage` in `site-builder/src/model.rs` with its code, its own name, and its English name; nothing else needs to change.
 
-Notes and diary entries are documented in `notes/README.md` and `diary/README.md`.
+Notes, diary entries, and sketches are documented in `notes/README.md`, `diary/README.md`, and `sketches/README.md`.

@@ -14,8 +14,8 @@ use chrono::NaiveDate;
 use crate::model::{
     DiaryFrontMatter, DisplayLanguage, HomeSource, Language, LanguageTag, NoteFrontMatter,
     Paragraph, PassageFrontMatter, PassageLanguage, Project, ProjectFrontMatter, Publication,
-    ReadingComment, ReadingItem, ReadingList, Update, UpdatePhase, WritingFrontMatter,
-    validate_markdown_url,
+    ReadingComment, ReadingItem, ReadingList, SketchFrontMatter, Update, UpdatePhase,
+    WritingFrontMatter, validate_markdown_url,
 };
 
 #[derive(Debug)]
@@ -131,6 +131,7 @@ pub(crate) struct Miscellany {
     reading: Vec<ValidatedReadingItem>,
     notes: Vec<ValidatedNote>,
     diary: Vec<ValidatedDiaryEntry>,
+    sketches: Vec<ValidatedSketch>,
 }
 
 impl Miscellany {
@@ -149,6 +150,11 @@ impl Miscellany {
         self.diary.iter().filter(|entry| !entry.metadata.draft)
     }
 
+    /// Published sketches, newest first.
+    pub(crate) fn public_sketches(&self) -> impl Iterator<Item = &ValidatedSketch> {
+        self.sketches.iter().filter(|sketch| !sketch.metadata.draft)
+    }
+
     /// The display languages of published, separately authored passages and
     /// reading commentary, in display order. Languages that appear only in
     /// inline phrases or mixed passages are not included.
@@ -161,7 +167,7 @@ impl Miscellany {
         languages.into_iter().collect()
     }
 
-    /// Whether any published note, diary entry, or reading item has
+    /// Whether any published note, diary entry, sketch, or reading item has
     /// separately authored texts in more than one language.
     pub(crate) fn has_multilingual_entry(&self) -> bool {
         self.public_passage_language_sets()
@@ -182,13 +188,17 @@ impl Miscellany {
         let diary = self
             .public_diary()
             .map(|entry| entry.passages.designated_languages());
-        reading.chain(notes).chain(diary).collect()
+        let sketches = self
+            .public_sketches()
+            .map(|sketch| sketch.passages.designated_languages());
+        reading.chain(notes).chain(diary).chain(sketches).collect()
     }
 }
 
 impl Miscellany {
-    /// Note slugs and diary anchors must be unique, drafts included, so that
-    /// publishing a draft can never collide with an existing URL.
+    /// Note slugs, sketch slugs, and diary anchors must be unique, drafts
+    /// included, so that publishing a draft can never collide with an
+    /// existing URL.
     fn validate_identifiers(&self) -> Vec<anyhow::Error> {
         let mut errors = validate_unique(
             self.notes
@@ -196,6 +206,12 @@ impl Miscellany {
                 .map(|record| record.metadata.slug.as_str()),
             "note slug",
         );
+        errors.extend(validate_unique(
+            self.sketches
+                .iter()
+                .map(|record| record.metadata.slug.as_str()),
+            "sketch slug",
+        ));
         let anchors: Vec<_> = self
             .diary
             .iter()
@@ -214,6 +230,17 @@ impl Miscellany {
     /// Companion passages are given among the sources of their section.
     #[cfg(test)]
     pub(crate) fn from_sources(reading: &str, notes: &[&str], diary: &[&str]) -> Result<Self> {
+        Self::from_all_sources(reading, notes, diary, &[])
+    }
+
+    /// As `from_sources`, with sketches too.
+    #[cfg(test)]
+    pub(crate) fn from_all_sources(
+        reading: &str,
+        notes: &[&str],
+        diary: &[&str],
+        sketches: &[&str],
+    ) -> Result<Self> {
         fn sources(kind: &str, sources: &[&str]) -> Result<Vec<SourceFile>> {
             sources
                 .iter()
@@ -233,9 +260,11 @@ impl Miscellany {
             reading: parse_reading(Path::new("reading.yaml"), reading)?,
             notes: assemble_articles(sources("note", notes)?)?,
             diary: assemble_articles(sources("diary", diary)?)?,
+            sketches: assemble_articles(sources("sketch", sketches)?)?,
         };
         sort_notes(&mut miscellany.notes);
         sort_diary(&mut miscellany.diary);
+        sort_sketches(&mut miscellany.sketches);
         let mut diagnostics = Diagnostics::default();
         diagnostics.extend(miscellany.validate_identifiers());
         diagnostics.finish("miscellany validation failed")?;
@@ -283,6 +312,7 @@ impl<M> Article<M> {
 
 pub(crate) type ValidatedNote = Article<NoteFrontMatter>;
 pub(crate) type ValidatedDiaryEntry = Article<DiaryFrontMatter>;
+pub(crate) type ValidatedSketch = Article<SketchFrontMatter>;
 
 /// A separately authored passage of an article, in one language or
 /// deliberately mixed, with an optional title of its own.
@@ -372,6 +402,26 @@ impl ArticleMetadata for NoteFrontMatter {
 
     fn validate(&self, source: &str) -> Result<()> {
         NoteFrontMatter::validate(self, source)
+    }
+    fn id(&self) -> String {
+        self.slug.clone()
+    }
+    fn language(&self) -> PassageLanguage {
+        self.lang
+    }
+    fn math(&self) -> bool {
+        self.math
+    }
+}
+
+impl ArticleMetadata for SketchFrontMatter {
+    const KIND: &'static str = "sketch";
+    // A sketch has its own page, like a note.
+    const HEADING: HeadingLevel = HeadingLevel::H2;
+    const FOOTNOTES: bool = true;
+
+    fn validate(&self, source: &str) -> Result<()> {
+        SketchFrontMatter::validate(self, source)
     }
     fn id(&self) -> String {
         self.slug.clone()
@@ -607,11 +657,13 @@ fn load_miscellany(directory: &Path) -> Result<Miscellany> {
     let reading = diagnostics.capture(load_reading(&directory.join("reading.yaml")));
     let notes = diagnostics.capture(load_notes(&directory.join("notes")));
     let diary = diagnostics.capture(load_diary(&directory.join("diary")));
+    let sketches = diagnostics.capture(load_sketches(&directory.join("sketches")));
     diagnostics.finish("miscellany loading failed")?;
     Ok(Miscellany {
         reading: reading.expect("successful diagnostics contain reading"),
         notes: notes.expect("successful diagnostics contain notes"),
         diary: diary.expect("successful diagnostics contain diary"),
+        sketches: sketches.expect("successful diagnostics contain sketches"),
     })
 }
 
@@ -844,6 +896,24 @@ fn sort_diary(entries: &mut [ValidatedDiaryEntry]) {
             .date
             .cmp(&left.metadata.date)
             .then_with(|| left.metadata.anchor().cmp(&right.metadata.anchor()))
+    });
+}
+
+fn load_sketches(directory: &Path) -> Result<Vec<ValidatedSketch>> {
+    let mut sketches = assemble_articles(load_markdown_sources(directory)?)?;
+    sort_sketches(&mut sketches);
+    Ok(sketches)
+}
+
+/// Newest first by the sketch's own date; sketches of one day follow their
+/// slugs for determinism.
+fn sort_sketches(sketches: &mut [ValidatedSketch]) {
+    sketches.sort_by(|left, right| {
+        right
+            .metadata
+            .date
+            .cmp(&left.metadata.date)
+            .then_with(|| left.metadata.slug.cmp(&right.metadata.slug))
     });
 }
 
@@ -1638,8 +1708,17 @@ mod tests {
         write("reading.yaml", "items:\n  - title: Fixture work\n");
         write("notes/README.md", "# Not front matter\n");
         write("diary/README.md", "# Not front matter\n");
+        write("sketches/README.md", "# Not front matter\n");
         write("notes/a.md", &note("draft: false\n", "Body.\n"));
         write("diary/a.md", &diary("", "Body.\n"));
+        write(
+            "sketches/a.md",
+            "---\nslug: a\ntitle: A\nlang: en\ndate: 2026-10-01\ndraft: false\n---\n\nBody.\n",
+        );
+        write(
+            "sketches/b.md",
+            "---\nslug: b\ntitle: B\nlang: en\ndate: 2026-10-02\n---\n\nBody.\n",
+        );
         let loaded = load_miscellany(&root);
         std::fs::remove_file(root.join("reading.yaml")).unwrap();
         let missing = load_miscellany(&root);
@@ -1648,8 +1727,9 @@ mod tests {
         let miscellany = loaded.unwrap();
         assert_eq!(miscellany.reading().len(), 1);
         assert_eq!(miscellany.public_notes().count(), 1);
-        // Diary entries are drafts unless published explicitly.
+        // Diary entries and sketches are drafts unless published explicitly.
         assert_eq!(miscellany.public_diary().count(), 0);
+        assert_eq!(miscellany.public_sketches().count(), 1);
         assert!(format!("{:#}", missing.unwrap_err()).contains("missing reading list"));
     }
 

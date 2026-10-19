@@ -1153,7 +1153,49 @@ impl NoteFrontMatter {
     }
 }
 
-/// A diary entry, shown in full on `/miscellany/diary/`. This file holds the
+/// A sketch, published at `/miscellany/sketches/<slug>/`: a short,
+/// self-standing piece of writing. Like a note it has its own page, but it is
+/// dated, and the index lists sketches newest first. This file holds its
+/// identity and shared metadata and its first passage, written in `lang`;
+/// further passages live in companion files.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SketchFrontMatter {
+    pub slug: String,
+    pub title: String,
+    pub title_lang: Option<LanguageTag>,
+    pub lang: PassageLanguage,
+    pub date: NaiveDate,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub math: bool,
+    #[serde(default = "default_true")]
+    pub draft: bool,
+}
+
+impl SketchFrontMatter {
+    pub fn validate(&self, source: &str) -> Result<()> {
+        validate_slug(&self.slug).with_context(|| format!("{source}: invalid sketch slug"))?;
+        ensure!(
+            !self.title.trim().is_empty(),
+            "{source}: title must not be empty"
+        );
+        if let Some(description) = &self.description {
+            ensure!(
+                !description.trim().is_empty(),
+                "{source}: description must not be empty when given"
+            );
+        }
+        Ok(())
+    }
+
+    pub fn title_language(&self) -> Option<&str> {
+        title_language(self.title_lang.as_ref(), self.lang)
+    }
+}
+
+/// A diary entry, shown in full on its month's page,
+/// `/miscellany/diary/<year>/<month>/`. This file holds the
 /// entry's identity (its date and optional slug), its optional title, and its
 /// first passage, written in `lang`. Further passages live in companion files.
 #[derive(Clone, Debug, Deserialize)]
@@ -1194,10 +1236,16 @@ impl DiaryFrontMatter {
         }
     }
 
-    /// The entry's fragment identifier on the Diary page, derived only from
-    /// its identity so that links stay stable as entries are added.
+    /// The entry's fragment identifier on its month's page, derived only from
+    /// its identity so that links stay stable as entries are added. It is the
+    /// identifier the single Diary page used before months had pages.
     pub fn anchor(&self) -> String {
         format!("diary-{}", self.id())
+    }
+
+    /// The page that shows this entry: its month's.
+    pub fn month_path(&self) -> String {
+        format!("/miscellany/diary/{}/", self.date.format("%Y/%m"))
     }
 
     pub fn title_language(&self) -> Option<&str> {

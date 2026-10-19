@@ -69,6 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   setUpLanguageFilters();
+  forwardDiaryAnchor();
+  setUpSearch();
 
   for (const control of document.querySelectorAll<HTMLElement>('[data-email-code]')) {
     control.addEventListener('click', (event) => {
@@ -159,4 +161,364 @@ function setUpLanguageFilters(): void {
 
   apply();
   for (const filter of filters) filter.hidden = false;
+}
+
+// Before months had pages, every diary entry was on /miscellany/diary/ at
+// #diary-YYYY-MM-DD[-slug]. Such a link now opens the Diary's front page;
+// when its month is listed there, the entry is on that month's page under
+// the same anchor, so the link is forwarded there.
+function forwardDiaryAnchor(): void {
+  if (window.location.pathname !== '/miscellany/diary/') return;
+  const match = /^#diary-([0-9]{4})-([0-9]{2})-[0-9]{2}(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$/.exec(
+    window.location.hash,
+  );
+  if (!match) return;
+  const month = `/miscellany/diary/${match[1]}/${match[2]}/`;
+  if (document.querySelector(`[data-diary-archive] a[href="${month}"]`)) {
+    window.location.replace(`${month}${window.location.hash}`);
+  }
+}
+
+// ---------------------------------------------------------------- search
+
+interface PagefindAnchor {
+  element: string;
+  id: string;
+  text: string;
+  location: number;
+}
+
+interface PagefindSubResult {
+  title: string;
+  url: string;
+  excerpt: string;
+  locations: number[];
+  anchor?: PagefindAnchor;
+}
+
+interface PagefindData {
+  url: string;
+  excerpt: string;
+  meta: Record<string, string | undefined>;
+  filters: Record<string, string[] | undefined>;
+  sub_results: PagefindSubResult[];
+  anchors: PagefindAnchor[];
+}
+
+interface PagefindResult {
+  data(): Promise<PagefindData>;
+}
+
+interface Pagefind {
+  options(options: Record<string, unknown>): Promise<void>;
+  search(
+    query: string,
+    options?: { filters?: Record<string, string> },
+  ): Promise<{ results: PagefindResult[] } | null>;
+}
+
+/** The sections a search may be limited to, by their address value. */
+const SEARCH_SECTIONS: Readonly<Record<string, string>> = {
+  reading: 'Reading',
+  notes: 'Notes',
+  diary: 'Diary',
+  sketches: 'Sketches',
+};
+
+/** At most this many pages' records are read for one query. */
+const SEARCH_PAGE_LIMIT = 50;
+/** Results shown at first, and added by "More results". */
+const SEARCH_BATCH = 20;
+
+/** One thing found: a note, a sketch, a reading item, or a diary entry. */
+interface Found {
+  url: string;
+  title: string;
+  section: string;
+  date: string | null;
+  excerpt: string;
+  hits: number;
+}
+
+let pagefindLoading: Promise<Pagefind | null> | null = null;
+
+/** Pagefind's script, from the index built with the site; null when the
+ * site has no index because nothing has been published to search yet. */
+function loadPagefind(): Promise<Pagefind | null> {
+  if (!pagefindLoading) {
+    const address = '/pagefind/pagefind.js';
+    pagefindLoading = (import(address) as Promise<Pagefind>)
+      .then(async (pagefind) => {
+        await pagefind.options({ excerptLength: 28 });
+        return pagefind;
+      })
+      .catch(async (error: unknown) => {
+        const answer = await fetch('/pagefind/pagefind-entry.json', { method: 'HEAD' }).catch(
+          () => null,
+        );
+        if (answer && answer.status === 404) return null;
+        pagefindLoading = null;
+        throw error;
+      });
+  }
+  return pagefindLoading;
+}
+
+const DIARY_ANCHOR = /^diary-([0-9]{4})-([0-9]{2})-([0-9]{2})(?:-[a-z0-9-]+)?$/;
+const READING_ANCHOR = /^reading-[0-9a-f]{8}(?:-[0-9]+)?$/;
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function longDate(year: string, month: string, day: string): string {
+  return `${Number(day)} ${MONTHS[Number(month) - 1] ?? month} ${year}`;
+}
+
+const withoutBreaks = (text: string): string => text.replace(/​/g, '').replace(/\s+/g, ' ').trim();
+
+/** The entry an index position belongs to: the last matching anchor before it. */
+function entryAnchor(data: PagefindData, location: number, pattern: RegExp): PagefindAnchor | null {
+  let found: PagefindAnchor | null = null;
+  for (const anchor of data.anchors) {
+    if (anchor.location <= location && pattern.test(anchor.id)) {
+      if (!found || anchor.location >= found.location) found = anchor;
+    }
+  }
+  return found;
+}
+
+/** A page's record as things found: a Diary month or the Reading page is
+ * split into the entries or works that matched; a note or sketch is one. */
+function foundIn(data: PagefindData): Found[] {
+  const section = data.filters.section?.[0] ?? '';
+  const title = withoutBreaks(data.meta.title ?? '');
+  const anchorPattern = section === 'Diary' ? DIARY_ANCHOR : section === 'Reading' ? READING_ANCHOR : null;
+  if (!anchorPattern) {
+    return [
+      {
+        url: data.url,
+        title,
+
+        section,
+        date: data.meta.date ?? null,
+        excerpt: data.excerpt,
+        hits: data.sub_results.reduce((sum, sub) => sum + sub.locations.length, 0),
+      },
+    ];
+  }
+  const entries = new Map<string, Found>();
+  for (const sub of data.sub_results) {
+    const location = sub.locations[0] ?? sub.anchor?.location ?? 0;
+    const anchor = entryAnchor(data, location, anchorPattern);
+    if (!anchor) continue;
+    const known = entries.get(anchor.id);
+    if (known) {
+      known.hits += sub.locations.length;
+      continue;
+    }
+    let label = withoutBreaks(anchor.text);
+    let date: string | null = null;
+    const day = DIARY_ANCHOR.exec(anchor.id);
+    if (day) {
+      date = `${day[1]}-${day[2]}-${day[3]}`;
+      const written = longDate(day[1]!, day[2]!, day[3]!);
+      label = label ? `${written} — ${label}` : written;
+    }
+    entries.set(anchor.id, {
+      url: `${data.url}#${anchor.id}`,
+      title: label || title,
+      section,
+      date,
+      excerpt: sub.excerpt,
+      hits: sub.locations.length,
+    });
+  }
+  const list = Array.from(entries.values()).sort((left, right) => right.hits - left.hits);
+  return list.length > 0
+    ? list
+    : [{ url: data.url, title, section, date: null, excerpt: data.excerpt, hits: 0 }];
+}
+
+/** Pagefind's excerpt, keeping only its text and its <mark> highlights. */
+function excerptNodes(excerpt: string): Node[] {
+  const parsed = new DOMParser().parseFromString(`<p>${excerpt}</p>`, 'text/html');
+  const nodes: Node[] = [];
+  for (const node of Array.from(parsed.body.firstChild?.childNodes ?? [])) {
+    const text = (node.textContent ?? '').replace(/​/g, '');
+    if (node.nodeName === 'MARK') {
+      const mark = document.createElement('mark');
+      mark.textContent = text;
+      nodes.push(mark);
+    } else {
+      nodes.push(document.createTextNode(text));
+    }
+  }
+  return nodes;
+}
+
+function resultItem(found: Found): HTMLLIElement {
+  const item = document.createElement('li');
+  const heading = document.createElement('h2');
+  const link = document.createElement('a');
+  link.href = found.url;
+  link.textContent = found.title || found.url;
+  heading.append(link);
+  const meta = document.createElement('p');
+  meta.className = 'search-meta';
+  meta.textContent = found.section;
+  // A diary entry's title is its date already.
+  if (found.section !== 'Diary' && found.date && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(found.date)) {
+    const [year, month, day] = found.date.split('-');
+    const time = document.createElement('time');
+    time.dateTime = found.date;
+    time.textContent = longDate(year!, month!, day!);
+    meta.append(' · ', time);
+  }
+  item.append(heading, meta);
+  if (found.excerpt) {
+    const excerpt = document.createElement('p');
+    excerpt.className = 'search-excerpt';
+    excerpt.append(...excerptNodes(found.excerpt));
+    item.append(excerpt);
+  }
+  return item;
+}
+
+// The search page. Its form also works without the script: it reloads the
+// page with ?q= and &section= in the address, which the script reads. With
+// the script, results follow the typing, the address keeps the query and
+// section (so a reload or a shared link shows the same search), and the
+// status line distinguishes an empty query from a search with no results.
+function setUpSearch(): void {
+  const root = document.querySelector<HTMLElement>('[data-search-page]');
+  if (!root) return;
+  const form = root.querySelector<HTMLFormElement>('[data-search-form]');
+  const input = root.querySelector<HTMLInputElement>('[data-search-query]');
+  const status = root.querySelector<HTMLElement>('[data-search-status]');
+  const list = root.querySelector<HTMLOListElement>('[data-search-results]');
+  const more = root.querySelector<HTMLButtonElement>('[data-search-more]');
+  if (!form || !input || !status || !list || !more) return;
+  const scopes = Array.from(form.querySelectorAll<HTMLInputElement>('input[name="section"]'));
+
+  const section = (): string => scopes.find((scope) => scope.checked)?.value ?? '';
+  const read = (): void => {
+    const params = new URLSearchParams(window.location.search);
+    input.value = params.get('q') ?? '';
+    const wanted = params.get('section') ?? '';
+    const known = wanted in SEARCH_SECTIONS ? wanted : '';
+    for (const scope of scopes) scope.checked = scope.value === known;
+  };
+  const write = (): void => {
+    const params = new URLSearchParams();
+    const query = input.value.trim();
+    if (query) params.set('q', query);
+    if (section()) params.set('section', section());
+    const search = params.toString();
+    const address = `${window.location.pathname}${search ? `?${search}` : ''}`;
+    if (address !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(null, '', address);
+    }
+  };
+
+  let found: Found[] = [];
+  let shown = 0;
+  let generation = 0;
+
+  const showMore = (): void => {
+    const next = found.slice(shown, shown + SEARCH_BATCH);
+    list.append(...next.map(resultItem));
+    shown += next.length;
+    more.hidden = shown >= found.length;
+  };
+
+  const run = async (): Promise<void> => {
+    const current = ++generation;
+    const query = input.value.trim();
+    const label = SEARCH_SECTIONS[section()];
+    const where = label ? ` in ${label}` : '';
+    if (!query) {
+      found = [];
+      list.replaceChildren();
+      more.hidden = true;
+      status.textContent = label
+        ? `Enter a word or phrase to search ${label}.`
+        : 'Enter a word or phrase to search Reading, Notes, Diary, and Sketches.';
+      return;
+    }
+    let pagefind: Pagefind | null;
+    try {
+      pagefind = await loadPagefind();
+    } catch {
+      if (current !== generation) return;
+      status.textContent = 'The search could not be loaded. Try again later.';
+      return;
+    }
+    const answer = pagefind
+      ? await pagefind.search(query, label ? { filters: { section: label } } : {})
+      : { results: [] };
+    if (!answer || current !== generation) return;
+    const pages = await Promise.all(
+      answer.results.slice(0, SEARCH_PAGE_LIMIT).map((result) => result.data()),
+    );
+    if (current !== generation) return;
+    found = pages.flatMap(foundIn);
+    shown = 0;
+    list.replaceChildren();
+    if (found.length === 0) {
+      status.textContent = `No results for “${query}”${where}.`;
+      if (label) {
+        const everywhere = document.createElement('a');
+        const params = new URLSearchParams({ q: query });
+        everywhere.href = `${window.location.pathname}?${params.toString()}`;
+        everywhere.textContent = 'Search all sections';
+        everywhere.addEventListener('click', (event) => {
+          event.preventDefault();
+          for (const scope of scopes) scope.checked = scope.value === '';
+          write();
+          void run();
+        });
+        status.append(' ', everywhere);
+      }
+      more.hidden = true;
+      return;
+    }
+    const capped = answer.results.length > SEARCH_PAGE_LIMIT ? '+' : '';
+    status.textContent = `${found.length}${capped} ${found.length === 1 && !capped ? 'result' : 'results'} for “${query}”${where}.`;
+    showMore();
+  };
+
+  let timer: number | undefined;
+  input.addEventListener('input', () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      write();
+      void run();
+    }, 220);
+  });
+  for (const scope of scopes) {
+    scope.addEventListener('change', () => {
+      write();
+      void run();
+    });
+  }
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    window.clearTimeout(timer);
+    write();
+    void run();
+  });
+  more.addEventListener('click', () => {
+    const first = shown;
+    showMore();
+    list.children[first]?.querySelector('a')?.focus();
+  });
+  window.addEventListener('popstate', () => {
+    read();
+    void run();
+  });
+
+  read();
+  void run();
+  if (!input.value) input.focus();
 }

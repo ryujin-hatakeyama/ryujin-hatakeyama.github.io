@@ -890,9 +890,9 @@ main { min-height: 64vh; }
   .cv-entry { grid-template-columns: 1fr; gap: .15rem; }
 }
 
-/* Miscellany: overview, reading record, study notes, and diary. Scoped to
-   its own classes so that the Research, CV, and Updates layouts are
-   unaffected; long-form text reuses the shared .prose styles. */
+/* Miscellany: overview, reading record, study notes, diary, sketches, and
+   search. Scoped to its own classes so that the Research, CV, and Updates
+   layouts are unaffected; long-form text reuses the shared .prose styles. */
 .miscellany-overview { max-width: 48rem; }
 .miscellany-overview .content-section + .content-section { margin-top: 2.25rem; }
 .miscellany-overview .content-section > h2 { margin-bottom: .2rem; }
@@ -911,7 +911,7 @@ div.miscellany-header { padding-top: 3.75rem; }
 .reading-list, .miscellany-list { max-width: 48rem; margin: 0; padding: 0; list-style: none; }
 .reading-list > li, .miscellany-list > li { padding: .85rem 0 .95rem; border-top: 1px solid var(--rule); }
 .reading-list > li:first-child, .miscellany-list > li:first-child { border-top: 0; padding-top: 0; }
-.reading-title { margin: 0; font-size: 1rem; font-weight: 550; line-height: 1.45; }
+.reading-title { margin: 0; font-family: var(--sans); font-size: 1rem; font-weight: 550; line-height: 1.45; scroll-margin-top: 1rem; }
 .reading-title cite { font-style: normal; }
 .reading-author { margin: .1rem 0 0; color: var(--ink-soft); font-size: .88rem; }
 .reading-note { max-width: 43rem; margin: .35rem 0 0; font-size: .9rem; line-height: 1.6; }
@@ -934,13 +934,132 @@ div.miscellany-header { padding-top: 3.75rem; }
 .miscellany-prose table { display: block; max-width: 100%; overflow-x: auto; margin: 0 0 1.5em; border-collapse: collapse; font-size: .9em; }
 .miscellany-prose th, .miscellany-prose td { padding: .3rem .8rem .3rem 0; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top; }
 
-.diary { max-width: var(--reading); }
-.diary-entry { padding: 1.7rem 0 1.9rem; border-top: 1px solid var(--rule); scroll-margin-top: 1rem; }
-.diary-entry:first-child { padding-top: 0; border-top: 0; }
-.diary-entry h2 { margin: 0 0 .9rem; font-family: var(--sans); font-size: 1.05rem; font-weight: 600; line-height: 1.4; }
-.diary-date { color: var(--ink-soft); font-family: var(--mono); font-size: .76rem; font-weight: 500; text-decoration: none; }
-.diary-date:hover { text-decoration: underline; }
-.diary-title { display: block; margin-top: .2rem; color: var(--ink); }
+/* Search: a quiet field on the overview and on each section, and the search
+   page. The field is the size of body text (16px), so iPhone Safari does not
+   zoom when it is focused. */
+.miscellany-search, .search-field {
+  display: flex;
+  align-items: stretch;
+  max-width: 22rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper);
+}
+.miscellany-search { margin: -1rem 0 2.6rem; }
+.miscellany-search:hover, .search-field:hover { border-color: var(--rule-strong); }
+.miscellany-search:focus-within, .search-field:focus-within { border-color: var(--accent); }
+.miscellany-search input, .search-field input {
+  flex: 1;
+  min-width: 0;
+  min-height: 2.4rem;
+  padding: .3rem .1rem .3rem .65rem;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 1rem;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.miscellany-search input::placeholder, .search-field input::placeholder { color: var(--ink-faint); }
+.miscellany-search button, .search-field button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.miscellany-search button:hover, .search-field button:hover { color: var(--accent); }
+.search-icon { width: 1rem; height: 1rem; }
+.miscellany-search input:focus-visible, .search-field input:focus-visible { outline: none; }
+.miscellany-search:has(input:focus-visible), .search-field:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+.search-page { max-width: 48rem; }
+.search-field { max-width: 32rem; }
+.search-scope { display: flex; flex-wrap: wrap; gap: .1rem 1.1rem; margin: .9rem 0 0; padding: 0; border: 0; font-size: .86rem; }
+.search-scope label { position: relative; display: inline-flex; align-items: center; min-height: 2rem; color: var(--ink-soft); cursor: pointer; }
+.search-scope label:hover { color: var(--ink); }
+.search-scope input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.search-scope input:checked + span { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: .07em; text-underline-offset: .32rem; }
+.search-scope input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 1px; }
+.search-status { min-height: 1.4rem; margin: 1.8rem 0 .6rem; color: var(--ink-soft); font-size: .88rem; }
+.search-status:empty { margin-bottom: 0; }
+.search-results { margin: 0; padding: 0; list-style: none; }
+.search-results > li { padding: .95rem 0 1.05rem; border-top: 1px solid var(--rule); }
+.search-results > li:first-child { border-top: 0; padding-top: .2rem; }
+.search-results h2 { margin: 0; font-family: var(--sans); font-size: 1rem; font-weight: 550; line-height: 1.45; }
+.search-meta { margin: .15rem 0 0; color: var(--ink-faint); font-size: .78rem; }
+.search-excerpt { max-width: 43rem; margin: .3rem 0 0; color: var(--ink-soft); font-size: .88rem; line-height: 1.65; overflow-wrap: anywhere; }
+.search-excerpt mark { padding: 0; background: linear-gradient(transparent 52%, color-mix(in srgb, var(--accent) 24%, transparent) 52%); color: var(--ink); }
+.search-more { margin: 1.2rem 0 0; }
+.search-more button { min-height: 2rem; padding: 0; border: 0; background: none; color: var(--accent-strong); cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent); text-underline-offset: .18em; }
+.search-more button[hidden] { display: none; }
+
+/* A sketch's date, in its index entry and under its title. */
+.miscellany-list .miscellany-date { margin: .1rem 0 0; color: var(--ink-faint); font-size: .78rem; }
+.miscellany-note .article-date { margin: 0 0 .65rem; color: var(--ink-faint); font-size: .86rem; }
+
+/* The Diary: months by year on its front page; on a month's page, each
+   entry's day of the month and weekday in a narrow column beside its text.
+   The column is part of the text's grid, not a calendar. */
+.diary-archive { max-width: 48rem; }
+.diary-year + .diary-year { margin-top: 1.9rem; }
+.diary-year > h2 { margin: 0 0 .45rem; color: var(--ink-soft); font-family: var(--mono); font-size: .8rem; font-weight: 500; letter-spacing: .02em; }
+.diary-months { display: flex; flex-wrap: wrap; gap: .35rem 1.4rem; margin: 0; padding: 0; list-style: none; }
+.diary-months li { display: inline-flex; align-items: baseline; gap: .3rem; }
+.diary-months a { font-size: 1rem; }
+.diary-month-count { color: var(--ink-faint); font-family: var(--mono); font-size: .7rem; }
+
+.diary-month-header h1 { margin-bottom: .4rem; }
+.diary-month-nav { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .4rem 1.5rem; max-width: var(--reading); margin-top: .9rem; font-size: .86rem; }
+.diary-month-nav .diary-next { margin-left: auto; }
+.diary-month-nav-end { margin: 2.2rem 0 0; padding-top: 1.1rem; border-top: 1px solid var(--rule); }
+.diary-days { display: flex; flex-wrap: wrap; gap: .1rem .85rem; max-width: var(--reading); margin-top: .7rem; font-family: var(--mono); font-size: .78rem; }
+.diary-days a { color: var(--ink-soft); text-decoration: none; }
+.diary-days a:hover { color: var(--accent); text-decoration: underline; }
+.diary-month-header + .miscellany-search { margin-top: -.9rem; }
+
+.diary { --diary-day-column: 2.6rem; max-width: calc(var(--reading) + var(--diary-day-column) + 1.4rem); }
+.diary-entry {
+  display: grid;
+  grid-template-columns: var(--diary-day-column) minmax(0, 1fr);
+  column-gap: 1.4rem;
+  padding: 1.9rem 0 2.1rem;
+  border-top: 1px solid var(--rule);
+}
+.diary-entry:first-child { padding-top: .2rem; border-top: 0; }
+.diary-entry.same-day { padding-top: 1.2rem; border-top-style: dotted; }
+.diary-heading {
+  grid-column: 1;
+  grid-row: 1;
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.4;
+  scroll-margin-top: 1rem;
+}
+.diary-entry.has-title .diary-heading {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: var(--diary-day-column) minmax(0, 1fr);
+  column-gap: 1.4rem;
+  align-items: baseline;
+  margin-bottom: .75rem;
+}
+.diary-body { grid-column: 2; grid-row: 1; min-width: 0; }
+.diary-entry.has-title .diary-body { grid-row: 2; }
+.diary-date { display: block; color: var(--ink); text-decoration: none; }
+.diary-date time { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; }
+.diary-day { font-size: 1.45rem; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.diary-weekday { margin-top: .2rem; color: var(--ink-faint); font-family: var(--mono); font-size: .68rem; font-weight: 500; letter-spacing: .03em; }
+.diary-date:hover .diary-day { color: var(--accent); }
+.diary-entry.same-day .diary-day { color: var(--ink-faint); }
+.diary-title { color: var(--ink); }
 
 /* Language choice for separately authored passages. Like the Updates
    category filters, it is quiet text with an underline for the current
@@ -987,6 +1106,10 @@ div.miscellany-header { padding-top: 3.75rem; }
 
 @media (max-width: 36rem) {
   div.miscellany-header { padding-top: 2.8rem; }
+  .miscellany-search { max-width: none; }
+  .diary { --diary-day-column: 2rem; }
+  .diary-entry, .diary-entry.has-title .diary-heading { column-gap: .9rem; }
+  .diary-day { font-size: 1.25rem; }
 }
 
 /* Five primary sections fit on one row down to 320px wide. */
@@ -995,5 +1118,5 @@ div.miscellany-header { padding-top: 3.75rem; }
 }
 
 @media print {
-  .miscellany-nav { display: none; }
+  .miscellany-nav, .miscellany-search, .diary-month-nav, .diary-days { display: none; }
 }

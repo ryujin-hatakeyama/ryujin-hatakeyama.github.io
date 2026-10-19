@@ -16,7 +16,7 @@ References checked:
 
 Rust:
 
-- typed publication, presentation, update-export, writing, project, and Miscellany (reading, note, diary) models;
+- typed publication, presentation, update-export, writing, project, and Miscellany (reading, note, diary, sketch) models, with the Diary shown by month from one file per entry;
 - cross-record validation and deterministic ordering;
 - explicit static route construction;
 - reusable Maud layout and page components;
@@ -34,13 +34,18 @@ OCaml:
 TypeScript:
 
 - initial system/light/dark resolution and the appearance button;
-- decoding the numeric email attribute only after user activation.
+- decoding the numeric email attribute only after user activation;
+- the Miscellany search page, which reads the static search index (below), and the forwarding of earlier Diary anchors to their month's page.
+
+Node.js (scripts/search-index.mjs):
+
+- building the Miscellany search index with Pagefind, pinned exactly, from an explicit list of built pages, and checking every file of it before it is written. See `docs/search.md`.
 
 CSS remains CSS. The prior stylesheet is copied rather than embedded in Rust. Font and KaTeX files are ordinary public assets.
 
 ## Determinism and failure behavior
 
-The Rust build cleans only an explicitly allowed output (`dist` or a path below `target`), reads content in sorted path order, applies stable secondary sort keys, uses a fixed copyright year matching the migrated site, and writes fixed route paths. Verification builds twice and compares every output path and byte.
+The Rust build cleans only an explicitly allowed output (`dist` or a path below `target`), reads content in sorted path order, applies stable secondary sort keys, uses a fixed copyright year matching the migrated site, and writes fixed route paths. Verification builds twice, indexes both builds for search, and compares every output path and byte.
 
 The one input not taken from the repository is the build day, a calendar day in Asia/Tokyo, which places each update under Upcoming (marked Ongoing while the event runs), Recent Updates, or Previously announced. It is read once per build from `SITE_BUILD_DATE` (`YYYY-MM-DD`) when set, and otherwise from the system clock at UTC+09:00, never from the machine's time zone. It affects only the homepage and the Updates listing pages, never the RSS feed, anchors, or other routes; given the same sources and day, the output is identical, and verification fixes the day for both builds it compares. See `docs/update-dates.md`.
 

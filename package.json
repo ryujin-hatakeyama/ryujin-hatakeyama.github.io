@@ -16,6 +16,7 @@
     "dev": "npm run build && npm run preview"
   },
   "devDependencies": {
+    "pagefind": "1.5.2",
     "typescript": "5.9.3"
   },
   "engines": {
