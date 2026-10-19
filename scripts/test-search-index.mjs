@@ -12,7 +12,7 @@ import { buildSearchIndex, decode } from "./search-index.mjs";
 const base = path.resolve("target/search-index-test");
 
 const page = (body, chrome = "") =>
-  `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Fixture</title></head><body><a class="skip-link" href="#main-content">Skip to content</a><main id="main-content"><nav class="jump-links miscellany-nav" aria-label="Miscellany sections"><a href="/miscellany/">Overview</a></nav>${chrome}${body}</main><footer>Last updated</footer></body></html>`;
+  `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Fixture</title></head><body><a class="skip-link" href="#main-content">Skip to content</a><main id="main-content"><nav class="miscellany-sections" aria-label="Miscellany sections"><a href="/miscellany/reading/">Reading</a></nav>${chrome}${body}</main><footer>Last updated</footer></body></html>`;
 
 const SITE = {
   "miscellany/notes/fixture-note/index.html": page(

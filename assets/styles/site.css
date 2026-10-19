@@ -667,6 +667,11 @@ main { min-height: 64vh; }
 }
 
 .footer-privacy { flex-basis: 100%; color: var(--ink-faint); }
+/* The public footer: the name and Privacy together, the date at the end of
+   the row; on a phone the date takes a row of its own, at the same size. */
+.site-footer { font-size: .8rem; }
+.footer-name + .footer-links { margin-right: auto; }
+.footer-updated { margin-left: auto; }
 .privacy-page { max-width: 46rem; }
 .privacy-page p { margin: 0 0 .9rem; font-size: 1.025rem; line-height: 1.68; }
 
@@ -937,8 +942,12 @@ main { min-height: 64vh; }
 
 @media (max-width: 50rem) {
   :root { --page: min(100% - 2rem, 68rem); }
-  .site-header { grid-template-columns: 1fr auto; gap: .4rem 1rem; padding: .8rem 0; }
-  .primary-nav { grid-column: 1 / -1; grid-row: 2; gap: 1.25rem; padding-top: .35rem; overflow-x: auto; }
+  /* Two quiet rows that scroll away with the page: the name and the theme
+     switch, then the site's sections. The header is never fixed, so it
+     cannot sit under the status bar; the safe-area inset (zero unless the
+     page reaches under it) keeps the name clear of the clock if it does. */
+  .site-header { grid-template-columns: 1fr auto; gap: 0 1rem; padding: max(.6rem, env(safe-area-inset-top, 0px)) 0 .1rem; }
+  .primary-nav { grid-column: 1 / -1; grid-row: 2; gap: 1.25rem; padding-top: .1rem; overflow-x: auto; }
   .header-tools { justify-self: end; }
 }
 
@@ -948,6 +957,7 @@ main { min-height: 64vh; }
   .header-tools { gap: .45rem; }
   .primary-nav { gap: 1rem; }
   .home-intro, .plain-page-header, .page-intro { padding-top: 2.8rem; }
+  .footer-updated { flex-basis: 100%; margin-left: 0; }
   .update-list.compact article, .publication-list article { grid-template-columns: 1fr; gap: .25rem; }
   .update-meta { flex-direction: row; }
   .publication-index { margin-bottom: 0; }
@@ -957,20 +967,69 @@ main { min-height: 64vh; }
 /* Miscellany: overview, reading record, study notes, diary, sketches, and
    search. Scoped to its own classes so that the Research, CV, and Updates
    layouts are unaffected; long-form text reuses the shared .prose styles. */
-.miscellany-overview { max-width: 48rem; }
-.miscellany-overview .content-section + .content-section { margin-top: 2.25rem; }
-.miscellany-overview .content-section > h2 { margin-bottom: .2rem; }
-.miscellany-overview .content-section > p { margin: 0; color: var(--ink-soft); font-size: .92rem; }
-/* The Writing Studio's category icons at its size and spacing. The
-   description is indented by the same amount so it starts under the label. */
-.miscellany-overview { --miscellany-icon-size: .95rem; --miscellany-icon-gap: .35rem; }
-.miscellany-overview .content-section > h2 > a { display: inline-flex; align-items: center; gap: var(--miscellany-icon-gap); }
-.miscellany-icon { flex: none; width: var(--miscellany-icon-size); height: var(--miscellany-icon-size); }
-.miscellany-overview .content-section > p { padding-left: calc(var(--miscellany-icon-size) + var(--miscellany-icon-gap)); }
+/* The top of a Miscellany page, in the order it is read: where the page is
+   (`Miscellany / Reading`, which is also its heading) with the search
+   beside it, then on a section's page the four sections as one group, and
+   the section's description. Nothing here follows the page as it scrolls. */
+.miscellany-header { max-width: 48rem; padding-top: 2.75rem; margin-bottom: 1.75rem; }
+.miscellany-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .8rem 2rem; }
+.miscellany-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: .4em;
+  min-width: 0;
+  font-size: clamp(1.5rem, 3.2vw, 1.85rem);
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: 1.25;
+}
+.miscellany-title h1 { margin: 0; font: inherit; letter-spacing: inherit; }
+/* The way back, quieter than the page's own name. In the heading it is the
+   heading's size; above an article it is small, like the sections' names. */
+.miscellany-trail { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .4em; font-size: .9rem; }
+.miscellany-trail a { color: var(--ink-soft); text-decoration: none; }
+.miscellany-trail a:hover { color: var(--accent); text-decoration: underline; text-decoration-thickness: .06em; }
+.miscellany-trail-separator { color: var(--rule-strong); font-weight: 400; }
+.miscellany-title .miscellany-trail { font-size: inherit; }
+.miscellany-title .miscellany-trail a { color: var(--ink-faint); font-weight: 500; }
+.miscellany-title .miscellany-trail a:hover { color: var(--accent); }
+.miscellany-heading .miscellany-search { flex: 0 1 17rem; margin: 0; }
 
-.miscellany-nav { margin: 0 0 1.5rem; }
-.miscellany-nav a[aria-current='page'] { color: var(--ink); text-decoration-color: var(--accent); }
-div.miscellany-header { padding-top: 3.75rem; }
+/* The four sections: names on one hairline, the current one underlined in
+   the accent where it meets the line. */
+.miscellany-sections { display: flex; flex-wrap: wrap; column-gap: 1.6rem; margin-top: 1.15rem; border-bottom: 1px solid var(--rule); font-size: .92rem; }
+.miscellany-sections a { display: inline-flex; align-items: center; min-height: 2.6rem; margin-bottom: -1px; border-bottom: 2px solid transparent; color: var(--ink-soft); text-decoration: none; }
+.miscellany-sections a:hover { color: var(--ink); }
+.miscellany-sections a[aria-current='page'] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 550; }
+.miscellany-sections a:focus-visible { outline-offset: 2px; }
+.miscellany-description { margin: .95rem 0 0; color: var(--ink-soft); font-size: .92rem; }
+.miscellany-header > .language-filter { margin-top: .55rem; }
+
+/* The overview's contents: one row a section, the whole row its link. The
+   Writing Studio's category icon, the name, and any description each keep
+   a column, so the names and descriptions line up. */
+.miscellany-overview { max-width: 48rem; }
+.miscellany-contents { margin: -.35rem 0 0; padding: 0; list-style: none; }
+.miscellany-contents a {
+  display: grid;
+  grid-template-columns: .95rem 6.25rem minmax(0, 1fr);
+  column-gap: .6rem;
+  align-items: baseline;
+  min-height: 2.9rem;
+  padding: .6rem 0;
+  color: var(--ink);
+  text-decoration: none;
+}
+.miscellany-icon { flex: none; width: .95rem; height: .95rem; }
+.miscellany-contents .miscellany-icon { align-self: center; color: var(--accent-strong); }
+.miscellany-contents-label { font-size: 1.05rem; font-weight: 600; letter-spacing: -.01em; }
+.miscellany-contents-description { color: var(--ink-soft); font-size: .92rem; }
+.miscellany-contents a:hover .miscellany-contents-label { color: var(--accent); }
+.miscellany-contents a:focus-visible { outline-offset: 2px; }
+
+.miscellany-article-header { margin-bottom: 1.4rem; }
+.miscellany-article-header > .language-filter { margin-top: .4rem; }
 
 .reading-list, .miscellany-list { max-width: 48rem; margin: 0; padding: 0; list-style: none; }
 .reading-list > li, .miscellany-list > li { padding: .85rem 0 .95rem; border-top: 1px solid var(--rule); }
@@ -1009,7 +1068,6 @@ div.miscellany-header { padding-top: 3.75rem; }
   border-radius: 3px;
   background: var(--paper);
 }
-.miscellany-search { margin: -1rem 0 2.6rem; }
 .miscellany-search:hover, .search-field:hover { border-color: var(--rule-strong); }
 .miscellany-search:focus-within, .search-field:focus-within { border-color: var(--accent); }
 .miscellany-search input, .search-field input {
@@ -1078,14 +1136,14 @@ div.miscellany-header { padding-top: 3.75rem; }
 .diary-months a { font-size: 1rem; }
 .diary-month-count { color: var(--ink-faint); font-family: var(--mono); font-size: .7rem; }
 
-.diary-month-header h1 { margin-bottom: .4rem; }
+.diary-month-header h1 { margin: .35rem 0 .4rem; font-size: clamp(1.5rem, 3.2vw, 1.85rem); font-weight: 600; letter-spacing: -.02em; line-height: 1.25; }
 .diary-month-nav { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .4rem 1.5rem; max-width: var(--reading); margin-top: .9rem; font-size: .86rem; }
 .diary-month-nav .diary-next { margin-left: auto; }
 .diary-month-nav-end { margin: 2.2rem 0 0; padding-top: 1.1rem; border-top: 1px solid var(--rule); }
 .diary-days { display: flex; flex-wrap: wrap; gap: .1rem .85rem; max-width: var(--reading); margin-top: .7rem; font-family: var(--mono); font-size: .78rem; }
 .diary-days a { color: var(--ink-soft); text-decoration: none; }
 .diary-days a:hover { color: var(--accent); text-decoration: underline; }
-.diary-month-header + .miscellany-search { margin-top: -.9rem; }
+.diary-month-header + .miscellany-search { max-width: 22rem; margin: 0 0 2rem; }
 
 .diary { --diary-day-column: 2.6rem; max-width: calc(var(--reading) + var(--diary-day-column) + 1.4rem); }
 .diary-entry {
@@ -1130,7 +1188,6 @@ div.miscellany-header { padding-top: 3.75rem; }
    choice; it stays hidden until the script can apply it. */
 .language-filter { display: flex; flex-wrap: wrap; gap: .1rem 1.1rem; margin-top: 1rem; font-size: .82rem; }
 .language-filter[hidden] { display: none; }
-.miscellany-nav + .language-filter { margin: -.6rem 0 1.6rem; }
 .language-filter button, .language-notice button {
   min-height: 2rem;
   padding: 0;
@@ -1169,8 +1226,12 @@ div.miscellany-header { padding-top: 3.75rem; }
 .language-notice button:hover { color: var(--accent); text-decoration-color: currentColor; }
 
 @media (max-width: 36rem) {
-  div.miscellany-header { padding-top: 2.8rem; }
+  .miscellany-header { padding-top: 1.6rem; margin-bottom: 1.35rem; }
+  .miscellany-heading { gap: .7rem; }
+  .miscellany-heading .miscellany-search { flex-basis: 100%; }
   .miscellany-search { max-width: none; }
+  .diary-month-header + .miscellany-search { max-width: none; }
+  .miscellany-sections { justify-content: space-between; column-gap: 1rem; margin-top: .55rem; }
   .diary { --diary-day-column: 2rem; }
   .diary-entry, .diary-entry.has-title .diary-heading { column-gap: .9rem; }
   .diary-day { font-size: 1.25rem; }
@@ -1183,5 +1244,5 @@ div.miscellany-header { padding-top: 3.75rem; }
 
 @media print {
   .music-player, .music-play { display: none !important; }
-  .miscellany-nav, .miscellany-search, .diary-month-nav, .diary-days { display: none; }
+  .miscellany-sections, .miscellany-search, .diary-month-nav, .diary-days { display: none; }
 }

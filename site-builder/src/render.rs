@@ -518,12 +518,12 @@ fn footer() -> Markup {
     html! {
         footer.site-footer {
             p.footer-name { "© 2026 Ryujin Hatakeyama" }
+            p.footer-links { a href="/privacy/" { "Privacy" } }
             // The feed stays discoverable through the <head> link.
             p.footer-updated {
                 "Last updated "
                 time datetime=(LAST_UPDATED.format("%Y-%m-%d")) { (LAST_UPDATED.format("%-d %B %Y")) }
             }
-            p.footer-privacy { a href="/privacy/" { "Privacy" } }
         }
     }
 }
@@ -1285,26 +1285,32 @@ fn search_filter(section: &MiscellanySection) -> String {
 /// only once some published entry has texts in more than one language.
 const MULTILINGUAL_NOTE: &str = "An entry may contain texts in different languages that are not necessarily translations of one another.";
 
+/// The overview: its name and the search, then the four sections as a
+/// compact table of contents, one row (icon, name, any description) each.
 fn miscellany_overview(miscellany: &Miscellany) -> Markup {
     html! {
-        header.plain-page-header {
-            h1 { "Miscellany" }
-            @if miscellany.has_multilingual_entry() { p { (MULTILINGUAL_NOTE) } }
+        header.miscellany-header {
+            div.miscellany-heading {
+                div.miscellany-title { h1 { "Miscellany" } }
+                (search_form(None))
+            }
+            @if miscellany.has_multilingual_entry() { p.miscellany-description { (MULTILINGUAL_NOTE) } }
         }
-        (search_form(None))
-        div.miscellany-overview {
-            @for (section, icon) in MISCELLANY_SECTIONS.iter().zip(MISCELLANY_ICONS) {
-                section.content-section {
-                    // The icon is decorative; the link's name is the label.
-                    h2 {
+        nav.miscellany-overview aria-label="Miscellany sections" {
+            ul.miscellany-contents {
+                @for (section, icon) in MISCELLANY_SECTIONS.iter().zip(MISCELLANY_ICONS) {
+                    li {
+                        // The whole row is the link; the icon is decorative.
                         a href=(section.path) {
                             svg.miscellany-icon aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" {
                                 (PreEscaped(icon))
                             }
-                            span { (section.label) }
+                            span.miscellany-contents-label { (section.label) }
+                            @if !section.description.is_empty() {
+                                span.miscellany-contents-description { (section.description) }
+                            }
                         }
                     }
-                    @if !section.description.is_empty() { p { (section.description) } }
                 }
             }
         }
@@ -1349,12 +1355,27 @@ fn search_icon() -> Markup {
     }
 }
 
-/// Text links back to the overview and between the four sections, shown
-/// above the heading of every page below `/miscellany/`.
-fn miscellany_nav(current_path: &str) -> Markup {
+/// The way back to the overview, then any section, as links separated
+/// by slashes. On a section's own page it is followed by the section's name
+/// as the page heading, so that the two read as one line.
+fn miscellany_trail(section: Option<&MiscellanySection>) -> Markup {
     html! {
-        nav.jump-links.miscellany-nav aria-label="Miscellany sections" {
-            (nav_link("/miscellany/", "Overview", current_path == "/miscellany/"))
+        nav.miscellany-trail aria-label="Breadcrumb" {
+            a href="/miscellany/" { "Miscellany" }
+            span.miscellany-trail-separator aria-hidden="true" { "/" }
+            @if let Some(section) = section {
+                a href=(section.path) { (section.label) }
+                span.miscellany-trail-separator aria-hidden="true" { "/" }
+            }
+        }
+    }
+}
+
+/// The four sections as one group, the current one marked, shown on the
+/// section pages, where readers move between them.
+fn miscellany_sections(current_path: &str) -> Markup {
+    html! {
+        nav.miscellany-sections aria-label="Miscellany sections" {
             @for section in &MISCELLANY_SECTIONS {
                 (nav_link(section.path, section.label, current_path == section.path))
             }
@@ -1362,15 +1383,23 @@ fn miscellany_nav(current_path: &str) -> Markup {
     }
 }
 
+/// A section page's top: `Miscellany / Reading` as its heading, with the
+/// section's search beside it (below it on a phone), then the sections and
+/// the section's description.
 fn miscellany_section_header(section: &MiscellanySection, languages: &[DisplayLanguage]) -> Markup {
     html! {
-        header.plain-page-header.miscellany-header {
-            (miscellany_nav(section.path))
-            h1 { (section.label) }
-            @if !section.description.is_empty() { p { (section.description) } }
+        header.miscellany-header {
+            div.miscellany-heading {
+                div.miscellany-title {
+                    (miscellany_trail(None))
+                    h1 { (section.label) }
+                }
+                (search_form(Some(section)))
+            }
+            (miscellany_sections(section.path))
+            @if !section.description.is_empty() { p.miscellany-description { (section.description) } }
             (language_filter(languages))
         }
-        (search_form(Some(section)))
     }
 }
 
@@ -1594,7 +1623,6 @@ fn notes_page(miscellany: &Miscellany) -> Markup {
 fn note_detail(note: &ValidatedNote, languages: &[DisplayLanguage]) -> Markup {
     let metadata = note.metadata();
     standalone_article(
-        &note_path(&metadata.slug),
         languages,
         NOTES,
         html! {
@@ -1609,17 +1637,17 @@ fn note_detail(note: &ValidatedNote, languages: &[DisplayLanguage]) -> Markup {
     )
 }
 
-/// The page of one note or sketch: the Miscellany navigation and language
-/// choice, then the article, which alone is read by the search index.
+/// The page of one note or sketch: the way back to its section and the
+/// language choice, then the article, which alone is read by the search
+/// index. The sections are not repeated above the text.
 fn standalone_article(
-    path: &str,
     languages: &[DisplayLanguage],
     section: &MiscellanySection,
     article: Markup,
 ) -> Markup {
     html! {
-        div.miscellany-header {
-            (miscellany_nav(path))
+        div.miscellany-header.miscellany-article-header {
+            (miscellany_trail(Some(section)))
             (language_filter(languages))
         }
         article.miscellany-note data-pagefind-body data-pagefind-filter=(search_filter(section)) {
@@ -1657,7 +1685,6 @@ fn sketches_page(miscellany: &Miscellany) -> Markup {
 fn sketch_detail(sketch: &ValidatedSketch, languages: &[DisplayLanguage]) -> Markup {
     let metadata = sketch.metadata();
     standalone_article(
-        &sketch_path(&metadata.slug),
         languages,
         SKETCHES,
         html! {
@@ -1791,8 +1818,8 @@ fn diary_month_page(
 ) -> Markup {
     let name = month.name();
     html! {
-        header.plain-page-header.miscellany-header.diary-month-header {
-            (miscellany_nav(&month.path()))
+        header.miscellany-header.diary-month-header {
+            (miscellany_trail(Some(DIARY)))
             h1 { time datetime=(month.first_day.format("%Y-%m")) { (name) } }
             @if previous.is_some() || next.is_some() {
                 nav.diary-month-nav aria-label="Months" {
@@ -1884,9 +1911,13 @@ fn diary_entry(entry: &ValidatedDiaryEntry, same_day: bool, offered: &[DisplayLa
 /// reads the static index and keeps the query and section in the address.
 fn search_page() -> Markup {
     html! {
-        header.plain-page-header.miscellany-header {
-            (miscellany_nav(SEARCH_PATH))
-            h1 { "Search" }
+        header.miscellany-header {
+            div.miscellany-heading {
+                div.miscellany-title {
+                    (miscellany_trail(None))
+                    h1 { "Search" }
+                }
+            }
         }
         div.search-page data-search-page {
             form.search-form action=(SEARCH_PATH) method="get" role="search" aria-label="Search Miscellany" data-search-form {
@@ -3059,13 +3090,13 @@ mod tests {
     }
 
     #[test]
-    fn footer_links_to_the_privacy_page_after_the_existing_lines() {
+    fn footer_links_to_the_privacy_page_beside_the_name_before_the_date() {
         let html = footer().into_string();
         let privacy = html
-            .find(r#"<p class="footer-privacy"><a href="/privacy/">Privacy</a></p>"#)
+            .find(r#"<p class="footer-links"><a href="/privacy/">Privacy</a></p>"#)
             .unwrap();
         assert!(html.find("© 2026 Ryujin Hatakeyama").unwrap() < privacy);
-        assert!(html.find("Last updated <time").unwrap() < privacy);
+        assert!(privacy < html.find("Last updated <time").unwrap());
         assert!(!html.contains("goatcounter.com"));
     }
 
@@ -3512,10 +3543,12 @@ mod miscellany_tests {
     }
 
     #[test]
-    fn overview_has_one_heading_four_plain_sections_and_a_quiet_search() {
+    fn overview_has_one_heading_four_plain_rows_and_a_quiet_search() {
         let html = miscellany_overview(&Miscellany::default()).into_string();
         assert_eq!(html.matches("<h1").count(), 1);
         assert!(html.contains("<h1>Miscellany</h1>"));
+        // The overview is the top: no way back, and no section is current.
+        assert!(!html.contains("Breadcrumb") && !html.contains("aria-current"));
         let sections = [
             (
                 "reading",
@@ -3537,33 +3570,37 @@ mod miscellany_tests {
             .iter()
             .map(|(slug, label, description, icon)| {
                 let start = html
-                    .find(&format!(r#"<h2><a href="/miscellany/{slug}/"><svg"#))
+                    .find(&format!(r#"<li><a href="/miscellany/{slug}/"><svg"#))
                     .unwrap();
                 let section = &html[start..];
-                // The icon leads the link, is hidden from assistive
-                // technology, and leaves the label as the link's only name.
+                // One link per row, holding the decorative icon, the name,
+                // and any description.
                 let after = match description {
-                    Some(text) => format!("<p>{text}</p>"),
-                    None => "</section>".to_owned(),
+                    Some(text) => format!(
+                        r#"<span class="miscellany-contents-description">{text}</span></a></li>"#
+                    ),
+                    None => "</a></li>".to_owned(),
                 };
                 let expected = format!(
-                    r#"aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{icon}</svg><span>{label}</span></a></h2>{after}"#
+                    r#"aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{icon}</svg><span class="miscellany-contents-label">{label}</span>{after}"#
                 );
                 assert!(section.starts_with(&format!(
-                    r#"<h2><a href="/miscellany/{slug}/"><svg class="miscellany-icon" {expected}"#
+                    r#"<li><a href="/miscellany/{slug}/"><svg class="miscellany-icon" {expected}"#
                 )));
                 start
             })
             .collect();
         assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
-        assert_eq!(html.matches("<section").count(), 4);
+        assert_eq!(html.matches("<li>").count(), 4);
+        assert!(html.contains(r#"<nav class="miscellany-overview" aria-label="Miscellany sections"><ul class="miscellany-contents">"#));
         assert_eq!(
             html.matches("<svg").count(),
             5,
             "four icons and the search icon"
         );
-        // The search is one plain form that opens the search page.
-        assert!(html.contains(r#"<form class="miscellany-search" action="/miscellany/search/" method="get" role="search" aria-label="Search Miscellany"><label class="sr-only" for="miscellany-search-query">Search Miscellany</label><input id="miscellany-search-query" type="search" name="q""#));
+        // The search is one plain form that opens the search page, beside
+        // the heading.
+        assert!(html.contains(r#"<div class="miscellany-heading"><div class="miscellany-title"><h1>Miscellany</h1></div><form class="miscellany-search" action="/miscellany/search/" method="get" role="search" aria-label="Search Miscellany"><label class="sr-only" for="miscellany-search-query">Search Miscellany</label><input id="miscellany-search-query" type="search" name="q""#));
         assert!(!html.contains(r#"name="section""#));
         assert_eq!(html.matches("role=").count(), 1);
         assert!(!html.contains("guides"));
@@ -3598,11 +3635,31 @@ mod miscellany_tests {
         ] {
             let html = page_html(&content, path);
             let main = main_of(&html);
-            assert!(main.contains(&format!("<h1>{title}</h1>")), "{path}");
+            // `Miscellany / Reading` is the heading: the way back, then the
+            // section's name as the page's one h1.
+            assert!(main.contains(&format!(r#"<div class="miscellany-title"><nav class="miscellany-trail" aria-label="Breadcrumb"><a href="/miscellany/">Miscellany</a><span class="miscellany-trail-separator" aria-hidden="true">/</span></nav><h1>{title}</h1></div>"#)), "{path}");
+            assert_eq!(main.matches("<h1").count(), 1);
             assert!(main.contains(&format!(r#"<p class="empty-state">{empty}</p>"#)));
             assert!(!main.contains("<article") && !main.contains("<li") && !main.contains("<h2"));
-            assert!(main.contains(r#"<nav class="jump-links miscellany-nav" aria-label="Miscellany sections"><a href="/miscellany/">Overview</a>"#));
+            // All four sections, in order, one tap away, even when empty.
+            let sections = &main[main
+                .find(r#"<nav class="miscellany-sections" aria-label="Miscellany sections">"#)
+                .unwrap()..];
+            let order: Vec<_> = ["/reading/", "/notes/", "/diary/", "/sketches/"]
+                .iter()
+                .map(|slug| {
+                    sections
+                        .find(&format!(r#"<a href="/miscellany{slug}""#))
+                        .unwrap()
+                })
+                .collect();
+            assert!(order.windows(2).all(|pair| pair[0] < pair[1]));
+            assert!(main.contains(&format!(r#"aria-current="page">{title}</a>"#)));
             assert_eq!(main.matches(r#"aria-current="page""#).count(), 1);
+            // The search comes before the sections and the list.
+            assert!(
+                main.find("miscellany-search").unwrap() < main.find("miscellany-sections").unwrap()
+            );
             // Each section offers a search limited to it.
             assert!(main.contains(r#"<input type="hidden" name="section" value=""#));
             assert!(!main.contains("data-pagefind-body"), "{path}");
@@ -3702,11 +3759,11 @@ mod miscellany_tests {
         ] {
             assert!(main.contains(fragment), "{fragment}");
         }
-        assert!(main.contains(
-            r#"<nav class="jump-links miscellany-nav" aria-label="Miscellany sections">"#
-        ));
-        // The navigation stays outside the language-marked article.
-        assert!(main.find("miscellany-nav").unwrap() < main.find("<article").unwrap());
+        // The way back to Notes, outside the language-marked article; the
+        // sections are not repeated above the text.
+        assert!(main.contains(r#"<nav class="miscellany-trail" aria-label="Breadcrumb"><a href="/miscellany/">Miscellany</a><span class="miscellany-trail-separator" aria-hidden="true">/</span><a href="/miscellany/notes/">Notes</a>"#));
+        assert!(main.find("miscellany-trail").unwrap() < main.find("<article").unwrap());
+        assert!(!main.contains("miscellany-sections") && !main.contains("miscellany-search"));
     }
 
     #[test]
@@ -4116,7 +4173,9 @@ mod multilingual_tests {
         assert!(!miscellany_overview(&empty).into_string().contains(NOTE));
         let html = miscellany_overview(&miscellany(&[MOON_JA, MOON_EN], &[])).into_string();
         assert_eq!(html.matches(NOTE).count(), 1);
-        assert!(html.contains(&format!("<h1>Miscellany</h1><p>{NOTE}</p></header>")));
+        assert!(html.contains(&format!(
+            r#"</form></div><p class="miscellany-description">{NOTE}</p></header>"#
+        )));
     }
 }
 
@@ -4173,7 +4232,8 @@ mod sketches_and_search_tests {
             .unwrap();
         assert!(newer < older);
         // The index adds no description of its own for the section.
-        assert!(index.contains("<h1>Sketches</h1></header>"));
+        assert!(index.contains("<h1>Sketches</h1>"));
+        assert!(index.contains("</nav></header>") && !index.contains("miscellany-description"));
 
         let html = page(&content, "miscellany/sketches/on-borrowed-words/index.html");
         assert!(html.contains(r#"<link rel="canonical" href="https://ryujin-hatakeyama.github.io/miscellany/sketches/on-borrowed-words/">"#));
@@ -4191,9 +4251,7 @@ mod sketches_and_search_tests {
         ] {
             assert!(html.contains(fragment), "{fragment}");
         }
-        assert!(html.contains(
-            r#"<nav class="jump-links miscellany-nav" aria-label="Miscellany sections">"#
-        ));
+        assert!(html.contains(r#"<a href="/miscellany/">Miscellany</a><span class="miscellany-trail-separator" aria-hidden="true">/</span><a href="/miscellany/sketches/">Sketches</a>"#));
         assert!(!html.contains(r#"<a href="/miscellany/sketches/" aria-current"#));
     }
 
