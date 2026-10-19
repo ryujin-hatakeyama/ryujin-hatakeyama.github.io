@@ -1,0 +1,13 @@
+{
+  "id": "preliminary-review-of-my-masters-thesis-2026",
+  "title": { "en": "Preliminary review of my master’s thesis" },
+  "summary": { "en": "I will present my master’s thesis research at a preliminary review." },
+  "date": "2026-11-18",
+  "event_status": "planned",
+  "categories": ["research"],
+  "kind": { "type": "presentation" },
+  "links": [],
+  "related": { "publications": [], "projects": [], "writings": [] },
+  "detail": false,
+  "status": "published"
+}
