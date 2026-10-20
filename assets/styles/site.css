@@ -1006,27 +1006,38 @@ main { min-height: 64vh; }
 .miscellany-description { margin: .95rem 0 0; color: var(--ink-soft); font-size: .92rem; }
 .miscellany-header > .language-filter { margin-top: .55rem; }
 
-/* The overview's contents: one row a section, the whole row its link. The
-   Writing Studio's category icon, the name, and any description each keep
-   a column, so the names and descriptions line up. */
-.miscellany-overview { max-width: 48rem; }
-.miscellany-contents { margin: -.35rem 0 0; padding: 0; list-style: none; }
+/* The overview's contents: one row a section, the whole row its link, as
+   quiet as the text around it. A thin rule between rows, a faint wash
+   under the row the pointer or focus is on, and a small chevron at the
+   right say that each row leads somewhere; no description beside the name,
+   no underline, no colour of its own for any section. The row's padding
+   reaches past the text by the same amount on both sides, so the icons
+   stay in line with the heading. */
+.miscellany-overview { max-width: 34rem; }
+.miscellany-contents { margin: .2rem 0 0; padding: 0; list-style: none; }
+.miscellany-contents li + li { border-top: 1px solid color-mix(in srgb, var(--rule) 70%, transparent); }
 .miscellany-contents a {
   display: grid;
-  grid-template-columns: .95rem 6.25rem minmax(0, 1fr);
-  column-gap: .6rem;
-  align-items: baseline;
+  grid-template-columns: 1rem minmax(0, 1fr) auto;
+  column-gap: .75rem;
+  align-items: center;
   min-height: 2.9rem;
-  padding: .6rem 0;
+  margin: 0 -.55rem;
+  padding: .45rem .55rem;
+  border-radius: 3px;
   color: var(--ink);
   text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color .12s ease;
 }
-.miscellany-icon { flex: none; width: .95rem; height: .95rem; }
-.miscellany-contents .miscellany-icon { align-self: center; color: var(--accent-strong); }
+.miscellany-icon { flex: none; width: 1rem; height: 1rem; }
+.miscellany-contents .miscellany-icon { color: var(--accent-strong); }
 .miscellany-contents-label { font-size: 1.05rem; font-weight: 600; letter-spacing: -.01em; }
-.miscellany-contents-description { color: var(--ink-soft); font-size: .92rem; }
-.miscellany-contents a:hover .miscellany-contents-label { color: var(--accent); }
-.miscellany-contents a:focus-visible { outline-offset: 2px; }
+.miscellany-chevron { width: .85rem; height: .85rem; color: var(--ink-faint); transition: color .12s ease, transform .12s ease; }
+.miscellany-contents a:hover, .miscellany-contents a:focus-visible, .miscellany-contents a:active { background: color-mix(in srgb, var(--ink) 4.5%, transparent); }
+.miscellany-contents a:hover .miscellany-chevron, .miscellany-contents a:focus-visible .miscellany-chevron { color: var(--ink-soft); transform: translateX(1px); }
+.miscellany-contents a:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .miscellany-contents a, .miscellany-chevron { transition: none; } }
 
 .miscellany-article-header { margin-bottom: 1.4rem; }
 .miscellany-article-header > .language-filter { margin-top: .4rem; }

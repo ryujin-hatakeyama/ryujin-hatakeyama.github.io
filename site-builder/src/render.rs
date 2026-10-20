@@ -1254,10 +1254,14 @@ const SKETCHES: &MiscellanySection = &MISCELLANY_SECTIONS[3];
 /// same 24-unit grid and stroke, in `MISCELLANY_SECTIONS` order: an open
 /// book, a notebook, a calendar, and a pencil.
 const MISCELLANY_ICONS: [&str; 4] = [
-    r#"<path d="M3.5 5.5A3.5 3.5 0 0 1 7 3h4v16H7a3.5 3.5 0 0 0-3.5 2V5.5Z"/><path d="M20.5 5.5A3.5 3.5 0 0 0 17 3h-4v16h4a3.5 3.5 0 0 1 3.5 2V5.5Z"/>"#,
-    r#"<path d="M6 3.5h12a2 2 0 0 1 2 2v15H6a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z"/><path d="M8 8h8M8 12h5M3 7h2M3 11h2M3 15h2"/>"#,
-    r#"<path d="M6 3v3M18 3v3M4 8h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"/><path d="M8 12h3M8 16h7"/>"#,
-    r#"<path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/><path d="M13.5 7l3 3M12 20h8"/>"#,
+    // Reading: an open book.
+    r#"<path d="M12 6.5C10.2 5.2 7.7 4.5 4 4.5v13c3.7 0 6.2.7 8 2 1.8-1.3 4.3-2 8-2v-13c-3.7 0-6.2.7-8 2Z"/><path d="M12 6.5v13"/>"#,
+    // Notes: a written page.
+    r#"<rect x="5" y="3.5" width="14" height="17" rx="1.5"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4"/>"#,
+    // Diary: a calendar's page.
+    r#"<rect x="4" y="5" width="16" height="15.5" rx="1.5"/><path d="M4 9.5h16M8.5 3v4M15.5 3v4"/>"#,
+    // Sketches: two forms laid over each other, a thought taking shape.
+    r#"<circle cx="9.5" cy="9.5" r="5.5"/><rect x="10" y="10" width="9.5" height="9.5" rx="1"/>"#,
 ];
 
 /// The search page, which reads the static index built from the published
@@ -1300,14 +1304,14 @@ fn miscellany_overview(miscellany: &Miscellany) -> Markup {
             ul.miscellany-contents {
                 @for (section, icon) in MISCELLANY_SECTIONS.iter().zip(MISCELLANY_ICONS) {
                     li {
-                        // The whole row is the link; the icon is decorative.
+                        // The whole row is the link: the icon and the chevron are decorative.
                         a href=(section.path) {
-                            svg.miscellany-icon aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" {
+                            svg.miscellany-icon aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" {
                                 (PreEscaped(icon))
                             }
                             span.miscellany-contents-label { (section.label) }
-                            @if !section.description.is_empty() {
-                                span.miscellany-contents-description { (section.description) }
+                            svg.miscellany-chevron aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" {
+                                path d="m9.5 6 6 6-6 6" {}
                             }
                         }
                     }
@@ -3550,53 +3554,36 @@ mod miscellany_tests {
         // The overview is the top: no way back, and no section is current.
         assert!(!html.contains("Breadcrumb") && !html.contains("aria-current"));
         let sections = [
-            (
-                "reading",
-                "Reading",
-                Some("Books and papers"),
-                MISCELLANY_ICONS[0],
-            ),
-            ("notes", "Notes", Some("Study notes"), MISCELLANY_ICONS[1]),
-            (
-                "diary",
-                "Diary",
-                Some("Occasional entries"),
-                MISCELLANY_ICONS[2],
-            ),
-            // No description has been written for Sketches; none is invented.
-            ("sketches", "Sketches", None, MISCELLANY_ICONS[3]),
+            ("reading", "Reading", MISCELLANY_ICONS[0]),
+            ("notes", "Notes", MISCELLANY_ICONS[1]),
+            ("diary", "Diary", MISCELLANY_ICONS[2]),
+            ("sketches", "Sketches", MISCELLANY_ICONS[3]),
         ];
         let positions: Vec<_> = sections
             .iter()
-            .map(|(slug, label, description, icon)| {
+            .map(|(slug, label, icon)| {
                 let start = html
                     .find(&format!(r#"<li><a href="/miscellany/{slug}/"><svg"#))
                     .unwrap();
                 let section = &html[start..];
-                // One link per row, holding the decorative icon, the name,
-                // and any description.
-                let after = match description {
-                    Some(text) => format!(
-                        r#"<span class="miscellany-contents-description">{text}</span></a></li>"#
-                    ),
-                    None => "</a></li>".to_owned(),
-                };
+                // One link per row: the decorative icon, the name, and a quiet
+                // chevron; no description beside it (each section's own page
+                // keeps its line).
                 let expected = format!(
-                    r#"aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{icon}</svg><span class="miscellany-contents-label">{label}</span>{after}"#
+                    r#"<li><a href="/miscellany/{slug}/"><svg class="miscellany-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">{icon}</svg><span class="miscellany-contents-label">{label}</span><svg class="miscellany-chevron" aria-hidden="true""#
                 );
-                assert!(section.starts_with(&format!(
-                    r#"<li><a href="/miscellany/{slug}/"><svg class="miscellany-icon" {expected}"#
-                )));
+                assert!(section.starts_with(&expected), "{section}");
                 start
             })
             .collect();
+        assert!(!html.contains("miscellany-contents-description"));
         assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
         assert_eq!(html.matches("<li>").count(), 4);
         assert!(html.contains(r#"<nav class="miscellany-overview" aria-label="Miscellany sections"><ul class="miscellany-contents">"#));
         assert_eq!(
             html.matches("<svg").count(),
-            5,
-            "four icons and the search icon"
+            9,
+            "four icons, four chevrons, and the search icon"
         );
         // The search is one plain form that opens the search page, beside
         // the heading.
