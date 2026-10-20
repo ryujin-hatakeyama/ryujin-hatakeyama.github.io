@@ -1,0 +1,97 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Proof",
+      "kind": "proof",
+      "label": null,
+      "line": 1,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 1
+    },
+    {
+      "head": "Proof",
+      "kind": "proof",
+      "label": null,
+      "line": 5,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 1
+    },
+    {
+      "head": "Proof",
+      "kind": "proof",
+      "label": null,
+      "line": 9,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 1
+    },
+    {
+      "head": "Proof",
+      "kind": "proof",
+      "label": null,
+      "line": 17,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 1
+    },
+    {
+      "head": "Proof",
+      "kind": "proof",
+      "label": null,
+      "line": 21,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 1
+    },
+    {
+      "head": "Proof",
+      "kind": "proof",
+      "label": null,
+      "line": 25,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proof",
+      "kind": "proof",
+      "label": null,
+      "line": 32,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 1
+    },
+    {
+      "head": "Proof",
+      "kind": "proof",
+      "label": null,
+      "line": 35,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 1
+    },
+    {
+      "head": "Proof",
+      "kind": "proof",
+      "label": null,
+      "line": 42,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 1
+    }
+  ],
+  "numbering": "section",
+  "references": []
+}

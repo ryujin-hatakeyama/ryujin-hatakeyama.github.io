@@ -3766,6 +3766,124 @@ mod miscellany_tests {
         assert!(!main.contains("miscellany-sections") && !main.contains("miscellany-search"));
     }
 
+    const NOTE_THEOREMS: &str = "---\nslug: normalization\ntitle: Normalization\nlang: en\nmath: true\ntheoremNumbering: section\ndraft: false\n---\n\n## Preliminaries\n\n::: {#def-value name=\"Value\"}\nA term $v$ with $\\llbracket v\\rrbracket_\\rho$ defined.\n:::\n\n::: {#lem-step}\nEvery step shrinks the measure.\n:::\n\n::: {.proof of=\"lem-step\"}\nBy @def-value.\n:::\n\n## Results\n\n::: {#thm-normal}\nEvery term normalizes, by @lem-step.\n:::\n";
+
+    #[test]
+    fn notes_number_and_link_theorem_environments() {
+        let content =
+            ValidatedSiteContent::with_miscellany(miscellany("items: []", &[NOTE_THEOREMS], &[]));
+        let html = page_html(&content, "miscellany/notes/normalization/index.html");
+        let main = main_of(&html);
+        for fragment in [
+            r#"<div class="theorem theorem-definition" data-kind="definition" id="en-def-value">"#,
+            r#"<span class="theorem-head"><strong>Definition 1.1</strong> (Value)<strong>.</strong></span> A term"#,
+            r#"<div class="theorem theorem-plain" data-kind="lemma" id="en-lem-step">"#,
+            r##"<span class="theorem-head"><em>Proof of Lemma 1.2</em><em>.</em></span> By <a class="theorem-ref" href="#en-def-value">Definition 1.1</a>."##,
+            r#"<span class="qed" role="img" aria-label="End of proof">∎</span>"#,
+            r##"<span class="theorem-head"><strong>Theorem 2.1</strong><strong>.</strong></span> Every term normalizes, by <a class="theorem-ref" href="#en-lem-step">Lemma 1.2</a>."##,
+        ] {
+            assert!(main.contains(fragment), "{fragment}\n{main}");
+        }
+        assert!(!main.contains(":::"));
+        assert_eq!(main.matches('∎').count(), 1);
+
+        // Through the text instead: the same environments, 1, 2, 3.
+        let through =
+            NOTE_THEOREMS.replace("theoremNumbering: section", "theoremNumbering: document");
+        let content =
+            ValidatedSiteContent::with_miscellany(miscellany("items: []", &[&through], &[]));
+        let html = page_html(&content, "miscellany/notes/normalization/index.html");
+        assert!(
+            html.contains("<strong>Definition 1</strong>")
+                && html.contains("<strong>Lemma 2</strong>")
+                && html.contains("<strong>Theorem 3</strong>")
+        );
+        // Without the field: by section.
+        let default = NOTE_THEOREMS.replace("theoremNumbering: section\n", "");
+        let content =
+            ValidatedSiteContent::with_miscellany(miscellany("items: []", &[&default], &[]));
+        assert!(
+            page_html(&content, "miscellany/notes/normalization/index.html")
+                .contains("<strong>Theorem 2.1</strong>")
+        );
+    }
+
+    #[test]
+    fn theorem_problems_stop_the_build_with_their_lines() {
+        let error = |body: &str| {
+            let note = NOTE_THEOREMS.replace("## Results", body);
+            format!(
+                "{:#}",
+                Miscellany::from_sources("items: []", &[&note], &[]).unwrap_err()
+            )
+        };
+        let undefined = error("See @thm-nowhere.");
+        assert!(
+            undefined.contains("line 24: No environment is labelled “thm-nowhere”"),
+            "{undefined}"
+        );
+        let unclosed = format!(
+            "{:#}",
+            Miscellany::from_sources(
+                "items: []",
+                &[&format!(
+                    "{NOTE_THEOREMS}\n::: {{#thm-open}}\nNever closed.\n"
+                )],
+                &[]
+            )
+            .unwrap_err()
+        );
+        assert!(
+            unclosed.contains("line 30: This environment is never closed"),
+            "{unclosed}"
+        );
+        let nested = error("::: {#thm-open}\nNever closed here.");
+        assert!(
+            nested.contains("line 27: An environment cannot start inside another"),
+            "{nested}"
+        );
+        let duplicate = error("::: {#lem-step}\nAgain.\n:::");
+        assert!(
+            duplicate.contains("labels more than one environment"),
+            "{duplicate}"
+        );
+        let malformed = error("::: {#thm-a .lemma}\nDisagrees.\n:::");
+        assert!(
+            malformed.contains("The label says Theorem, the class says Lemma."),
+            "{malformed}"
+        );
+        let box_fence = error("::: {.box}\nA box.\n:::");
+        assert!(
+            box_fence.contains("shows no other ::: blocks"),
+            "{box_fence}"
+        );
+        let wrong = NOTE_THEOREMS.replace("theoremNumbering: section", "theoremNumbering: chapter");
+        assert!(Miscellany::from_sources("items: []", &[&wrong], &[]).is_err());
+    }
+
+    #[test]
+    fn diary_entries_on_one_page_keep_their_theorem_anchors_apart() {
+        let entry = |date: &str| {
+            format!(
+                "---\ndate: {date}\nlang: en\ndraft: false\n---\n\n::: {{#thm-day}}\nA fact.\n:::\n\nBy @thm-day.\n"
+            )
+        };
+        let (first, second) = (entry("2026-10-02"), entry("2026-10-10"));
+        let content =
+            ValidatedSiteContent::with_miscellany(miscellany("items: []", &[], &[&first, &second]));
+        let html = page_html(&content, "miscellany/diary/2026/10/index.html");
+        for date in ["2026-10-02", "2026-10-10"] {
+            assert!(
+                html.contains(&format!(r#"id="{date}-en-thm-day""#)),
+                "{date}"
+            );
+            assert!(
+                html.contains(&format!(r##"href="#{date}-en-thm-day""##)),
+                "{date}"
+            );
+        }
+    }
+
     #[test]
     fn japanese_notes_are_marked_as_japanese() {
         let notes = miscellany("items: []", &[NOTE_JA], &[]);

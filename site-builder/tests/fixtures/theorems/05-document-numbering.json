@@ -1,0 +1,83 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Definition 1",
+      "kind": "definition",
+      "label": "def-before",
+      "line": 1,
+      "name": null,
+      "number": "1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Theorem 2",
+      "kind": "theorem",
+      "label": "thm-one",
+      "line": 7,
+      "name": null,
+      "number": "2",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Lemma 3",
+      "kind": "lemma",
+      "label": "lem-two",
+      "line": 11,
+      "name": null,
+      "number": "3",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Corollary 4",
+      "kind": "corollary",
+      "label": "cor-three",
+      "line": 17,
+      "name": null,
+      "number": "4",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Theorem 5",
+      "kind": "theorem",
+      "label": "thm-four",
+      "line": 23,
+      "name": null,
+      "number": "5",
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "document",
+  "references": [
+    {
+      "label": "def-before",
+      "line": 27,
+      "text": "Definition 1"
+    },
+    {
+      "label": "thm-one",
+      "line": 27,
+      "text": "Theorem 2"
+    },
+    {
+      "label": "lem-two",
+      "line": 27,
+      "text": "Lemma 3"
+    },
+    {
+      "label": "cor-three",
+      "line": 27,
+      "text": "Corollary 4"
+    },
+    {
+      "label": "thm-four",
+      "line": 27,
+      "text": "Theorem 5"
+    }
+  ]
+}

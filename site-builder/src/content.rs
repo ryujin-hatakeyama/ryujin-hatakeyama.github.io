@@ -6,9 +6,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use katex::{Opts, render_with_opts};
+use std::ops::Range;
+
 use pulldown_cmark::{CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd, html};
 
 use crate::music::{MusicMetadata, card_html, music_paragraph};
+use crate::theorems::{self, Analysis, TheoremNumbering, TheoremOptions};
 use serde::de::DeserializeOwned;
 
 use chrono::NaiveDate;
@@ -395,6 +398,11 @@ trait ArticleMetadata: DeserializeOwned {
     fn id(&self) -> String;
     fn language(&self) -> PassageLanguage;
     fn math(&self) -> bool;
+    /// How its first passage numbers theorem environments.
+    fn theorem_numbering(&self) -> TheoremNumbering;
+    /// Whether several articles share a page (diary entries share their
+    /// month's), so identifiers in a passage carry the article's identity.
+    const SHARES_PAGE: bool = false;
     /// The details of the music cards in its first passage.
     fn music(&self) -> &[MusicMetadata];
 }
@@ -415,6 +423,9 @@ impl ArticleMetadata for NoteFrontMatter {
     }
     fn math(&self) -> bool {
         self.math
+    }
+    fn theorem_numbering(&self) -> TheoremNumbering {
+        self.theorem_numbering
     }
     fn music(&self) -> &[MusicMetadata] {
         &self.music
@@ -439,6 +450,9 @@ impl ArticleMetadata for SketchFrontMatter {
     fn math(&self) -> bool {
         self.math
     }
+    fn theorem_numbering(&self) -> TheoremNumbering {
+        self.theorem_numbering
+    }
     fn music(&self) -> &[MusicMetadata] {
         &self.music
     }
@@ -450,6 +464,7 @@ impl ArticleMetadata for DiaryFrontMatter {
     // footnote identifiers there would need to be unique across entries.
     const HEADING: HeadingLevel = HeadingLevel::H3;
     const FOOTNOTES: bool = false;
+    const SHARES_PAGE: bool = true;
 
     fn validate(&self, source: &str) -> Result<()> {
         DiaryFrontMatter::validate(self, source)
@@ -462,6 +477,9 @@ impl ArticleMetadata for DiaryFrontMatter {
     }
     fn math(&self) -> bool {
         self.math
+    }
+    fn theorem_numbering(&self) -> TheoremNumbering {
+        self.theorem_numbering
     }
     fn music(&self) -> &[MusicMetadata] {
         &self.music
@@ -760,6 +778,8 @@ enum ArticleSource<M> {
 
 fn parse_article_source<M: ArticleMetadata>(file: SourceFile) -> Result<ArticleSource<M>> {
     let path = file.path;
+    // The text begins after the opening ---, the front matter, and the closing ---.
+    let first_line = file.front_matter.split('\n').count() + 3;
     let invalid = || format!("invalid front matter in {}", path.display());
     let fields: serde_yaml_ng::Value =
         serde_yaml_ng::from_str(&file.front_matter).with_context(invalid)?;
@@ -774,6 +794,7 @@ fn parse_article_source<M: ArticleMetadata>(file: SourceFile) -> Result<ArticleS
             metadata.title,
             metadata.math,
             &metadata.music,
+            (metadata.theorem_numbering, &metadata.of, first_line),
         )?;
         Ok(ArticleSource::Companion {
             of: metadata.of,
@@ -790,6 +811,7 @@ fn parse_article_source<M: ArticleMetadata>(file: SourceFile) -> Result<ArticleS
             None,
             metadata.math(),
             metadata.music(),
+            (metadata.theorem_numbering(), &metadata.id(), first_line),
         )?;
         Ok(ArticleSource::Primary {
             path,
@@ -806,6 +828,7 @@ fn render_passage<M: ArticleMetadata>(
     title: Option<String>,
     math: bool,
     music: &[MusicMetadata],
+    (numbering, article, first_line): (TheoremNumbering, &str, usize),
 ) -> Result<Passage> {
     ensure!(
         !body.trim().is_empty(),
@@ -817,6 +840,11 @@ fn render_passage<M: ArticleMetadata>(
     } else {
         M::HEADING
     };
+    let id_prefix = if M::SHARES_PAGE {
+        format!("{article}-{}", language.code())
+    } else {
+        language.code().to_owned()
+    };
     let rules = MarkdownRules {
         math,
         highest_heading,
@@ -826,6 +854,13 @@ fn render_passage<M: ArticleMetadata>(
         footnote_prefix: Some(language.code()),
         inline_languages: true,
         music: Some(music),
+        // Theorem identifiers carry the passage's language, as footnotes do,
+        // and on a shared page the article's identity too.
+        theorems: Some(TheoremOptions {
+            numbering,
+            id_prefix: Some(&id_prefix),
+            first_line,
+        }),
     };
     let body = render_markdown_with(body, rules)
         .with_context(|| format!("failed to render {}", path.display()))?;
@@ -1012,20 +1047,22 @@ fn split_front_matter<'a>(source: &'a str, path: &Path) -> Result<(&'a str, &'a 
 
 /// Constraints on a Markdown body beyond the shared safety rules.
 #[derive(Clone, Copy)]
-struct MarkdownRules<'a> {
-    math: bool,
+pub(crate) struct MarkdownRules<'a> {
+    pub(crate) math: bool,
     /// The most prominent heading the body may contain, so that it fits
     /// beneath the headings of the page it appears on.
-    highest_heading: HeadingLevel,
-    footnotes: bool,
+    pub(crate) highest_heading: HeadingLevel,
+    pub(crate) footnotes: bool,
     /// Prefixed to footnote labels, keeping identifiers unique when several
     /// bodies share one page.
-    footnote_prefix: Option<&'static str>,
+    pub(crate) footnote_prefix: Option<&'static str>,
     /// Whether `[phrase]{lang=xx}` marks the language of a phrase.
-    inline_languages: bool,
+    pub(crate) inline_languages: bool,
     /// Whether a paragraph of music addresses becomes a music card, and the
     /// details the file gives for them (src/music.rs).
-    music: Option<&'a [MusicMetadata]>,
+    pub(crate) music: Option<&'a [MusicMetadata]>,
+    /// Whether theorem environments are read (src/theorems.rs), and how.
+    pub(crate) theorems: Option<TheoremOptions<'a>>,
 }
 
 fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown> {
@@ -1038,11 +1075,34 @@ fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown>
             footnote_prefix: None,
             inline_languages: false,
             music: None,
+            theorems: None,
         },
     )
 }
 
 fn render_markdown_with(source: &str, rules: MarkdownRules<'_>) -> Result<RenderedMarkdown> {
+    let (html, analysis) = render_markdown_analyzed(source, rules)?;
+    let first_line = rules.theorems.map_or(1, |t| t.first_line);
+    if let Some(analysis) = analysis {
+        if !analysis.diagnostics.is_empty() {
+            let problems: Vec<String> = analysis
+                .diagnostics
+                .iter()
+                .map(|d| format!("line {}: {}", d.line + first_line - 1, d.message))
+                .collect();
+            bail!("theorem environments: {}", problems.join("; "));
+        }
+    }
+    Ok(RenderedMarkdown(html))
+}
+
+/// The HTML, and what the theorem environments came to (when they are read),
+/// even when they have problems: the build refuses those
+/// (`render_markdown_with`), the shared fixtures compare them.
+pub(crate) fn render_markdown_analyzed(
+    source: &str,
+    rules: MarkdownRules<'_>,
+) -> Result<(String, Option<Analysis>)> {
     let mut options = Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TABLES
@@ -1051,14 +1111,22 @@ fn render_markdown_with(source: &str, rules: MarkdownRules<'_>) -> Result<Render
     if rules.math {
         options.insert(Options::ENABLE_MATH);
     }
+    // Theorem environments: their fence lines become comment lines the
+    // parser closes blocks at (src/theorems.rs).
+    let prepared = rules.theorems.map(|_| theorems::prepare(source));
+    let text = prepared.as_ref().map_or(source, |p| p.source.as_str());
+    let is_fence =
+        |range: &Range<usize>| prepared.as_ref().is_some_and(|p| p.is_fence(range.start));
 
     let mut events = Vec::new();
+    // Each event's place in the text, for the theorem environments.
+    let mut ranges: Vec<Option<Range<usize>>> = Vec::new();
     // How deep in blocks the parser is: a music card stands only at the top
     // level, never inside a list, quotation, table, or footnote.
     let mut depth = 0_usize;
     // Inside a paragraph that became a music card: its events are dropped.
     let mut in_card = false;
-    for (event, range) in Parser::new_ext(source, options).into_offset_iter() {
+    for (event, range) in Parser::new_ext(text, options).into_offset_iter() {
         if in_card {
             if matches!(event, Event::End(TagEnd::Paragraph)) {
                 in_card = false;
@@ -1068,9 +1136,10 @@ fn render_markdown_with(source: &str, rules: MarkdownRules<'_>) -> Result<Render
         }
         if let (Event::Start(Tag::Paragraph), 0, Some(metadata)) = (&event, depth, rules.music) {
             // The paragraph's whole lines, from the start of its first.
-            let line_start = source[..range.start].rfind('\n').map_or(0, |i| i + 1);
-            if let Some(links) = music_paragraph(&source[line_start..range.end]) {
+            let line_start = text[..range.start].rfind('\n').map_or(0, |i| i + 1);
+            if let Some(links) = music_paragraph(&text[line_start..range.end]) {
                 events.push(Event::Html(card_html(&links, metadata).into()));
+                ranges.push(None);
                 in_card = true;
                 depth += 1;
                 continue;
@@ -1082,6 +1151,7 @@ fn render_markdown_with(source: &str, rules: MarkdownRules<'_>) -> Result<Render
             _ => {}
         }
         match &event {
+            Event::Html(_) if is_fence(&range) => {}
             Event::Html(_) | Event::InlineHtml(_) => {
                 bail!("raw HTML is not permitted in Markdown content")
             }
@@ -1112,14 +1182,28 @@ fn render_markdown_with(source: &str, rules: MarkdownRules<'_>) -> Result<Render
             }
             other => other,
         });
+        ranges.push(Some(range));
     }
+    let analysis = match (&prepared, rules.theorems) {
+        (Some(prepared), Some(options)) => {
+            let (applied, analysis) =
+                theorems::apply(events.into_iter().zip(ranges).collect(), prepared, options);
+            events = applied;
+            Some(analysis)
+        }
+        _ => None,
+    };
     if rules.inline_languages {
         events = mark_inline_languages(events)?;
         events = mark_highlights(events);
     }
+    if analysis.is_some() {
+        // Japanese and Chinese have no italic: in an italic environment their runs stay upright.
+        events = theorems::upright_cjk(events);
+    }
     let mut output = String::new();
     html::push_html(&mut output, events.into_iter());
-    Ok(RenderedMarkdown(output))
+    Ok((output, analysis))
 }
 
 fn prefixed<'a>(label: CowStr<'a>, rules: &MarkdownRules<'_>) -> CowStr<'a> {
@@ -1451,6 +1535,7 @@ mod tests {
             footnote_prefix: Some("ja"),
             inline_languages: true,
             music,
+            theorems: None,
         };
         let source = format!(
             "Today.[^1]\n\n{apple}\n{spotify}\n\nIn a sentence: {apple}\n\n> {apple}\n\n- {spotify}\n\n{spotify}\n\n[^1]: A note: {apple}\n"
@@ -1486,6 +1571,7 @@ mod tests {
             footnote_prefix: None,
             inline_languages: true,
             music: None,
+            theorems: None,
         };
         let html = |source: &str| super::render_markdown_with(source, rules()).unwrap().0;
         assert_eq!(

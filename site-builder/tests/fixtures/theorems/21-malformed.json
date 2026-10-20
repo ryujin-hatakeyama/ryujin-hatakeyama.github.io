@@ -1,0 +1,46 @@
+{
+  "diagnostics": [
+    {
+      "code": "malformed-opener",
+      "line": 5
+    },
+    {
+      "code": "malformed-opener",
+      "line": 9
+    },
+    {
+      "code": "malformed-opener",
+      "line": 13
+    },
+    {
+      "code": "malformed-opener",
+      "line": 17
+    },
+    {
+      "code": "malformed-opener",
+      "line": 21
+    },
+    {
+      "code": "malformed-opener",
+      "line": 25
+    },
+    {
+      "code": "stray-closer",
+      "line": 32
+    }
+  ],
+  "environments": [
+    {
+      "head": "Theorem 1",
+      "kind": "theorem",
+      "label": "thm-ok",
+      "line": 1,
+      "name": null,
+      "number": "1",
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "section",
+  "references": []
+}

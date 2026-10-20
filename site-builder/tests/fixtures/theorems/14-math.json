@@ -1,0 +1,27 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Definition 1",
+      "kind": "definition",
+      "label": "def-sem",
+      "line": 1,
+      "name": "Semantics",
+      "number": "1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Theorem 2",
+      "kind": "theorem",
+      "label": "thm-sem",
+      "line": 9,
+      "name": null,
+      "number": "2",
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "section",
+  "references": []
+}

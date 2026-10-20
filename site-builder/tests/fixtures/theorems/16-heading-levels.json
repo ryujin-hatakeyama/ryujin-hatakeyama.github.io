@@ -1,0 +1,57 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Theorem 0.1",
+      "kind": "theorem",
+      "label": "thm-a",
+      "line": 3,
+      "name": null,
+      "number": "0.1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Theorem 1.1",
+      "kind": "theorem",
+      "label": "thm-b",
+      "line": 9,
+      "name": null,
+      "number": "1.1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Theorem 1.2",
+      "kind": "theorem",
+      "label": "thm-c",
+      "line": 15,
+      "name": null,
+      "number": "1.2",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Theorem 2.1",
+      "kind": "theorem",
+      "label": "thm-d",
+      "line": 21,
+      "name": null,
+      "number": "2.1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Theorem 2.2",
+      "kind": "theorem",
+      "label": "thm-e",
+      "line": 29,
+      "name": null,
+      "number": "2.2",
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "section",
+  "references": []
+}

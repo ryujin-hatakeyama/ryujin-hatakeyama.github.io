@@ -1,0 +1,157 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Theorem 1",
+      "kind": "theorem",
+      "label": "thm-a",
+      "line": 1,
+      "name": null,
+      "number": "1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Lemma 2",
+      "kind": "lemma",
+      "label": "lem-a",
+      "line": 5,
+      "name": null,
+      "number": "2",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proposition 3",
+      "kind": "proposition",
+      "label": "prp-a",
+      "line": 9,
+      "name": null,
+      "number": "3",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Corollary 4",
+      "kind": "corollary",
+      "label": "cor-a",
+      "line": 13,
+      "name": null,
+      "number": "4",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Conjecture 5",
+      "kind": "conjecture",
+      "label": "cnj-a",
+      "line": 17,
+      "name": null,
+      "number": "5",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Claim 6",
+      "kind": "claim",
+      "label": "clm-a",
+      "line": 21,
+      "name": null,
+      "number": "6",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Observation 7",
+      "kind": "observation",
+      "label": "obs-a",
+      "line": 25,
+      "name": null,
+      "number": "7",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Definition 8",
+      "kind": "definition",
+      "label": "def-a",
+      "line": 29,
+      "name": null,
+      "number": "8",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Assumption 9",
+      "kind": "assumption",
+      "label": "asm-a",
+      "line": 33,
+      "name": null,
+      "number": "9",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Example 10",
+      "kind": "example",
+      "label": "exm-a",
+      "line": 37,
+      "name": null,
+      "number": "10",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Exercise 11",
+      "kind": "exercise",
+      "label": "exr-a",
+      "line": 41,
+      "name": null,
+      "number": "11",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Remark 12",
+      "kind": "remark",
+      "label": "rem-a",
+      "line": 45,
+      "name": null,
+      "number": "12",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proof",
+      "kind": "proof",
+      "label": null,
+      "line": 49,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 1
+    },
+    {
+      "head": "Theorem 13",
+      "kind": "theorem",
+      "label": null,
+      "line": 53,
+      "name": null,
+      "number": "13",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Lemma",
+      "kind": "lemma",
+      "label": null,
+      "line": 57,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "section",
+  "references": []
+}

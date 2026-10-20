@@ -1,0 +1,51 @@
+{
+  "diagnostics": [
+    {
+      "code": "undefined-reference",
+      "line": 5
+    },
+    {
+      "code": "undefined-reference",
+      "line": 7
+    },
+    {
+      "code": "incomplete-reference",
+      "line": 7
+    }
+  ],
+  "environments": [
+    {
+      "head": "Theorem 1",
+      "kind": "theorem",
+      "label": "thm-known",
+      "line": 1,
+      "name": null,
+      "number": "1",
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "section",
+  "references": [
+    {
+      "label": "thm-known",
+      "line": 5,
+      "text": "Theorem 1"
+    },
+    {
+      "label": "thm-unknown",
+      "line": 5,
+      "text": null
+    },
+    {
+      "label": "lem-nowhere",
+      "line": 7,
+      "text": null
+    },
+    {
+      "label": "thm-",
+      "line": 7,
+      "text": null
+    }
+  ]
+}

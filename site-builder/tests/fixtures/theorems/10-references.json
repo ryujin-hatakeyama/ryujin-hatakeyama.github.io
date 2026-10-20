@@ -1,0 +1,64 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Theorem 0.1",
+      "kind": "theorem",
+      "label": "thm-ref",
+      "line": 1,
+      "name": null,
+      "number": "0.1",
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "section",
+  "references": [
+    {
+      "label": "thm-ref",
+      "line": 5,
+      "text": "Theorem 0.1"
+    },
+    {
+      "label": "thm-ref",
+      "line": 6,
+      "text": "Theorem 0.1"
+    },
+    {
+      "label": "thm-ref",
+      "line": 6,
+      "text": "Theorem 0.1"
+    },
+    {
+      "label": "thm-ref",
+      "line": 7,
+      "text": "Theorem 0.1"
+    },
+    {
+      "label": "thm-ref",
+      "line": 7,
+      "text": "Theorem 0.1"
+    },
+    {
+      "label": "thm-ref",
+      "line": 8,
+      "text": "Theorem 0.1"
+    },
+    {
+      "label": "thm-ref",
+      "line": 8,
+      "text": "Theorem 0.1"
+    },
+    {
+      "label": "thm-ref",
+      "line": 9,
+      "text": "Theorem 0.1",
+      "linked": false
+    },
+    {
+      "label": "thm-ref",
+      "line": 14,
+      "text": "Theorem 0.1"
+    }
+  ]
+}

@@ -5,6 +5,7 @@ use chrono::NaiveDate;
 use serde::Deserialize;
 
 use crate::music::{MusicMetadata, validate_metadata as validate_music};
+use crate::theorems::TheoremNumbering;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1129,6 +1130,10 @@ pub struct NoteFrontMatter {
     pub order: Option<u32>,
     #[serde(default)]
     pub math: bool,
+    /// How theorem environments are numbered: by section (the default) or
+    /// through the text (src/theorems.rs).
+    #[serde(default)]
+    pub theorem_numbering: TheoremNumbering,
     /// What the Writing Studio found out about the music addresses in the
     /// text, for their cards (src/music.rs).
     #[serde(default)]
@@ -1176,6 +1181,10 @@ pub struct SketchFrontMatter {
     pub description: Option<String>,
     #[serde(default)]
     pub math: bool,
+    /// How theorem environments are numbered: by section (the default) or
+    /// through the text (src/theorems.rs).
+    #[serde(default)]
+    pub theorem_numbering: TheoremNumbering,
     /// What the Writing Studio found out about the music addresses in the
     /// text, for their cards (src/music.rs).
     #[serde(default)]
@@ -1220,6 +1229,10 @@ pub struct DiaryFrontMatter {
     pub lang: PassageLanguage,
     #[serde(default)]
     pub math: bool,
+    /// How theorem environments are numbered: by section (the default) or
+    /// through the text (src/theorems.rs).
+    #[serde(default)]
+    pub theorem_numbering: TheoremNumbering,
     /// What the Writing Studio found out about the music addresses in the
     /// text, for their cards (src/music.rs).
     #[serde(default)]
@@ -1290,6 +1303,10 @@ pub struct PassageFrontMatter {
     pub title: Option<String>,
     #[serde(default)]
     pub math: bool,
+    /// How theorem environments are numbered: by section (the default) or
+    /// through the text (src/theorems.rs).
+    #[serde(default)]
+    pub theorem_numbering: TheoremNumbering,
     /// What the Writing Studio found out about the music addresses in the
     /// text, for their cards (src/music.rs).
     #[serde(default)]

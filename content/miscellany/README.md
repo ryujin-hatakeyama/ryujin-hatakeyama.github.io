@@ -64,4 +64,26 @@ music:
 
 `url` is the address without tracking parameters; `artist`, `detail` (a further line, such as a song’s album), and `artwork` are optional, and `artwork` must be on the services' own image servers. Without an entry, the card says what it is (“A song on Spotify”) and still links there. The build never asks either service anything; see `docs/music.md`.
 
+## Theorem environments
+
+In a note, diary entry, or sketch, theorems, lemmas, definitions, proofs, and their kin are written as Quarto fenced divs and referred to by label:
+
+```markdown
+::: {#lem-step name="Measure"}
+Every step shrinks the measure.
+:::
+
+::: {.proof of="lem-step"}
+The measure is a natural number.
+:::
+
+By @lem-step, evaluation terminates.
+```
+
+The kind comes from the label's prefix: `thm` Theorem, `lem` Lemma, `prp` Proposition, `cor` Corollary, `cnj` Conjecture, `clm` Claim, `obs` Observation, `def` Definition, `asm` Assumption, `exm` Example, `exr` Exercise, `rem` Remark; or from a class (`.lemma`) for one without a label. A proof (`.proof`) takes no label and may say what it proves with `of="…"`. `name="…"` adds a name in parentheses, and `.unnumbered` leaves the number out. A label is the prefix, a hyphen, and letters, digits and `_` joined by single `-`, `:` or `.`; `@label` refers to it (not after a letter or digit, and not as a citation `[@label]`).
+
+All numbered kinds share one counter, numbered within sections (`2.1`, `2.2`, `3.1`; the sections are the text's highest heading level, and anything before the first is section 0) or, with `theoremNumbering: document` in the front matter, through the text (`1`, `2`, `3`). The numbers are never written into the text. A proof ends with ∎, once: not when the text already ends with ∎ or a formula with `\blacksquare`, and a final `\qed` written as text becomes the mark.
+
+The build refuses, by line, a malformed opening line, an environment never closed or opened inside another, a `:::` line that closes nothing, a label given twice, and a reference or `of` to a label no environment has. Fenced code is never read for any of this. The rules, and the fixtures shared with the Writing Studio that hold both to the same meaning, are in `site-builder/src/theorems.rs` and `site-builder/tests/fixtures/theorems/`.
+
 Notes, diary entries, and sketches are documented in `notes/README.md`, `diary/README.md`, and `sketches/README.md`.

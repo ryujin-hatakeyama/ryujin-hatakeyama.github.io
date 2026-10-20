@@ -1,0 +1,53 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Definition 1.1",
+      "kind": "definition",
+      "label": "def-value",
+      "line": 3,
+      "name": null,
+      "number": "1.1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Lemma 1.2",
+      "kind": "lemma",
+      "label": "lem-progress",
+      "line": 7,
+      "name": null,
+      "number": "1.2",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Theorem 1.3",
+      "kind": "theorem",
+      "label": "thm-safety",
+      "line": 11,
+      "name": null,
+      "number": "1.3",
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "section",
+  "references": [
+    {
+      "label": "thm-safety",
+      "line": 15,
+      "text": "Theorem 1.3"
+    },
+    {
+      "label": "lem-progress",
+      "line": 15,
+      "text": "Lemma 1.2"
+    },
+    {
+      "label": "def-value",
+      "line": 15,
+      "text": "Definition 1.1"
+    }
+  ]
+}

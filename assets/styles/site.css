@@ -1057,6 +1057,27 @@ main { min-height: 64vh; }
 .miscellany-prose table { display: block; max-width: 100%; overflow-x: auto; margin: 0 0 1.5em; border-collapse: collapse; font-size: .9em; }
 .miscellany-prose th, .miscellany-prose td { padding: .3rem .8rem .3rem 0; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top; }
 
+/* Theorem environments (site-builder/src/theorems.rs), as amsthm sets them,
+   in the text's own type: a run-in heading (the kind and number bold, or
+   italic for remarks and proofs; the name upright), the body italic for
+   theorems and their kin and upright for definitions, examples, remarks,
+   and proofs, and ∎ at the right of a proof's last line. No card, frame,
+   or colour. Formulas, code, and Japanese or Chinese text (which has no
+   italic) stay upright inside an italic body. The Writing Studio's publish
+   preview uses these rules too. */
+.theorem { margin: 0 0 1.5em; }
+.theorem > :first-child { margin-top: 0; }
+.theorem > :last-child { margin-bottom: 0; }
+.theorem-plain { font-style: italic; }
+.theorem-plain .katex, .theorem-plain code, .theorem-plain pre, .theorem-plain .upright, .theorem-head { font-style: normal; }
+.theorem-head strong { font-weight: 650; }
+.theorem-head em { font-style: italic; }
+.theorem .qed { float: right; margin-left: 1em; font-style: normal; }
+/* After a formula or a list, ∎ on a line of its own, at the right; never carried past the environment. */
+.theorem .qed-line { margin-top: 0; text-align: right; }
+.theorem .qed-line .qed { float: none; }
+.theorem::after { content: ""; display: block; clear: both; }
+
 /* Search: a quiet field on the overview and on each section, and the search
    page. The field is the size of body text (16px), so iPhone Safari does not
    zoom when it is focused. */

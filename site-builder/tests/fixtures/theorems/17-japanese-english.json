@@ -1,0 +1,38 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Definition 1.1",
+      "kind": "definition",
+      "label": "def-kachi",
+      "line": 3,
+      "name": "値",
+      "number": "1.1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Theorem 1.2",
+      "kind": "theorem",
+      "label": "thm-anzen",
+      "line": 7,
+      "name": "Type safety",
+      "number": "1.2",
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "section",
+  "references": [
+    {
+      "label": "def-kachi",
+      "line": 11,
+      "text": "Definition 1.1"
+    },
+    {
+      "label": "thm-anzen",
+      "line": 11,
+      "text": "Theorem 1.2"
+    }
+  ]
+}

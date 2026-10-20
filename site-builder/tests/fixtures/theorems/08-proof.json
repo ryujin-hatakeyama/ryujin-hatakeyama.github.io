@@ -1,0 +1,27 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Lemma 1",
+      "kind": "lemma",
+      "label": "lem-step",
+      "line": 1,
+      "name": null,
+      "number": "1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proof",
+      "kind": "proof",
+      "label": null,
+      "line": 5,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 1
+    }
+  ],
+  "numbering": "section",
+  "references": []
+}

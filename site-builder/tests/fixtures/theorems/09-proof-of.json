@@ -1,0 +1,68 @@
+{
+  "diagnostics": [
+    {
+      "code": "undefined-proof-target",
+      "line": 19
+    }
+  ],
+  "environments": [
+    {
+      "head": "Theorem 1.1",
+      "kind": "theorem",
+      "label": "thm-main",
+      "line": 3,
+      "name": "Main",
+      "number": "1.1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Lemma",
+      "kind": "lemma",
+      "label": "lem-aux",
+      "line": 7,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proof of Theorem 1.1",
+      "kind": "proof",
+      "label": null,
+      "line": 11,
+      "name": null,
+      "number": null,
+      "proofOf": "thm-main",
+      "qed": 1
+    },
+    {
+      "head": "Proof of Lemma",
+      "kind": "proof",
+      "label": null,
+      "line": 15,
+      "name": null,
+      "number": null,
+      "proofOf": "lem-aux",
+      "qed": 1
+    },
+    {
+      "head": "Proof of thm-missing",
+      "kind": "proof",
+      "label": null,
+      "line": 19,
+      "name": null,
+      "number": null,
+      "proofOf": "thm-missing",
+      "qed": 1
+    }
+  ],
+  "numbering": "section",
+  "references": [
+    {
+      "label": "lem-aux",
+      "line": 12,
+      "text": "Lemma"
+    }
+  ]
+}

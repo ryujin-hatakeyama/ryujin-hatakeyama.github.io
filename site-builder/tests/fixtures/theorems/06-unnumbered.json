@@ -1,0 +1,63 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Theorem 1.1",
+      "kind": "theorem",
+      "label": "thm-first",
+      "line": 3,
+      "name": null,
+      "number": "1.1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Lemma",
+      "kind": "lemma",
+      "label": "lem-aside",
+      "line": 7,
+      "name": null,
+      "number": null,
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Lemma",
+      "kind": "lemma",
+      "label": "lem-named",
+      "line": 11,
+      "name": "Zorn",
+      "number": null,
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Theorem 1.2",
+      "kind": "theorem",
+      "label": "thm-second",
+      "line": 15,
+      "name": null,
+      "number": "1.2",
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "section",
+  "references": [
+    {
+      "label": "lem-aside",
+      "line": 19,
+      "text": "Lemma"
+    },
+    {
+      "label": "lem-named",
+      "line": 19,
+      "text": "Lemma (Zorn)"
+    },
+    {
+      "label": "thm-second",
+      "line": 19,
+      "text": "Theorem 1.2"
+    }
+  ]
+}
