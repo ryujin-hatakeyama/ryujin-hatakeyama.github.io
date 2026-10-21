@@ -59,9 +59,10 @@ fn environments_in_html(html: &str) -> Vec<Value> {
             .map(|(before, rest)| {
                 assert_eq!(before, " ", "before the name");
                 let (value, inner) = rest.split_once("\">").expect("the name's attribute");
+                // Its parentheses (with a formula at either end, inside span.theorem-name-tail).
                 assert!(
-                    (inner.starts_with('(') && inner.contains(")</span>"))
-                        || (inner.starts_with('（') && inner.contains("）</span>")),
+                    (inner.contains('(') && inner.contains(')'))
+                        || (inner.contains('（') && inner.contains('）')),
                     "a name in parentheses: {inner}"
                 );
                 unescape(value)

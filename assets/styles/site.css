@@ -1132,6 +1132,10 @@ main { min-height: 64vh; }
 .theorem-head strong { font-weight: 650; }
 .theorem-head em { font-style: italic; }
 .theorem-name { font-feature-settings: "palt"; }
+/* A formula at either end of a name stays on one line with its parenthesis. */
+.theorem-name-tail { white-space: nowrap; }
+/* Upright formulas in an italic statement, a hair apart from the slanted words beside them. */
+.theorem-plain .katex { margin: 0 .06em; }
 .theorem .qed { float: right; margin-left: 1em; font-style: normal; }
 /* A proof ending in a displayed formula: ∎ close under it, at the right, not a paragraph's space below. */
 .theorem .katex-display:has(+ .qed) { margin-bottom: 0; }

@@ -823,16 +823,50 @@ pub fn name_parts_of(name: &str) -> Vec<NamePart<'_>> {
     out
 }
 
-/// A name as HTML: its text escaped, its formulas typeset by KaTeX (as the
-/// text's are); a formula KaTeX refuses is shown as written, marked, and the
-/// rest of the name stays.
-fn name_html(name: &str) -> String {
+/// A name as HTML between its parentheses: its text escaped, its formulas
+/// typeset by KaTeX (as the text's are); a formula KaTeX refuses is shown as
+/// written, marked, and the rest of the name stays. A formula at either end
+/// is kept on one line with its parenthesis (span.theorem-name-tail), so a
+/// long name never leaves ")" alone at the start of a line. The same as the
+/// Studio's (`nameGlued`).
+fn name_html(name: &str, open: &str, close: &str) -> String {
+    let parts = name_parts_of(name);
+    let first_math = matches!(parts.first(), Some(NamePart::Math(_)));
+    let last_math = matches!(parts.last(), Some(NamePart::Math(_)));
+    let mut html = name_parts_html(parts);
+    if html.len() == 1 && first_math {
+        return format!(
+            r#"<span class="theorem-name-tail">{open}{}{close}</span>"#,
+            html[0]
+        );
+    }
+    if first_math {
+        html[0] = format!(
+            r#"<span class="theorem-name-tail">{open}{}</span>"#,
+            html[0]
+        );
+    } else {
+        html.insert(0, open.to_owned());
+    }
+    if last_math {
+        let last = html.len() - 1;
+        html[last] = format!(
+            r#"<span class="theorem-name-tail">{}{close}</span>"#,
+            html[last]
+        );
+    } else {
+        html.push(close.to_owned());
+    }
+    html.concat()
+}
+
+fn name_parts_html(parts: Vec<NamePart<'_>>) -> Vec<String> {
     let options = katex::Opts::builder()
         .display_mode(false)
         .throw_on_error(true)
         .trust(false)
         .build();
-    name_parts_of(name)
+    parts
         .into_iter()
         .map(|part| match part {
             NamePart::Text(text) => escape(&text),
@@ -1042,9 +1076,9 @@ pub(crate) fn apply<'a>(
             .map(|name| {
                 let (before, open, close) = name_parentheses(name);
                 format!(
-                    r#"{before}<span class="theorem-name" data-name="{}">{open}{}{close}</span>"#,
+                    r#"{before}<span class="theorem-name" data-name="{}">{}</span>"#,
                     escape(name),
-                    name_html(name)
+                    name_html(name, open, close)
                 )
             })
             .unwrap_or_default();
@@ -1396,11 +1430,16 @@ mod name_tests {
 
     #[test]
     fn a_formula_katex_refuses_stays_as_written() {
-        let html = name_html("Broken $\\frac{1}{$ stays");
+        let html = name_html("Broken $\\frac{1}{$ stays", "(", ")");
         assert_eq!(
             html,
-            r#"Broken <span class="theorem-name-error">$\frac{1}{$</span> stays"#
+            r#"(Broken <span class="theorem-name-error">$\frac{1}{$</span> stays)"#
         );
-        assert!(name_html("Of $T'$").contains(r#"<span class="katex">"#));
+        let tail = name_html("Of $T'$", "(", ")");
+        assert!(
+            tail.starts_with(r#"(Of <span class="theorem-name-tail"><span class="katex">"#)
+                && tail.ends_with(")</span>"),
+            "{tail}"
+        );
     }
 }
