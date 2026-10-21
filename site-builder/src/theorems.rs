@@ -947,7 +947,10 @@ pub(crate) fn apply<'a>(
             .as_ref()
             .map(|name| {
                 let (before, open, close) = name_parts(name);
-                format!(r#"{before}<span class="theorem-name">{open}{}{close}</span>"#, escape(name))
+                format!(
+                    r#"{before}<span class="theorem-name">{open}{}{close}</span>"#,
+                    escape(name)
+                )
             })
             .unwrap_or_default();
         heads.push(format!(

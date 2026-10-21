@@ -28,7 +28,7 @@ Without a name.
 Short.
 :::
 
-::: {#lem-escape name="<b>&amp; \"quoted\"</b>"}
+::: {#lem-escape name="Fermat's & \"Last\" Theorem"}
 Escaped.
 :::
 
