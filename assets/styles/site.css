@@ -448,6 +448,12 @@ main { min-height: 64vh; }
 .prose code:not(pre code) { padding: .08em .3em; background: var(--code-bg); font-family: var(--mono); font-size: .82em; }
 .prose hr { margin: 4rem auto; width: 5rem; border: 0; border-top: 1px solid var(--rule-strong); }
 .prose .footnotes { margin-top: 5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: .82em; }
+/* The works a text cites (site-builder/src/references.rs), as its style
+   sets them: each entry a paragraph with a hanging indent, long addresses
+   allowed to break; a citation links to its entry. */
+.prose .references { margin: 0 0 2.5em; font-size: .92em; line-height: 1.6; }
+.prose .references .csl-entry { margin: 0 0 .7em; padding-left: 2em; text-indent: -2em; overflow-wrap: anywhere; }
+.prose .references .csl-entry:target { background: var(--code-bg); }
 
 /* A music card (site-builder/src/music.rs): the work in one row, the
    controls in the next: the services (a sliding choice), "Play here", and

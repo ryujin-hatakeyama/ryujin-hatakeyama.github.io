@@ -11,6 +11,7 @@ use std::ops::Range;
 use pulldown_cmark::{CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd, html};
 
 use crate::music::{MusicMetadata, card_html, music_paragraph};
+use crate::references::{self, Reference};
 use crate::theorems::{self, Analysis, TheoremNumbering, TheoremOptions};
 use crate::timeline::{ArticleName, ArticleSection, ArticleUpdate};
 use serde::de::DeserializeOwned;
@@ -528,6 +529,8 @@ trait ArticleMetadata: DeserializeOwned {
     const SHARES_PAGE: bool = false;
     /// The details of the music cards in its first passage.
     fn music(&self) -> &[MusicMetadata];
+    /// The works its first passage cites (src/references.rs).
+    fn references(&self) -> &[Reference];
 }
 
 impl ArticleMetadata for NoteFrontMatter {
@@ -552,6 +555,9 @@ impl ArticleMetadata for NoteFrontMatter {
     }
     fn music(&self) -> &[MusicMetadata] {
         &self.music
+    }
+    fn references(&self) -> &[Reference] {
+        &self.references
     }
 }
 
@@ -578,6 +584,9 @@ impl ArticleMetadata for SketchFrontMatter {
     }
     fn music(&self) -> &[MusicMetadata] {
         &self.music
+    }
+    fn references(&self) -> &[Reference] {
+        &self.references
     }
 }
 
@@ -606,6 +615,9 @@ impl ArticleMetadata for DiaryFrontMatter {
     }
     fn music(&self) -> &[MusicMetadata] {
         &self.music
+    }
+    fn references(&self) -> &[Reference] {
+        &self.references
     }
 }
 
@@ -914,7 +926,7 @@ fn parse_article_source<M: ArticleMetadata>(file: SourceFile) -> Result<ArticleS
             metadata.lang,
             metadata.title,
             metadata.math,
-            &metadata.music,
+            (&metadata.music, &metadata.references),
             (metadata.theorem_numbering, &metadata.of, first_line),
         )?;
         Ok(ArticleSource::Companion {
@@ -931,7 +943,7 @@ fn parse_article_source<M: ArticleMetadata>(file: SourceFile) -> Result<ArticleS
             metadata.language(),
             None,
             metadata.math(),
-            metadata.music(),
+            (metadata.music(), metadata.references()),
             (metadata.theorem_numbering(), &metadata.id(), first_line),
         )?;
         Ok(ArticleSource::Primary {
@@ -948,7 +960,7 @@ fn render_passage<M: ArticleMetadata>(
     language: PassageLanguage,
     title: Option<String>,
     math: bool,
-    music: &[MusicMetadata],
+    (music, cited): (&[MusicMetadata], &[Reference]),
     (numbering, article, first_line): (TheoremNumbering, &str, usize),
 ) -> Result<Passage> {
     ensure!(
@@ -981,6 +993,11 @@ fn render_passage<M: ArticleMetadata>(
             numbering,
             id_prefix: Some(&id_prefix),
             first_line,
+        }),
+        // The works cited, their identifiers prefixed as the theorems' are.
+        references: Some(References {
+            list: cited,
+            id_prefix: Some(&id_prefix),
         }),
     };
     let body = render_markdown_with(body, rules)
@@ -1184,6 +1201,14 @@ pub(crate) struct MarkdownRules<'a> {
     pub(crate) music: Option<&'a [MusicMetadata]>,
     /// Whether theorem environments are read (src/theorems.rs), and how.
     pub(crate) theorems: Option<TheoremOptions<'a>>,
+    /// Whether `::: {#refs}` lists the works cited (src/references.rs), and which.
+    pub(crate) references: Option<References<'a>>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct References<'a> {
+    pub(crate) list: &'a [Reference],
+    pub(crate) id_prefix: Option<&'a str>,
 }
 
 fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown> {
@@ -1197,6 +1222,7 @@ fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown>
             inline_languages: false,
             music: None,
             theorems: None,
+            references: None,
         },
     )
 }
@@ -1232,6 +1258,14 @@ pub(crate) fn render_markdown_analyzed(
     if rules.math {
         options.insert(Options::ENABLE_MATH);
     }
+    // The works cited: the ::: {#refs} block becomes one comment line, where
+    // the list goes (src/references.rs), before the theorems are read.
+    let placed = match rules.references {
+        Some(cited) => references::place(source, cited.list)?,
+        None => None,
+    };
+    let source = placed.as_deref().unwrap_or(source);
+    let mut listed = false;
     // Theorem environments: their fence lines become comment lines the
     // parser closes blocks at (src/theorems.rs).
     let prepared = rules.theorems.map(|_| theorems::prepare(source));
@@ -1271,6 +1305,40 @@ pub(crate) fn render_markdown_analyzed(
             Event::End(_) => depth = depth.saturating_sub(1),
             _ => {}
         }
+        if let (Event::Html(mark), Some(cited)) = (&event, rules.references) {
+            if placed.is_some() && !listed && mark.trim_end() == references::MARK {
+                listed = true;
+                events.push(Event::Html(
+                    references::list_html(cited.list, cited.id_prefix)?.into(),
+                ));
+                ranges.push(None);
+                continue;
+            }
+        }
+        let event = match (event, rules.references) {
+            (
+                Event::Start(Tag::Link {
+                    link_type,
+                    dest_url,
+                    title,
+                    id,
+                }),
+                Some(cited),
+            ) => {
+                let dest_url =
+                    match references::link_target(cited.list, cited.id_prefix, &dest_url)? {
+                        Some(target) => target.into(),
+                        None => dest_url,
+                    };
+                Event::Start(Tag::Link {
+                    link_type,
+                    dest_url,
+                    title,
+                    id,
+                })
+            }
+            (event, _) => event,
+        };
         match &event {
             Event::Html(_) if is_fence(&range) => {}
             Event::Html(_) | Event::InlineHtml(_) => {
@@ -1305,6 +1373,10 @@ pub(crate) fn render_markdown_analyzed(
         });
         ranges.push(Some(range));
     }
+    ensure!(
+        placed.is_none() || listed,
+        "::: {{#refs}} must stand at the top level, apart from other blocks"
+    );
     let analysis = match (&prepared, rules.theorems) {
         (Some(prepared), Some(options)) => {
             let (applied, analysis) =
@@ -1675,6 +1747,7 @@ mod tests {
             inline_languages: true,
             music,
             theorems: None,
+            references: None,
         };
         let source = format!(
             "Today.[^1]\n\n{apple}\n{spotify}\n\nIn a sentence: {apple}\n\n> {apple}\n\n- {spotify}\n\n{spotify}\n\n[^1]: A note: {apple}\n"
@@ -1711,6 +1784,7 @@ mod tests {
             inline_languages: true,
             music: None,
             theorems: None,
+            references: None,
         };
         let html = |source: &str| super::render_markdown_with(source, rules()).unwrap().0;
         assert_eq!(
@@ -2214,6 +2288,107 @@ mod tests {
             |body: &str| Miscellany::from_sources("items: []", &[&note("math: true\n", body)], &[]);
         assert!(math("$x^2$ and $$\\int_0^1 f$$\n").is_ok());
         assert!(error_of(math("$\\notacommand{x}$\n")).contains("invalid TeX expression"));
+    }
+
+    #[test]
+    fn cited_works_are_listed_where_the_text_places_them_and_citations_link_to_them() {
+        // As the Writing Studio publishes them (studio/src/publish/cite.ts):
+        // made-up entries, already set in their style.
+        let refs = "references:\n  - {\"id\":\"ref-Landini2021\",\"text\":\"Landini, G. (2021). *Example title*. <https://doi.org/10.1000/example>\"}\n  - {\"id\":\"ref-Weiss2017\",\"text\":\"Weiss, M. (2017). *例の題名*.\"}\n";
+        let body = "\n## Section\n\n::: {#thm-a name=\"See [(Weiss, 2017)](#ref-Weiss2017)\"}\nA statement [(Landini, 2021, p. 50)](#ref-Landini2021).\n:::\n\nText [(Landini, 2021)](#ref-Landini2021).[^1]\n\n[^1]: Note [(Weiss, 2017)](#ref-Weiss2017).\n\n## References\n\n::: {#refs}\n:::\n";
+        let rendered = |source: String| {
+            Miscellany::from_sources("items: []", &[&source], &[]).map(|m| {
+                m.public_notes()
+                    .next()
+                    .unwrap()
+                    .passages()
+                    .iter()
+                    .next()
+                    .unwrap()
+                    .rendered_body()
+                    .to_owned()
+            })
+        };
+        let html = rendered(note(&format!("draft: false\n{refs}"), body)).unwrap();
+        assert!(
+            html.contains(r##"Text <a href="#en-ref-Landini2021">(Landini, 2021)</a>."##),
+            "{html}"
+        );
+        assert!(
+            html.contains(r##"Note <a href="#en-ref-Weiss2017">(Weiss, 2017)</a>"##),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                r##"A statement <a href="#en-ref-Landini2021">(Landini, 2021, p. 50)</a>."##
+            ),
+            "{html}"
+        );
+        assert!(html.contains("<h2>References</h2>\n<div id=\"en-refs\" class=\"references csl-bib-body\" role=\"list\">\n<div id=\"en-ref-Landini2021\" class=\"csl-entry\" role=\"listitem\">Landini, G. (2021). <em>Example title</em>. <a href=\"https://doi.org/10.1000/example\">https://doi.org/10.1000/example</a></div>\n<div id=\"en-ref-Weiss2017\" class=\"csl-entry\" role=\"listitem\">Weiss, M. (2017). <em>例の題名</em>.</div>\n</div>\n"), "{html}");
+        assert!(!html.contains("{#refs}"), "{html}");
+        // A text without citations is as before; the list and its place go together.
+        assert!(rendered(note("draft: false\n", "Text.\n")).is_ok());
+        let error = |result: anyhow::Result<String>| format!("{:#}", result.unwrap_err());
+        assert!(
+            error(rendered(note(&format!("draft: false\n{refs}"), "Text.\n")))
+                .contains("no ::: {#refs}")
+        );
+        assert!(
+            error(rendered(note(
+                "draft: false\n",
+                "Text.\n\n::: {#refs}\n:::\n"
+            )))
+            .contains("lists none")
+        );
+        assert!(
+            error(rendered(note(
+                &format!("draft: false\n{refs}"),
+                "[x](#ref-Other)\n\n::: {#refs}\n:::\n"
+            )))
+            .contains("names no entry")
+        );
+        assert!(
+            error(rendered(note(
+                "draft: false\nreferences:\n  - {\"id\":\"ref-A\",\"text\":\"<b>A</b>\"}\n",
+                "::: {#refs}\n:::\n"
+            )))
+            .contains("one line of text")
+        );
+        assert!(
+            error(rendered(note(
+                "draft: false\nreferences:\n  - {\"id\":\"A\",\"text\":\"A\"}\n",
+                "::: {#refs}\n:::\n"
+            )))
+            .contains("invalid references")
+        );
+        // In a diary entry, identifiers carry the entry's identity (entries share a page).
+        let diary = Miscellany::from_sources(
+            "items: []",
+            &[],
+            &[&diary(
+                &format!("draft: false\n{refs}"),
+                "Text [(Weiss, 2017)](#ref-Weiss2017).\n\n### 参考文献\n\n::: {#refs}\n:::\n",
+            )],
+        )
+        .unwrap();
+        let html = diary
+            .public_diary()
+            .next()
+            .unwrap()
+            .passages()
+            .iter()
+            .next()
+            .unwrap()
+            .rendered_body()
+            .to_owned();
+        assert!(
+            html.contains(r##"<a href="#2026-10-10-en-ref-Weiss2017">"##),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<div id="2026-10-10-en-ref-Weiss2017" class="csl-entry""#),
+            "{html}"
+        );
     }
 
     #[test]

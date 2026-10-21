@@ -5,6 +5,7 @@ use chrono::NaiveDate;
 use serde::Deserialize;
 
 use crate::music::{MusicMetadata, validate_metadata as validate_music};
+use crate::references::{Reference, validate as validate_references};
 use crate::theorems::TheoremNumbering;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1157,6 +1158,10 @@ pub struct NoteFrontMatter {
     /// text, for their cards (src/music.rs).
     #[serde(default)]
     pub music: Vec<MusicMetadata>,
+    /// The works the text cites, set in its citation style by the Writing
+    /// Studio, listed where the text has `::: {#refs}` (src/references.rs).
+    #[serde(default)]
+    pub references: Vec<Reference>,
     #[serde(default = "default_true")]
     pub draft: bool,
 }
@@ -1164,6 +1169,8 @@ pub struct NoteFrontMatter {
 impl NoteFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
         validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
+        validate_references(&self.references)
+            .with_context(|| format!("{source}: invalid references"))?;
         validate_slug(&self.slug).with_context(|| format!("{source}: invalid note slug"))?;
         ensure!(
             !self.title.trim().is_empty(),
@@ -1211,6 +1218,10 @@ pub struct SketchFrontMatter {
     /// text, for their cards (src/music.rs).
     #[serde(default)]
     pub music: Vec<MusicMetadata>,
+    /// The works the text cites, set in its citation style by the Writing
+    /// Studio, listed where the text has `::: {#refs}` (src/references.rs).
+    #[serde(default)]
+    pub references: Vec<Reference>,
     #[serde(default = "default_true")]
     pub draft: bool,
 }
@@ -1218,6 +1229,8 @@ pub struct SketchFrontMatter {
 impl SketchFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
         validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
+        validate_references(&self.references)
+            .with_context(|| format!("{source}: invalid references"))?;
         validate_slug(&self.slug).with_context(|| format!("{source}: invalid sketch slug"))?;
         ensure!(
             !self.title.trim().is_empty(),
@@ -1262,6 +1275,10 @@ pub struct DiaryFrontMatter {
     /// text, for their cards (src/music.rs).
     #[serde(default)]
     pub music: Vec<MusicMetadata>,
+    /// The works the text cites, set in its citation style by the Writing
+    /// Studio, listed where the text has `::: {#refs}` (src/references.rs).
+    #[serde(default)]
+    pub references: Vec<Reference>,
     #[serde(default = "default_true")]
     pub draft: bool,
 }
@@ -1269,6 +1286,8 @@ pub struct DiaryFrontMatter {
 impl DiaryFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
         validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
+        validate_references(&self.references)
+            .with_context(|| format!("{source}: invalid references"))?;
         if let Some(slug) = &self.slug {
             validate_slug(slug).with_context(|| format!("{source}: invalid diary slug"))?;
         }
@@ -1336,11 +1355,17 @@ pub struct PassageFrontMatter {
     /// text, for their cards (src/music.rs).
     #[serde(default)]
     pub music: Vec<MusicMetadata>,
+    /// The works the text cites, set in its citation style by the Writing
+    /// Studio, listed where the text has `::: {#refs}` (src/references.rs).
+    #[serde(default)]
+    pub references: Vec<Reference>,
 }
 
 impl PassageFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
         validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
+        validate_references(&self.references)
+            .with_context(|| format!("{source}: invalid references"))?;
         ensure!(
             !self.of.trim().is_empty(),
             "{source}: of must name the article"

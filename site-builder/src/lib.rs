@@ -4,6 +4,7 @@ mod content;
 pub mod model;
 pub mod music;
 mod publish;
+pub mod references;
 mod render;
 pub mod site_date;
 #[cfg(test)]

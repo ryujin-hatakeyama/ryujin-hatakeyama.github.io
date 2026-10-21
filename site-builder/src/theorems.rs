@@ -468,11 +468,11 @@ fn code_fence(line: &str) -> Option<(u8, usize, &str)> {
 
 /// Tracks fenced code line by line, as the Studio's scanners do.
 #[derive(Default)]
-struct CodeFences(Option<(u8, usize)>);
+pub(crate) struct CodeFences(Option<(u8, usize)>);
 
 impl CodeFences {
     /// Whether the line is code (or a fence of it).
-    fn code(&mut self, line: &str) -> bool {
+    pub(crate) fn code(&mut self, line: &str) -> bool {
         let fence = code_fence(line);
         if let Some((char, length)) = self.0 {
             if let Some((c, l, rest)) = fence {
