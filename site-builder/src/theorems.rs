@@ -744,8 +744,8 @@ pub(crate) struct TheoremOptions<'a> {
 /// parentheses, "Definition 2.3 （定義的拡張の保守性）" (the site's CSS sets them
 /// proportionally); otherwise "Definition 2.3 (Conservativity)". Decided by the name's
 /// first character; the same rule as the Studio's (studio/src/publish/theorems.ts,
-/// `nameParts`).
-pub fn name_parts(name: &str) -> (&'static str, &'static str, &'static str) {
+/// `nameParentheses`).
+pub fn name_parentheses(name: &str) -> (&'static str, &'static str, &'static str) {
     let wide = name.chars().next().is_some_and(|c| {
         matches!(c, '\u{3000}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}' | '\u{f900}'..='\u{faff}' | '\u{ff00}'..='\u{ffef}')
     });
@@ -754,6 +754,100 @@ pub fn name_parts(name: &str) -> (&'static str, &'static str, &'static str) {
     } else {
         (" ", "(", ")")
     }
+}
+
+/// A part of an environment's name: text, or a formula's TeX.
+#[derive(Debug, PartialEq, Eq)]
+pub enum NamePart<'a> {
+    Text(String),
+    Math(&'a str),
+}
+
+/// A name's text and formulas, in order: "Conservativity of $T'$ over $T$" is
+/// text, math "T'", text, math "T". A formula is $…$ with something other
+/// than a space just inside each $ (as in the text's own formulas); \$ is a
+/// dollar sign; $$, and an unclosed $, stay text. The name is the attribute's
+/// value, already unescaped; KaTeX alone reads the TeX. The same rule as the
+/// Studio's (studio/src/publish/theorems.ts, `nameParts`).
+pub fn name_parts_of(name: &str) -> Vec<NamePart<'_>> {
+    let bytes = name.as_bytes();
+    let mut out = Vec::new();
+    let mut text = String::new();
+    let mut i = 0;
+    let space = |b: u8| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r';
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && bytes.get(i + 1) == Some(&b'$') {
+            text.push('$');
+            i += 2;
+            continue;
+        }
+        if bytes[i] == b'$' {
+            if bytes.get(i + 1) == Some(&b'$') {
+                text.push_str("$$");
+                i += 2;
+                continue;
+            }
+            if bytes.get(i + 1).is_some_and(|&b| !space(b)) {
+                let mut j = i + 1;
+                let mut close = None;
+                while j < bytes.len() {
+                    if bytes[j] == b'\\' {
+                        j += 2;
+                        continue;
+                    }
+                    if bytes[j] == b'$' {
+                        if !space(bytes[j - 1]) && bytes.get(j + 1) != Some(&b'$') {
+                            close = Some(j);
+                        }
+                        break;
+                    }
+                    j += 1;
+                }
+                if let Some(close) = close.filter(|&c| c > i + 1) {
+                    if !text.is_empty() {
+                        out.push(NamePart::Text(std::mem::take(&mut text)));
+                    }
+                    out.push(NamePart::Math(&name[i + 1..close]));
+                    i = close + 1;
+                    continue;
+                }
+            }
+        }
+        let c = name[i..].chars().next().unwrap_or_default();
+        text.push(c);
+        i += c.len_utf8().max(1);
+    }
+    if !text.is_empty() {
+        out.push(NamePart::Text(text));
+    }
+    out
+}
+
+/// A name as HTML: its text escaped, its formulas typeset by KaTeX (as the
+/// text's are); a formula KaTeX refuses is shown as written, marked, and the
+/// rest of the name stays.
+fn name_html(name: &str) -> String {
+    let options = katex::Opts::builder()
+        .display_mode(false)
+        .throw_on_error(true)
+        .trust(false)
+        .build();
+    name_parts_of(name)
+        .into_iter()
+        .map(|part| match part {
+            NamePart::Text(text) => escape(&text),
+            NamePart::Math(tex) => options
+                .as_ref()
+                .ok()
+                .and_then(|o| katex::render_with_opts(tex, o).ok())
+                .unwrap_or_else(|| {
+                    format!(
+                        r#"<span class="theorem-name-error">{}</span>"#,
+                        escape(&format!("${tex}$"))
+                    )
+                }),
+        })
+        .collect()
 }
 
 fn escape(text: &str) -> String {
@@ -946,10 +1040,11 @@ pub(crate) fn apply<'a>(
             .name
             .as_ref()
             .map(|name| {
-                let (before, open, close) = name_parts(name);
+                let (before, open, close) = name_parentheses(name);
                 format!(
-                    r#"{before}<span class="theorem-name">{open}{}{close}</span>"#,
-                    escape(name)
+                    r#"{before}<span class="theorem-name" data-name="{}">{open}{}{close}</span>"#,
+                    escape(name),
+                    name_html(name)
                 )
             })
             .unwrap_or_default();
@@ -1252,4 +1347,60 @@ pub(crate) fn upright_cjk(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
         out.push(event);
     }
     out
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::{NamePart, name_html, name_parts_of};
+
+    /// The same cases as the Studio's (studio/test/theorems.test.ts, "formulas in a name").
+    #[test]
+    fn names_split_like_the_studio() {
+        let text = |s: &str| NamePart::Text(s.to_owned());
+        let cases: Vec<(&str, Vec<NamePart>)> = vec![
+            (
+                "Conservativity of $T'$ over $T$",
+                vec![
+                    text("Conservativity of "),
+                    NamePart::Math("T'"),
+                    text(" over "),
+                    NamePart::Math("T"),
+                ],
+            ),
+            (
+                "The relation $R \\subseteq X \\times X$",
+                vec![
+                    text("The relation "),
+                    NamePart::Math("R \\subseteq X \\times X"),
+                ],
+            ),
+            (
+                "$\\lambda$計算の合流性",
+                vec![NamePart::Math("\\lambda"), text("計算の合流性")],
+            ),
+            (
+                "it's \\$5 and $\\{x\\}$",
+                vec![text("it's $5 and "), NamePart::Math("\\{x\\}")],
+            ),
+            (
+                "costs $5 and $ 6 $ or $$x$$",
+                vec![text("costs $5 and $ 6 $ or $$x$$")],
+            ),
+            ("an unclosed $x", vec![text("an unclosed $x")]),
+            ("$a$$b$", vec![text("$a$$b$")]),
+        ];
+        for (name, parts) in cases {
+            assert_eq!(name_parts_of(name), parts, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_formula_katex_refuses_stays_as_written() {
+        let html = name_html("Broken $\\frac{1}{$ stays");
+        assert_eq!(
+            html,
+            r#"Broken <span class="theorem-name-error">$\frac{1}{$</span> stays"#
+        );
+        assert!(name_html("Of $T'$").contains(r#"<span class="katex">"#));
+    }
 }

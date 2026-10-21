@@ -1,0 +1,43 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Theorem 1",
+      "kind": "theorem",
+      "label": "thm-a",
+      "line": 1,
+      "name": "$\\mathbb{N}$ is well-ordered",
+      "number": "1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Corollary 2",
+      "kind": "corollary",
+      "label": "cor-b",
+      "line": 5,
+      "name": null,
+      "number": "2",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proof of Corollary 2",
+      "kind": "proof",
+      "label": null,
+      "line": 9,
+      "name": null,
+      "number": null,
+      "proofOf": "cor-b",
+      "qed": 1
+    }
+  ],
+  "numbering": "document",
+  "references": [
+    {
+      "label": "thm-a",
+      "line": 10,
+      "text": "Theorem 1"
+    }
+  ]
+}

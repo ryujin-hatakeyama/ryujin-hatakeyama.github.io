@@ -1,0 +1,133 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Definition 1.1",
+      "kind": "definition",
+      "label": "def-relation",
+      "line": 3,
+      "name": "The relation $R \\subseteq X \\times X$",
+      "number": "1.1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proposition 1.2",
+      "kind": "proposition",
+      "label": "prp-extension",
+      "line": 9,
+      "name": "Conservativity of $T'$ over $T$",
+      "number": "1.2",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proof of Proposition 1.2",
+      "kind": "proof",
+      "label": null,
+      "line": 16,
+      "name": null,
+      "number": null,
+      "proofOf": "prp-extension",
+      "qed": 1
+    },
+    {
+      "head": "Corollary 1.3",
+      "kind": "corollary",
+      "label": "cor-extension",
+      "line": 20,
+      "name": "Conservativity of $T'$",
+      "number": "1.3",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proof of Corollary 1.3",
+      "kind": "proof",
+      "label": null,
+      "line": 24,
+      "name": null,
+      "number": null,
+      "proofOf": "cor-extension",
+      "qed": 1
+    },
+    {
+      "head": "Theorem 1.4",
+      "kind": "theorem",
+      "label": "thm-mixed",
+      "line": 28,
+      "name": "$\\lambda$計算の合流性 (confluence of the $\\lambda$-calculus)",
+      "number": "1.4",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Lemma 1.5",
+      "kind": "lemma",
+      "label": "lem-escape",
+      "line": 32,
+      "name": "A \"quoted\" {brace} it's \\$5 and $\\{x\\}$",
+      "number": "1.5",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Corollary 1.6",
+      "kind": "corollary",
+      "label": "cor-plain",
+      "line": 36,
+      "name": null,
+      "number": "1.6",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Corollary",
+      "kind": "corollary",
+      "label": "cor-aside",
+      "line": 40,
+      "name": "A corollary set apart",
+      "number": null,
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Lemma 1.7",
+      "kind": "lemma",
+      "label": "lem-broken",
+      "line": 44,
+      "name": "Broken $\\frac{1}{$ stays",
+      "number": "1.7",
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "section",
+  "references": [
+    {
+      "label": "def-relation",
+      "line": 17,
+      "text": "Definition 1.1"
+    },
+    {
+      "label": "prp-extension",
+      "line": 21,
+      "text": "Proposition 1.2"
+    },
+    {
+      "label": "cor-extension",
+      "line": 48,
+      "text": "Corollary 1.3"
+    },
+    {
+      "label": "thm-mixed",
+      "line": 48,
+      "text": "Theorem 1.4"
+    },
+    {
+      "label": "cor-plain",
+      "line": 48,
+      "text": "Corollary 1.6"
+    }
+  ]
+}

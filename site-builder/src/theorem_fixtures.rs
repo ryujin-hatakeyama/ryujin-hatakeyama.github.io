@@ -52,20 +52,19 @@ fn environments_in_html(html: &str) -> Vec<Value> {
             .trim_start_matches(&format!("<{tag}>"))
             .split_once(&close)
             .unwrap_or(("", ""));
-        // The name, after a space: "(Name)", or "（名前）".
+        // The name, after a space, in parentheses ("(Name)" or "（名前）"), as written in data-name
+        // (its formulas typeset inside, so its text is not the name's).
         let name = after
-            .split_once("<span class=\"theorem-name\">")
-            .and_then(|(before, name)| {
+            .split_once("<span class=\"theorem-name\" data-name=\"")
+            .map(|(before, rest)| {
                 assert_eq!(before, " ", "before the name");
-                name.split_once("</span>")
-            })
-            .map(|(name, _)| {
-                let inner = name
-                    .strip_prefix('(')
-                    .and_then(|n| n.strip_suffix(')'))
-                    .or_else(|| name.strip_prefix('（').and_then(|n| n.strip_suffix('）')))
-                    .expect("a name in parentheses");
-                unescape(inner)
+                let (value, inner) = rest.split_once("\">").expect("the name's attribute");
+                assert!(
+                    (inner.starts_with('(') && inner.contains(")</span>"))
+                        || (inner.starts_with('（') && inner.contains("）</span>")),
+                    "a name in parentheses: {inner}"
+                );
+                unescape(value)
             });
         out.push(json!({
             "kind": attribute("data-kind"),
