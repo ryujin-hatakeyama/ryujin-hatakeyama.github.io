@@ -17,6 +17,7 @@ References checked:
 Rust:
 
 - typed publication, presentation, update-export, writing, project, and Miscellany (reading, note, diary, sketch) models, with the Diary shown by month from one file per entry;
+- the Updates timeline (`site-builder/src/timeline.rs`): the exported update records joined by an entry for each published article that states its publication day, derived at every build and shared by the homepage, the Updates pages, and the Miscellany overview (the RSS feed lists update records only);
 - cross-record validation and deterministic ordering;
 - explicit static route construction;
 - reusable Maud layout and page components;
@@ -47,7 +48,7 @@ CSS remains CSS. The prior stylesheet is copied rather than embedded in Rust. Fo
 
 The Rust build cleans only an explicitly allowed output (`dist` or a path below `target`), reads content in sorted path order, applies stable secondary sort keys, uses a fixed copyright year matching the migrated site, and writes fixed route paths. Verification builds twice, indexes both builds for search, and compares every output path and byte.
 
-The one input not taken from the repository is the build day, a calendar day in Asia/Tokyo, which places each update under Upcoming (marked Ongoing while the event runs), Recent Updates, or Previously announced. It is read once per build from `SITE_BUILD_DATE` (`YYYY-MM-DD`) when set, and otherwise from the system clock at UTC+09:00, never from the machine's time zone. It affects only the homepage and the Updates listing pages, never the RSS feed, anchors, or other routes; given the same sources and day, the output is identical, and verification fixes the day for both builds it compares. See `docs/update-dates.md`.
+The one input not taken from the repository is the build day, a calendar day in Asia/Tokyo, which places each update under Upcoming (marked Ongoing while the event runs), Recent Updates, or Previously announced. It is read once per build from `SITE_BUILD_DATE` (`YYYY-MM-DD`) when set, and otherwise from the system clock at UTC+09:00, never from the machine's time zone. It affects only the homepage and the Updates listing pages, never anchors or other routes; the one exception is an article whose publication day is after the build day, which the Updates pages and the Miscellany overview leave out until then; given the same sources and day, the output is identical, and verification fixes the day for both builds it compares. See `docs/update-dates.md`.
 
 Structural errors fail the build: invalid JSON, schema violations, impossible dates, an end before the start, duplicate update ids, and broken links or anchors. An editorial matter, a planned update whose event has ended, is reported as a warning (and a GitHub Actions annotation) without stopping the build, so it never blocks unrelated pages.
 

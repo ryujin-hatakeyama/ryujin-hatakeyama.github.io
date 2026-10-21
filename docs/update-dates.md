@@ -31,7 +31,7 @@ The build day is a calendar day in Asia/Tokyo, because the events are dated in J
 
 The build prints the day it used. `scripts/verify.sh` sets `SITE_BUILD_DATE` once, so that the two builds it compares for determinism describe the same day even across midnight.
 
-The day affects only the homepage and the Updates listing pages (`/updates/` and the category pages). Every other route, the RSS feed, and the sitemap are independent of it; `scripts/test-update-phases.sh` checks this by building the real site on several days.
+The day affects only the homepage and the Updates listing pages (`/updates/` and the category pages). Every other route, the RSS feed, and the sitemap are independent of it, except that a Miscellany article whose `published` day is still to come is left out of Updates and the Miscellany overview until then (`content/miscellany/README.md`); `scripts/test-update-phases.sh` checks this by building the real site on several days.
 
 ## What stops the build
 

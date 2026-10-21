@@ -24,7 +24,9 @@ This is a schema example only; it is not read by the build:
 }
 ```
 
-`date` is the day the activity begins and the optional `end_date` its last day. These are the only dates a record carries: Updates is a record of when activities took place, not a publication timeline, and every view shows and orders records by these dates.
+`date` is the day the activity begins and the optional `end_date` its last day. These are the only dates a record carries, and every view shows and orders records by these dates.
+
+Updates also lists published Miscellany articles that state the day they were published (`content/miscellany/README.md`). They are not records in this directory and are never written here: the Rust build derives them from the articles. On every page, records and articles form one list (the RSS feed lists records only), most recent first, by a record's final day or an article's publication day, then by a record's first day, then by id, so entries of one day always appear in the same order. Article entries are in the Writing category and use ids beginning `published-`, which records may not use.
 
 Event names follow their organizers: use an official English name only when one can be verified, and otherwise keep the original name. The optional `title_link` links the event's name, and only that, to the event's primary official resource, such as its official page or official flyer: `text` must occur exactly once in `title.en`, `url` must use HTTP(S), and `lang` (`en` or `ja`) marks the language of the linked text when it differs from English. Omit it when the event itself has no official resource; never point it at a broader organization's homepage. `links` then holds only additional, distinct resources: a link to the title link's destination (a trailing slash makes no difference) fails validation. A record with a detail page offers it as a separate "Details" link. RSS and page metadata keep the plain title.
 

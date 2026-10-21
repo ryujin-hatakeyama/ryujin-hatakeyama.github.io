@@ -1,6 +1,6 @@
 # Miscellany
 
-Source for `/miscellany/` and its four sections. Nothing here is announced in Updates or the RSS feed.
+Source for `/miscellany/` and its four sections. A published note, diary entry, sketch, or reading item that states the day it was published is announced in Updates (see below); nothing else here is. Nothing here is in the RSS feed, which lists update records only.
 
 | Section | Source | Route |
 |---|---|---|
@@ -10,6 +10,24 @@ Source for `/miscellany/` and its four sections. Nothing here is announced in Up
 | Sketches | `sketches/*.md` | `/miscellany/sketches/` and `/miscellany/sketches/<slug>/` |
 
 Published Reading, Notes, Diary, and Sketches are searchable at `/miscellany/search/` (see `docs/search.md`). Only those pages are indexed: drafts are never rendered, and no other page of the site is read by the index.
+
+## Announcing in Updates
+
+Updates lists the author's update records (`content/updates/`) and the published Miscellany articles as one timeline, on the homepage, on `/updates/` and its Writing page, and beside the sections on `/miscellany/` on a wide screen. The RSS feed is not part of it: it lists update records only. An article is listed when its source states `published: YYYY-MM-DD`, the day it was published on the site:
+
+```yaml
+published: 2026-10-14
+```
+
+Its entry reads `Published “Title” in Notes.`, with the title exactly as written and linked to the article (an untitled diary entry: `Published an entry for 2 October 2026 in Diary.`). It is in the Writing category and is listed by that day among the update records. Nothing is stored for it; it is derived from the article at every build, so:
+
+- An article without `published` is not announced. No other date stands in for it: not a diary entry's or sketch's `date` (the day it records or was written), not a Git commit, deployment, build, file, or edit time, and not the time it was published from the Writing Studio.
+- Correcting `published` moves the entry; changing the title renames it. Rebuilding or publishing the same article again never adds a second entry.
+- Drafts are never announced, nor is anything not in this directory.
+- An article whose `published` day is still to come (in Asia/Tokyo) is not announced until a build on or after that day. The article itself is published as usual: `published` only places the announcement.
+- The entry's id, and its anchor on `/updates/`, come from the article's identity: `published-notes-<slug>`, `published-sketches-<slug>`, `published-diary-<date>[-<slug>]`, and `published-reading-<id>`. Update records may not use these ids.
+
+`published` belongs to the article, in the main file; companion passages cannot carry it. Reading items need a stable `id` to be announced (see below).
 
 Everything committed to this repository is public, including records marked `draft: true`. A draft flag only keeps a record off the generated site; it is not a privacy mechanism. Keep private material out of the repository.
 
@@ -25,9 +43,11 @@ items:
     url: https://example.org/work  # optional: an external reference (HTTP or HTTPS)
     note: A short personal note.   # optional: plain text
     noteLang: ja                   # optional: language of the note, if not English
+    id: stable-slug                # optional: a stable identity; required with published
+    published: 2026-10-14          # optional: the day it was published, to announce it in Updates
 ```
 
-Only `title` is required. `author` may be omitted for anonymous works. `lang` describes the work: its title and author's name, in any language tag such as `ja`, `de`, or `zh-Hant`; omit it for English. Keep original titles and names; do not translate them. Unknown fields are rejected.
+Only `title` is required. An item with an `id` (lowercase letters, digits, and single hyphens, unique in the list) is anchored at `#reading-<id>`, which survives a corrected title; other items are anchored by a hash of their title and author. `author` may be omitted for anonymous works. `lang` describes the work: its title and author's name, in any language tag such as `ja`, `de`, or `zh-Hant`; omit it for English. Keep original titles and names; do not translate them. Unknown fields are rejected.
 
 The commentary is your own writing about the work, and its language is independent of the work's. Give one `note`, or several separately written comments with `notes`:
 

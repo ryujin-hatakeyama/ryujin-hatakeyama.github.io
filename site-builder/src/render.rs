@@ -7,13 +7,14 @@ use maud::{DOCTYPE, Markup, PreEscaped, html};
 use crate::content::{
     Miscellany, Passage, Passages, ValidatedDiaryEntry, ValidatedHome, ValidatedNote,
     ValidatedReadingItem, ValidatedSiteContent, ValidatedSketch, ValidatedWriting,
-    public_english_writings,
+    public_english_writings, reading_anchor,
 };
 use crate::model::{
     Category, DisplayLanguage, EventStatus, Inline, Language, LanguageTag, Link, Paragraph,
     PassageLanguage, Project, Publication, ReadingComment, SummarySegment, Update, UpdatePhase,
     summary_plain_text, summary_segments,
 };
+use crate::timeline::{ArticleName, ArticleUpdate, Entry, Timeline};
 
 const SITE_ORIGIN: &str = "https://ryujin-hatakeyama.github.io";
 const SITE_NAME: &str = "Ryujin Hatakeyama";
@@ -80,6 +81,9 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
         .filter(|project| !project.metadata.draft)
         .collect();
     let writings: Vec<_> = public_english_writings(content.writings()).collect();
+    // The one timeline every list of updates is drawn from (src/timeline.rs).
+    let articles = content.article_updates();
+    let timeline = Timeline::on(content.updates(), articles, today, None);
 
     let mut pages = vec![
         page(
@@ -93,7 +97,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 noindex: false,
                 article: false,
             },
-            home(content.home(), content.updates(), today),
+            home(content.home(), &timeline, today),
         ),
         page(
             "cv/index.html",
@@ -132,7 +136,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 noindex: false,
                 article: false,
             },
-            updates_page(content.updates(), None, today),
+            updates_page(&timeline, None, today),
         ),
         page(
             "writings/index.html",
@@ -158,7 +162,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 noindex: false,
                 article: false,
             },
-            miscellany_overview(content.miscellany()),
+            miscellany_overview(content.miscellany(), &timeline.recent),
         ),
         page(
             "miscellany/reading/index.html",
@@ -256,11 +260,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
     ];
 
     for category in Category::ALL {
-        let category_updates: Vec<_> = content
-            .updates()
-            .iter()
-            .filter(|update| update.categories.contains(&category))
-            .collect();
+        let category_timeline = Timeline::on(content.updates(), articles, today, Some(category));
         let title = format!("{} updates", category.label());
         let description = format!("{} updates from Ryujin Hatakeyama.", category.label());
         let path = format!("/updates/{}/", category.slug());
@@ -271,7 +271,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
             &title,
             &description,
             &path,
-            updates_page_refs(&category_updates, Some(category), today),
+            updates_page(&category_timeline, Some(category), today),
         ));
     }
 
@@ -535,15 +535,9 @@ const HOME_RECENT_LIMIT: usize = 5;
 
 /// Planned events that have ended are listed only on the Updates pages, under
 /// Previously announced, until the author records what happened.
-fn home(home: &ValidatedHome, updates: &[Update], today: NaiveDate) -> Markup {
-    let refs: Vec<_> = updates.iter().collect();
-    let UpdateSections {
-        mut upcoming,
-        mut recent,
-        ..
-    } = UpdateSections::on(&refs, today);
-    upcoming.truncate(HOME_UPCOMING_LIMIT);
-    recent.truncate(HOME_RECENT_LIMIT);
+fn home(home: &ValidatedHome, timeline: &Timeline<'_>, today: NaiveDate) -> Markup {
+    let upcoming = &timeline.upcoming[..timeline.upcoming.len().min(HOME_UPCOMING_LIMIT)];
+    let recent = &timeline.recent[..timeline.recent.len().min(HOME_RECENT_LIMIT)];
     let email = "hatakeyama.ryujin.q7@dc.tohoku.ac.jp";
     let encoded_email = email
         .chars()
@@ -586,7 +580,7 @@ fn home(home: &ValidatedHome, updates: &[Update], today: NaiveDate) -> Markup {
                 header.home-news-heading {
                     h2 id="upcoming-heading" { "Upcoming" }
                 }
-                (upcoming_list(&upcoming, true, today))
+                (upcoming_list(upcoming, true, today))
             }
         }
         @if !recent.is_empty() || upcoming.is_empty() {
@@ -594,7 +588,7 @@ fn home(home: &ValidatedHome, updates: &[Update], today: NaiveDate) -> Markup {
                 header.home-news-heading {
                     h2 id="updates-heading" { "Recent Updates" }
                 }
-                (update_list(&recent, true))
+                (update_list(recent, true))
             }
         }
         // One link to the complete records, after both previews, instead of a
@@ -839,33 +833,34 @@ fn classification(publication: &Publication, presentations: bool) -> String {
     )
 }
 
-fn updates_page(updates: &[Update], active: Option<Category>, today: NaiveDate) -> Markup {
-    let refs: Vec<_> = updates.iter().collect();
-    updates_page_refs(&refs, active, today)
-}
-
-fn updates_page_refs(updates: &[&Update], active: Option<Category>, today: NaiveDate) -> Markup {
-    let UpdateSections {
+/// An Updates page from the timeline on the build day, already limited to
+/// `active` when it names a category.
+fn updates_page(timeline: &Timeline<'_>, active: Option<Category>, today: NaiveDate) -> Markup {
+    let Timeline {
         upcoming,
         recent,
         past_plans,
-    } = UpdateSections::on(updates, today);
+    } = timeline;
+    let past_plans: Vec<_> = past_plans
+        .iter()
+        .map(|update| Entry::Activity(update))
+        .collect();
     html! {
         (page_intro(active.map_or("Updates", Category::label)))
         (update_filters(active))
         @if !upcoming.is_empty() {
             section.update-section.upcoming-updates aria-labelledby="upcoming-heading" {
                 h2 id="upcoming-heading" { "Upcoming" }
-                (upcoming_list(&upcoming, false, today))
+                (upcoming_list(upcoming, false, today))
             }
         }
         @if !recent.is_empty() {
             section.update-section aria-labelledby="recent-heading" {
                 h2 id="recent-heading" { "Recent Updates" }
-                (update_list(&recent, false))
+                (update_list(recent, false))
             }
         } @else if upcoming.is_empty() && past_plans.is_empty() {
-            (update_list(&recent, false))
+            (update_list(recent, false))
         }
         // Plans whose events have ended keep their original wording and
         // anchors until the author records what happened; they are neither
@@ -876,48 +871,6 @@ fn updates_page_refs(updates: &[&Update], active: Option<Category>, today: Naive
                 (update_list(&past_plans, false))
             }
         }
-    }
-}
-
-/// Updates grouped by their phase on the build day (see `Update::phase_on`).
-/// Every record falls in exactly one group.
-struct UpdateSections<'a> {
-    /// Planned events that have not ended, ongoing and upcoming, soonest
-    /// first: by first day, then id.
-    upcoming: Vec<&'a Update>,
-    /// Completed records, most recently held first: by the event's final
-    /// day, then its first day, then id.
-    recent: Vec<&'a Update>,
-    /// Planned events that have ended, most recently held first.
-    past_plans: Vec<&'a Update>,
-}
-
-impl<'a> UpdateSections<'a> {
-    fn on(updates: &[&'a Update], today: NaiveDate) -> Self {
-        let mut sections = Self {
-            upcoming: Vec::new(),
-            recent: Vec::new(),
-            past_plans: Vec::new(),
-        };
-        for &update in updates {
-            match update.phase_on(today) {
-                UpdatePhase::Upcoming | UpdatePhase::Ongoing => sections.upcoming.push(update),
-                UpdatePhase::Completed => sections.recent.push(update),
-                UpdatePhase::PastPlan => sections.past_plans.push(update),
-            }
-        }
-        sections.upcoming.sort_by(|left, right| {
-            left.date
-                .cmp(&right.date)
-                .then_with(|| left.id.cmp(&right.id))
-        });
-        sections
-            .recent
-            .sort_by(|left, right| Update::most_recent_first(left, right));
-        sections
-            .past_plans
-            .sort_by(|left, right| Update::most_recent_first(left, right));
-        sections
     }
 }
 
@@ -940,7 +893,7 @@ fn upcoming_list(updates: &[&Update], compact: bool, today: NaiveDate) -> Markup
                                 span.phase-label { "Ongoing" }
                             }
                             span.kind-label { (update.kind.label()) }
-                            @if let Some(label) = visible_category_labels(update) {
+                            @if let Some(label) = visible_category_labels(&update.categories) {
                                 span.category-label { (label) }
                             }
                         }
@@ -1025,9 +978,8 @@ fn update_summary(summary: &str) -> Markup {
 /// category) is the default context of most entries and is not labelled, so
 /// only explicit categories such as Research appear; an entry with none shows
 /// no label at all.
-fn visible_category_labels(update: &Update) -> Option<String> {
-    let labels: Vec<_> = update
-        .categories
+fn visible_category_labels(categories: &[Category]) -> Option<String> {
+    let labels: Vec<_> = categories
         .iter()
         .filter(|category| category.is_labelled())
         .map(|category| category.label())
@@ -1064,8 +1016,8 @@ fn filter_link(href: &str, label: &str, active: bool) -> Markup {
     }
 }
 
-fn update_list(updates: &[&Update], compact: bool) -> Markup {
-    if updates.is_empty() {
+fn update_list(entries: &[Entry<'_>], compact: bool) -> Markup {
+    if entries.is_empty() {
         return html! { p.empty-state { "No updates yet." } };
     }
     let class = if compact {
@@ -1075,29 +1027,74 @@ fn update_list(updates: &[&Update], compact: bool) -> Markup {
     };
     html! {
         ol class=(class) {
-            @for update in updates {
+            @for entry in entries {
                 li {
-                    article id=[(!compact).then(|| format!("update-{}", update.id))] {
+                    article id=[(!compact).then(|| format!("update-{}", entry.id()))] {
                         div.update-meta {
-                            (event_dates(update))
-                            span.kind-label { (update.kind.label()) }
+                            (entry_dates(entry))
+                            @if let Entry::Activity(update) = entry {
+                                span.kind-label { (update.kind.label()) }
+                            }
                             // Categories are plain, muted metadata rather than
                             // links; the category filters provide navigation.
-                            @if let Some(label) = visible_category_labels(update) {
+                            @if let Some(label) = visible_category_labels(entry.categories()) {
                                 span.category-label { (label) }
                             }
                         }
                         div.update-copy {
-                            h3 { (update_title(update, true)) }
-                            @if !compact {
-                                p { (update_summary(&update.summary.en)) }
+                            @match entry {
+                                Entry::Activity(update) => {
+                                    h3 { (update_title(update, true)) }
+                                    @if !compact {
+                                        p { (update_summary(&update.summary.en)) }
+                                    }
+                                    (update_links(update, !compact, true))
+                                }
+                                // An article's entry is its one sentence; the
+                                // article itself is a click away.
+                                Entry::Article(article) => h3 { (article_sentence(article)) },
                             }
-                            (update_links(update, !compact, true))
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/// The dates an entry is listed under: an activity's event dates, or the day
+/// an article was published.
+fn entry_dates(entry: &Entry<'_>) -> Markup {
+    match entry {
+        Entry::Activity(update) => event_dates(update),
+        Entry::Article(article) => {
+            let day = article.published();
+            html! { time datetime=(day.format("%Y-%m-%d")) { (format_date(day)) } }
+        }
+    }
+}
+
+/// `Published “Title” in Notes.`, the title exactly as written and linked to
+/// the article, in its own language. An untitled diary entry is named by the
+/// day it records.
+fn article_sentence(article: &ArticleUpdate) -> Markup {
+    let section = article.section().label();
+    match article.name() {
+        ArticleName::Title { text, lang } => html! {
+            "Published “" a href=(article.path()) lang=[lang] { (text) } "” in " (section) "."
+        },
+        ArticleName::DiaryDay(day) => html! {
+            "Published an entry for " a href=(article.path()) { (day.format("%-d %B %Y")) } " in " (section) "."
+        },
+    }
+}
+
+/// An entry as one line of text: an activity's title (its event's name
+/// linked, as everywhere), or an article's sentence.
+fn entry_text(entry: &Entry<'_>) -> Markup {
+    match entry {
+        Entry::Activity(update) => update_title(update, true),
+        Entry::Article(article) => article_sentence(article),
     }
 }
 
@@ -1114,7 +1111,7 @@ fn update_detail(update: &Update) -> Markup {
                 @if update.event_status == EventStatus::Planned {
                     div.detail-meta { dt { "Status" } dd { "Planned" } }
                 }
-                @if let Some(label) = visible_category_labels(update) {
+                @if let Some(label) = visible_category_labels(&update.categories) {
                     div.detail-meta { dt { "Categories" } dd { (label) } }
                 }
             }
@@ -1289,17 +1286,48 @@ fn search_filter(section: &MiscellanySection) -> String {
 /// only once some published entry has texts in more than one language.
 const MULTILINGUAL_NOTE: &str = "An entry may contain texts in different languages that are not necessarily translations of one another.";
 
-/// The overview: its name and the search, then the four sections as a
-/// compact table of contents, one row (icon, name, any description) each.
-fn miscellany_overview(miscellany: &Miscellany) -> Markup {
+/// How many of the latest updates the overview shows beside the sections.
+const MISCELLANY_RECENT_LIMIT: usize = 4;
+
+/// The overview: its name, the search, and the four sections as a compact
+/// table of contents, one row (icon, name) each; then the latest entries of
+/// the one Updates timeline, `recent` (see `Timeline`), activities and
+/// published articles alike. On a wide screen the sections stand at the
+/// left and the search and the updates at the right; on a narrow one the
+/// sections follow the search and the updates are left to the Updates page
+/// (assets/styles/site.css). The search is there even when nothing is
+/// published.
+fn miscellany_overview(miscellany: &Miscellany, recent: &[Entry<'_>]) -> Markup {
+    let recent = &recent[..recent.len().min(MISCELLANY_RECENT_LIMIT)];
     html! {
-        header.miscellany-header {
-            div.miscellany-heading {
+        div.miscellany-home {
+            header.miscellany-header {
                 div.miscellany-title { h1 { "Miscellany" } }
-                (search_form(None))
+                @if miscellany.has_multilingual_entry() { p.miscellany-description { (MULTILINGUAL_NOTE) } }
             }
-            @if miscellany.has_multilingual_entry() { p.miscellany-description { (MULTILINGUAL_NOTE) } }
+            (search_form(None))
+            (miscellany_contents())
+            @if !recent.is_empty() {
+                section.miscellany-updates aria-labelledby="miscellany-updates-heading" {
+                    h2 id="miscellany-updates-heading" { "Recent Updates" }
+                    ol.recent-updates {
+                        @for entry in recent {
+                            li {
+                                (entry_dates(entry))
+                                p { (entry_text(entry)) }
+                            }
+                        }
+                    }
+                    p.miscellany-updates-all { a href="/updates/" { "All updates" } }
+                }
+            }
         }
+    }
+}
+
+/// The four sections as rows; the whole row is the link.
+fn miscellany_contents() -> Markup {
+    html! {
         nav.miscellany-overview aria-label="Miscellany sections" {
             ul.miscellany-contents {
                 @for (section, icon) in MISCELLANY_SECTIONS.iter().zip(MISCELLANY_ICONS) {
@@ -1506,15 +1534,21 @@ fn article_passages(passages: &Passages, title_level: u8, offered: &[DisplayLang
     )
 }
 
-/// A stable fragment identifier for a reading item, which has no slug: a
-/// hash of its title and author, so it changes only if they do. Items with
-/// the same title and author are told apart by their order.
+/// A stable fragment identifier for each reading item: its `id` when it has
+/// one, and otherwise a hash of its title and author, so it changes only if
+/// they do. Items with the same title and author are told apart by their
+/// order.
 fn reading_anchors(items: &[ValidatedReadingItem]) -> Vec<String> {
     let mut seen: Vec<String> = Vec::new();
     items
         .iter()
         .map(|item| {
             let work = item.work();
+            // An item with an id is named by it, so its anchor survives a
+            // corrected title; its entry in Updates links here.
+            if let Some(id) = &work.id {
+                return reading_anchor(id);
+            }
             let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
             let key = format!(
                 "{}\u{1f}{}",
@@ -2055,14 +2089,45 @@ fn fixture_today() -> NaiveDate {
 #[cfg(test)]
 mod tests {
     use super::{
-        HOME_RECENT_LIMIT, HOME_UPCOMING_LIMIT, UpdateSections, classification, cv, escape_xml,
+        HOME_RECENT_LIMIT, HOME_UPCOMING_LIMIT, classification, cv, escape_xml,
         filterable_publications, fixture_today, footer, format_date, format_date_range, header,
-        home, publication_list, research, rss, update_detail, update_list, update_summary,
-        updates_page_refs,
+        publication_list, research, rss, update_detail, update_summary,
     };
     use crate::content::ValidatedHome;
-    use crate::model::{Category, EventStatus, Publication};
+    use crate::model::{Category, EventStatus, Publication, Update};
+    use crate::timeline::{Entry, Timeline};
     use chrono::NaiveDate;
+    use maud::Markup;
+
+    // These tests are about update records alone: the views below are the
+    // site's own, drawn from a timeline with no published articles (the
+    // timeline's tests are in `timeline_tests`).
+
+    fn home(home: &ValidatedHome, updates: &[Update], today: NaiveDate) -> Markup {
+        super::home(home, &Timeline::on(updates, &[], today, None), today)
+    }
+
+    /// An Updates page of exactly these records; `active` only marks the
+    /// filter, as the records are already the category's.
+    fn updates_page_refs(
+        updates: &[&Update],
+        active: Option<Category>,
+        today: NaiveDate,
+    ) -> Markup {
+        super::updates_page(
+            &Timeline::on(updates.iter().copied(), &[], today, None),
+            active,
+            today,
+        )
+    }
+
+    fn update_list(updates: &[&Update], compact: bool) -> Markup {
+        let entries: Vec<_> = updates
+            .iter()
+            .map(|update| Entry::Activity(update))
+            .collect();
+        super::update_list(&entries, compact)
+    }
 
     /// A small biography for tests that are not about its wording.
     fn fixture_home() -> ValidatedHome {
@@ -3220,17 +3285,21 @@ mod tests {
                 assert_eq!(page.matches(&heading).count(), expected, "{}", update.id);
             }
         }
-        let UpdateSections {
+        let Timeline {
             mut upcoming,
             mut recent,
             ..
-        } = UpdateSections::on(&refs, fixture_today());
+        } = Timeline::on(refs.iter().copied(), &[], fixture_today(), None);
         upcoming.truncate(HOME_UPCOMING_LIMIT);
         recent.truncate(HOME_RECENT_LIMIT);
-        let previewed: Vec<_> = upcoming.iter().chain(&recent).map(|u| &u.id).collect();
+        let previewed: Vec<_> = upcoming
+            .iter()
+            .map(|u| u.id.as_str())
+            .chain(recent.iter().map(Entry::id))
+            .collect();
         assert!(!previewed.is_empty());
         for update in &updates {
-            let on_home = usize::from(previewed.contains(&&update.id));
+            let on_home = usize::from(previewed.contains(&update.id.as_str()));
             for (page, expected) in [(&pages[0], on_home), (&pages[1], 1)] {
                 assert_eq!(
                     page.matches(&linked_heading(update)).count(),
@@ -3548,7 +3617,7 @@ mod miscellany_tests {
 
     #[test]
     fn overview_has_one_heading_four_plain_rows_and_a_quiet_search() {
-        let html = miscellany_overview(&Miscellany::default()).into_string();
+        let html = miscellany_overview(&Miscellany::default(), &[]).into_string();
         assert_eq!(html.matches("<h1").count(), 1);
         assert!(html.contains("<h1>Miscellany</h1>"));
         // The overview is the top: no way back, and no section is current.
@@ -3585,9 +3654,10 @@ mod miscellany_tests {
             9,
             "four icons, four chevrons, and the search icon"
         );
-        // The search is one plain form that opens the search page, beside
-        // the heading.
-        assert!(html.contains(r#"<div class="miscellany-heading"><div class="miscellany-title"><h1>Miscellany</h1></div><form class="miscellany-search" action="/miscellany/search/" method="get" role="search" aria-label="Search Miscellany"><label class="sr-only" for="miscellany-search-query">Search Miscellany</label><input id="miscellany-search-query" type="search" name="q""#));
+        // The search is one plain form that opens the search page, after the
+        // heading and before the sections, and is there with nothing
+        // published.
+        assert!(html.contains(r#"<div class="miscellany-home"><header class="miscellany-header"><div class="miscellany-title"><h1>Miscellany</h1></div></header><form class="miscellany-search" action="/miscellany/search/" method="get" role="search" aria-label="Search Miscellany"><label class="sr-only" for="miscellany-search-query">Search Miscellany</label><input id="miscellany-search-query" type="search" name="q""#));
         assert!(!html.contains(r#"name="section""#));
         assert_eq!(html.matches("role=").count(), 1);
         assert!(!html.contains("guides"));
@@ -4268,18 +4338,26 @@ mod multilingual_tests {
         )
         .unwrap();
         assert!(
-            !miscellany_overview(&reading_only)
+            !miscellany_overview(&reading_only, &[])
                 .into_string()
                 .contains(NOTE)
         );
         // The fixture reading list already has a work with two commentaries.
-        assert!(miscellany_overview(&separate).into_string().contains(NOTE));
+        assert!(
+            miscellany_overview(&separate, &[])
+                .into_string()
+                .contains(NOTE)
+        );
         let empty = Miscellany::default();
-        assert!(!miscellany_overview(&empty).into_string().contains(NOTE));
-        let html = miscellany_overview(&miscellany(&[MOON_JA, MOON_EN], &[])).into_string();
+        assert!(
+            !miscellany_overview(&empty, &[])
+                .into_string()
+                .contains(NOTE)
+        );
+        let html = miscellany_overview(&miscellany(&[MOON_JA, MOON_EN], &[]), &[]).into_string();
         assert_eq!(html.matches(NOTE).count(), 1);
         assert!(html.contains(&format!(
-            r#"</form></div><p class="miscellany-description">{NOTE}</p></header>"#
+            r#"</h1></div><p class="miscellany-description">{NOTE}</p></header><form"#
         )));
     }
 }
@@ -4501,5 +4579,660 @@ mod sketches_and_search_tests {
             anchors[0]
         )));
         assert!(html.contains(r#"<ol class="reading-list" data-pagefind-body data-pagefind-filter="section:Reading" data-pagefind-meta="title:Reading">"#));
+    }
+}
+
+#[cfg(test)]
+mod timeline_tests {
+    //! The one Updates timeline, from fictional update records and articles
+    //! parsed through the real validation. Nothing here is written to the
+    //! content directory.
+
+    use super::pages;
+    use crate::content::{Miscellany, ValidatedSiteContent};
+    use crate::model::Update;
+    use chrono::NaiveDate;
+
+    fn day(year: i32, month: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(year, month, day).unwrap()
+    }
+
+    fn today() -> NaiveDate {
+        day(2026, 10, 21)
+    }
+
+    fn activity(id: &str, date: &str, status: &str, category: &str) -> Update {
+        serde_json::from_str(&format!(
+            r#"{{"id":"{id}","title":{{"en":"Attended event {id}"}},"summary":{{"en":"x"}},"date":"{date}",
+            "eventStatus":"{status}","categories":["{category}"],
+            "kind":{{"type":"participation"}},"related":{{}}}}"#
+        ))
+        .unwrap()
+    }
+
+    fn published(day: Option<&str>) -> String {
+        day.map(|day| format!("published: {day}\n"))
+            .unwrap_or_default()
+    }
+
+    fn note(slug: &str, title: &str, day: Option<&str>) -> String {
+        format!(
+            "---\nslug: {slug}\ntitle: {title}\nlang: en\n{}draft: false\n---\n\nText.\n",
+            published(day)
+        )
+    }
+
+    fn draft_note(slug: &str, title: &str, day: &str) -> String {
+        format!(
+            "---\nslug: {slug}\ntitle: {title}\nlang: en\npublished: {day}\n---\n\nPRIVATE-BODY\n"
+        )
+    }
+
+    fn sketch(slug: &str, title: &str, date: &str, day: Option<&str>) -> String {
+        format!(
+            "---\nslug: {slug}\ntitle: {title}\nlang: ja\ndate: {date}\n{}draft: false\n---\n\n本文。\n",
+            published(day)
+        )
+    }
+
+    fn diary(date: &str, title: Option<&str>, day: Option<&str>) -> String {
+        let title = title.map(|t| format!("title: {t}\n")).unwrap_or_default();
+        format!(
+            "---\ndate: {date}\nlang: en\n{title}{}draft: false\n---\n\nAn entry.\n",
+            published(day)
+        )
+    }
+
+    const READING: &str = "items:\n  - id: conservativity\n    title: Conservativity of Definitional Extension\n    published: 2026-10-12\n  - title: An item without a publication day\n";
+
+    fn site(
+        updates: Vec<Update>,
+        reading: &str,
+        notes: &[String],
+        diary: &[String],
+        sketches: &[String],
+    ) -> ValidatedSiteContent {
+        try_site(updates, reading, notes, diary, sketches).unwrap()
+    }
+
+    fn try_site(
+        updates: Vec<Update>,
+        reading: &str,
+        notes: &[String],
+        diary: &[String],
+        sketches: &[String],
+    ) -> anyhow::Result<ValidatedSiteContent> {
+        fn refs(sources: &[String]) -> Vec<&str> {
+            sources.iter().map(String::as_str).collect()
+        }
+        let miscellany =
+            Miscellany::from_all_sources(reading, &refs(notes), &refs(diary), &refs(sketches))?;
+        ValidatedSiteContent::with_updates_and_miscellany(updates, miscellany)
+    }
+
+    fn page(content: &ValidatedSiteContent, output_path: &str, on: NaiveDate) -> String {
+        pages(content, on)
+            .into_iter()
+            .find(|page| page.output_path == output_path)
+            .unwrap_or_else(|| panic!("missing {output_path}"))
+            .html
+    }
+
+    /// The feed stays one of update records: articles are announced on the
+    /// pages, never in it.
+    fn feed(content: &ValidatedSiteContent) -> String {
+        let feed = super::rss(content.updates());
+        assert!(!feed.contains("/miscellany/") && !feed.contains("Published “"));
+        feed
+    }
+
+    fn between<'a>(html: &'a str, start: &str, end: &str) -> &'a str {
+        let Some(from) = html.find(start) else {
+            return "";
+        };
+        let rest = &html[from..];
+        &rest[..rest.find(end).unwrap()]
+    }
+
+    fn all_between<'a>(html: &'a str, open: &str, close: &str) -> Vec<&'a str> {
+        html.split(open)
+            .skip(1)
+            .map(|part| &part[..part.find(close).unwrap()])
+            .collect()
+    }
+
+    /// The entries of each view, as the text each shows: the home page's
+    /// Recent Updates, the Updates page's, and the Miscellany overview's.
+    struct Views {
+        home: Vec<String>,
+        updates: Vec<String>,
+        miscellany: Vec<String>,
+    }
+
+    fn views(content: &ValidatedSiteContent, on: NaiveDate) -> Views {
+        let home = page(content, "index.html", on);
+        let updates = page(content, "updates/index.html", on);
+        let miscellany = page(content, "miscellany/index.html", on);
+        let updates_main = between(&updates, "<main", "</main>");
+        // With upcoming or earlier plans present, completed entries have
+        // their own section; otherwise the page is one list.
+        let recent = if updates_main.contains(r#"aria-labelledby="recent-heading""#) {
+            between(
+                updates_main,
+                r#"aria-labelledby="recent-heading""#,
+                "</section>",
+            )
+        } else {
+            updates_main
+        };
+        let owned = |items: Vec<&str>| items.into_iter().map(str::to_owned).collect();
+        Views {
+            home: owned(all_between(
+                between(&home, r#"aria-labelledby="updates-heading""#, "</section>"),
+                "<h3>",
+                "</h3>",
+            )),
+            updates: owned(all_between(recent, "<h3>", "</h3>")),
+            miscellany: owned(all_between(
+                between(&miscellany, r#"<ol class="recent-updates">"#, "</ol>"),
+                "<p>",
+                "</p>",
+            )),
+        }
+    }
+
+    fn update_ids(html: &str) -> Vec<&str> {
+        all_between(html, r#"<article id="update-"#, "\"")
+    }
+
+    fn assert_same_order(views: &Views) {
+        assert!(!views.updates.is_empty());
+        assert_eq!(
+            views.home,
+            views.updates[..views.updates.len().min(5)],
+            "home"
+        );
+        assert_eq!(
+            views.miscellany,
+            views.updates[..views.updates.len().min(4)],
+            "miscellany"
+        );
+    }
+
+    const CONSERVATIVITY: &str = r#"Published “<a href="/miscellany/reading/#reading-conservativity">Conservativity of Definitional Extension</a>” in Reading."#;
+    const MODAL: &str = r#"Published “<a href="/miscellany/notes/modal-logic/" lang="en">Some Notes on Modal Logic</a>” in Notes."#;
+
+    #[test]
+    fn only_update_records() {
+        let content = site(
+            vec![
+                activity("older", "2026-09-01", "completed", "academia"),
+                activity("newer", "2026-10-01", "completed", "research"),
+                activity("future", "2026-11-01", "planned", "academia"),
+            ],
+            "items: []\n",
+            &[note("no-date", "A note without a publication day", None)],
+            &[],
+            &[],
+        );
+        assert!(content.article_updates().is_empty());
+        let views = views(&content, today());
+        assert_eq!(
+            views.updates,
+            ["Attended event newer", "Attended event older"]
+        );
+        assert_same_order(&views);
+        let miscellany = page(&content, "miscellany/index.html", today());
+        assert!(miscellany.contains(
+            r#"<time datetime="2026-10-01">01 Oct 2026</time><p>Attended event newer</p>"#
+        ));
+        // Planned events stay under Upcoming, never in the overview.
+        assert!(!miscellany.contains("event future"));
+    }
+
+    #[test]
+    fn only_published_articles_in_the_authors_words() {
+        let content = site(
+            Vec::new(),
+            READING,
+            &[note(
+                "modal-logic",
+                "Some Notes on Modal Logic",
+                Some("2026-10-14"),
+            )],
+            &[diary("2026-10-02", None, Some("2026-10-05"))],
+            &[sketch(
+                "kaze",
+                "風の<下書き> & 線",
+                "2026-09-30",
+                Some("2026-10-03"),
+            )],
+        );
+        let views = views(&content, today());
+        assert_eq!(
+            views.updates,
+            [
+                MODAL,
+                CONSERVATIVITY,
+                r#"Published an entry for <a href="/miscellany/diary/2026/10/#diary-2026-10-02">2 October 2026</a> in Diary."#,
+                r#"Published “<a href="/miscellany/sketches/kaze/" lang="ja">風の&lt;下書き&gt; &amp; 線</a>” in Sketches."#,
+            ]
+        );
+        assert_same_order(&views);
+        let updates = page(&content, "updates/index.html", today());
+        assert_eq!(
+            update_ids(&updates),
+            [
+                "published-notes-modal-logic",
+                "published-reading-conservativity",
+                "published-diary-2026-10-02",
+                "published-sketches-kaze",
+            ]
+        );
+        // Listed by the day of publication, labelled Writing, with no kind.
+        assert!(updates.contains(r#"<article id="update-published-notes-modal-logic"><div class="update-meta"><time datetime="2026-10-14">14 Oct 2026</time><span class="category-label">Writing</span></div><div class="update-copy"><h3>Published"#));
+        // The diary entry is listed when it was published, not on its date.
+        assert!(updates.contains(r#"<time datetime="2026-10-05">05 Oct 2026</time>"#));
+        assert!(!updates.contains(r#"datetime="2026-10-02""#));
+        // The sketch likewise, not on its own date.
+        assert!(!updates.contains(r#"datetime="2026-09-30""#));
+    }
+
+    #[test]
+    fn records_and_articles_form_one_timeline_in_every_view() {
+        let content = site(
+            vec![
+                activity("talk", "2026-10-13", "completed", "research"),
+                activity("workshop", "2026-10-04", "completed", "academia"),
+                activity("summer", "2026-08-01", "completed", "academia"),
+                activity("visit", "2026-12-01", "planned", "academia"),
+            ],
+            READING,
+            &[note(
+                "modal-logic",
+                "Some Notes on Modal Logic",
+                Some("2026-10-14"),
+            )],
+            &[diary("2026-10-02", Some("Rain"), Some("2026-10-05"))],
+            &[],
+        );
+        let views = views(&content, today());
+        assert_eq!(views.updates.len(), 6);
+        assert_eq!(
+            update_ids(between(
+                &page(&content, "updates/index.html", today()),
+                r#"aria-labelledby="recent-heading""#,
+                "</section>"
+            )),
+            [
+                "published-notes-modal-logic",
+                "talk",
+                "published-reading-conservativity",
+                "published-diary-2026-10-02",
+                "workshop",
+                "summer",
+            ]
+        );
+        assert_same_order(&views);
+        // Activities are kept beside the articles in the short previews.
+        assert!(views.miscellany.iter().any(|entry| entry.contains("talk")));
+        // The feed keeps to the update records, as before.
+        let feed = feed(&content);
+        assert_eq!(
+            all_between(&feed, "<guid>", "</guid>"),
+            [
+                "https://ryujin-hatakeyama.github.io/updates/#update-visit",
+                "https://ryujin-hatakeyama.github.io/updates/#update-talk",
+                "https://ryujin-hatakeyama.github.io/updates/#update-workshop",
+                "https://ryujin-hatakeyama.github.io/updates/#update-summer",
+            ]
+        );
+    }
+
+    #[test]
+    fn with_no_articles_and_no_updates_the_overview_keeps_its_search() {
+        let content = site(Vec::new(), "items: []\n", &[], &[], &[]);
+        let miscellany = page(&content, "miscellany/index.html", today());
+        assert!(
+            miscellany.contains(r#"<form class="miscellany-search" action="/miscellany/search/""#)
+        );
+        assert!(!miscellany.contains("Recent Updates"));
+        assert!(!miscellany.contains("recent-updates"));
+        let updates = page(&content, "updates/index.html", today());
+        assert!(updates.contains("No updates yet."));
+    }
+
+    #[test]
+    fn entries_of_one_day_keep_one_order_in_every_view_and_build() {
+        let content = site(
+            vec![
+                activity("b-meeting", "2026-10-10", "completed", "academia"),
+                activity("z-seminar", "2026-10-10", "completed", "research"),
+            ],
+            "items: []\n",
+            &[
+                note("zeta", "Zeta", Some("2026-10-10")),
+                note("alpha", "Alpha", Some("2026-10-10")),
+            ],
+            &[],
+            &[sketch("mid", "Mid", "2026-10-10", Some("2026-10-10"))],
+        );
+        let page_ids = |on| {
+            update_ids(&page(&content, "updates/index.html", on))
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        // Same day: by id.
+        assert_eq!(
+            page_ids(today()),
+            [
+                "b-meeting",
+                "published-notes-alpha",
+                "published-notes-zeta",
+                "published-sketches-mid",
+                "z-seminar",
+            ]
+        );
+        assert_same_order(&views(&content, today()));
+        // Building again gives the same pages, byte for byte.
+        let first: Vec<_> = pages(&content, today())
+            .into_iter()
+            .map(|p| p.html)
+            .collect();
+        let second: Vec<_> = pages(&content, today())
+            .into_iter()
+            .map(|p| p.html)
+            .collect();
+        assert_eq!(first, second);
+        assert_eq!(feed(&content), feed(&content));
+    }
+
+    #[test]
+    fn an_article_published_with_an_earlier_day_takes_its_place_by_that_day() {
+        let recent: Vec<_> = (1..=6)
+            .map(|n| {
+                activity(
+                    &format!("recent-{n}"),
+                    &format!("2026-10-{:02}", n + 10),
+                    "completed",
+                    "academia",
+                )
+            })
+            .collect();
+        let content = site(
+            recent,
+            "items: []\n",
+            &[note("old-note", "Old note", Some("2025-01-15"))],
+            &[],
+            &[],
+        );
+        let views = views(&content, today());
+        assert_eq!(views.updates.len(), 7);
+        assert!(views.updates.last().unwrap().contains("Old note"));
+        // Not pushed to the top of the previews for being new to the site.
+        assert!(views.home.iter().all(|entry| !entry.contains("Old note")));
+        assert!(
+            views
+                .miscellany
+                .iter()
+                .all(|entry| !entry.contains("Old note"))
+        );
+        assert_same_order(&views);
+        let writing = page(&content, "updates/writing/index.html", today());
+        assert!(writing.contains(r#"<time datetime="2025-01-15">15 Jan 2025</time>"#));
+    }
+
+    #[test]
+    fn a_corrected_publication_day_moves_the_one_entry() {
+        let records = || {
+            vec![
+                activity("first", "2026-10-01", "completed", "academia"),
+                activity("second", "2026-10-08", "completed", "academia"),
+            ]
+        };
+        let before = site(
+            records(),
+            "items: []\n",
+            &[note("n", "N", Some("2026-10-09"))],
+            &[],
+            &[],
+        );
+        let after = site(
+            records(),
+            "items: []\n",
+            &[note("n", "N", Some("2026-10-02"))],
+            &[],
+            &[],
+        );
+        let ids = |content: &ValidatedSiteContent| {
+            update_ids(&page(content, "updates/index.html", today()))
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&before), ["published-notes-n", "second", "first"]);
+        assert_eq!(ids(&after), ["second", "published-notes-n", "first"]);
+        let html = page(&after, "updates/index.html", today());
+        assert!(html.contains(r#"<time datetime="2026-10-02">02 Oct 2026</time>"#));
+        assert!(!html.contains("2026-10-09"));
+    }
+
+    #[test]
+    fn publishing_again_or_renaming_keeps_one_entry_under_one_id() {
+        let source = note("stable", "First title", Some("2026-10-10"));
+        // The same file published twice over is the same article.
+        let again = site(Vec::new(), "items: []\n", &[source.clone()], &[], &[]);
+        let html = page(&again, "updates/index.html", today());
+        assert_eq!(update_ids(&html), ["published-notes-stable"]);
+        assert_eq!(html.matches("First title").count(), 1);
+        assert!(!feed(&again).contains("<item>"));
+        // Two files claiming one note are refused rather than listed twice.
+        assert!(
+            try_site(
+                Vec::new(),
+                "items: []\n",
+                &[source.clone(), source],
+                &[],
+                &[]
+            )
+            .is_err()
+        );
+
+        let renamed = site(
+            Vec::new(),
+            "items: []\n",
+            &[note("stable", "Second title", Some("2026-10-10"))],
+            &[],
+            &[],
+        );
+        let html = page(&renamed, "updates/index.html", today());
+        assert_eq!(update_ids(&html), ["published-notes-stable"]);
+        assert!(html.contains(r#"Published “<a href="/miscellany/notes/stable/" lang="en">Second title</a>” in Notes."#));
+        assert!(!html.contains("First title"));
+        // A reading item is named by its id, so a corrected title keeps both
+        // its anchor and its entry.
+        let corrected = site(
+            Vec::new(),
+            &READING.replace("Conservativity of", "Conservativity in"),
+            &[],
+            &[],
+            &[],
+        );
+        let reading = page(&corrected, "miscellany/reading/index.html", today());
+        assert!(reading.contains(r#"id="reading-conservativity""#));
+        assert_eq!(
+            update_ids(&page(&corrected, "updates/index.html", today())),
+            ["published-reading-conservativity"]
+        );
+    }
+
+    #[test]
+    fn drafts_undated_and_future_articles_are_not_announced() {
+        let content = site(
+            vec![activity("done", "2026-10-01", "completed", "academia")],
+            "items: []\n",
+            &[
+                draft_note("private", "PRIVATE-TITLE", "2026-10-10"),
+                note("undated", "UNDATED-TITLE", None),
+                note("scheduled", "Scheduled", Some("2026-10-25")),
+            ],
+            &[diary("2026-10-10", Some("UNDATED-DIARY"), None)],
+            &[],
+        );
+        for on in [today(), day(2026, 10, 24)] {
+            for path in [
+                "index.html",
+                "updates/index.html",
+                "updates/writing/index.html",
+                "miscellany/index.html",
+            ] {
+                let html = page(&content, path, on);
+                for canary in ["PRIVATE", "UNDATED", "Scheduled"] {
+                    assert!(!html.contains(canary), "{path} on {on}: {canary}");
+                }
+            }
+            assert!(!feed(&content).contains("Scheduled"));
+        }
+        // From its publication day on, in Tokyo, the scheduled note is listed.
+        let on = day(2026, 10, 25);
+        let views = views(&content, on);
+        assert_eq!(
+            views.updates[0],
+            r#"Published “<a href="/miscellany/notes/scheduled/" lang="en">Scheduled</a>” in Notes."#
+        );
+        assert_same_order(&views);
+        assert!(!feed(&content).contains("PRIVATE"));
+    }
+
+    #[test]
+    fn articles_are_writing_and_records_keep_their_categories() {
+        let content = site(
+            vec![
+                activity("talk", "2026-10-13", "completed", "research"),
+                activity("workshop", "2026-10-04", "completed", "academia"),
+            ],
+            READING,
+            &[],
+            &[],
+            &[],
+        );
+        let ids = |path| {
+            update_ids(&page(&content, path, today()))
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ids("updates/index.html"),
+            ["talk", "published-reading-conservativity", "workshop"]
+        );
+        assert_eq!(ids("updates/research/index.html"), ["talk"]);
+        assert_eq!(
+            ids("updates/writing/index.html"),
+            ["published-reading-conservativity"]
+        );
+        assert_eq!(ids("updates/academia/index.html"), ["workshop"]);
+        // The filters themselves are unchanged.
+        let all = page(&content, "updates/index.html", today());
+        assert!(all.contains(r#"<nav class="update-filters" aria-label="Update categories"><a href="/updates/" aria-current="page">All</a><a href="/updates/research/">Research</a><a href="/updates/writing/">Writing</a></nav>"#));
+    }
+
+    #[test]
+    fn every_article_entry_links_to_its_article() {
+        let content = site(
+            Vec::new(),
+            READING,
+            &[note(
+                "modal-logic",
+                "Some Notes on Modal Logic",
+                Some("2026-10-14"),
+            )],
+            &[
+                diary("2026-10-02", None, Some("2026-10-05")),
+                "---\ndate: 2026-10-02\nslug: evening\nlang: en\npublished: 2026-10-06\ndraft: false\n---\n\nLater.\n"
+                    .to_owned(),
+            ],
+            &[sketch("kaze", "風", "2026-09-30", Some("2026-10-03"))],
+        );
+        let all = pages(&content, today());
+        assert_eq!(content.article_updates().len(), 5);
+        for article in content.article_updates() {
+            let (path, fragment) = article
+                .path()
+                .split_once('#')
+                .unwrap_or((article.path(), ""));
+            let target = all
+                .iter()
+                .find(|page| page.public_path == path)
+                .unwrap_or_else(|| panic!("no page at {path}"));
+            if !fragment.is_empty() {
+                assert!(
+                    target.html.contains(&format!(r#"id="{fragment}""#)),
+                    "{}",
+                    article.path()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ids_and_publication_days_are_checked() {
+        // An update record may not take an article's id.
+        assert!(
+            try_site(
+                vec![activity(
+                    "published-notes-n",
+                    "2026-10-01",
+                    "completed",
+                    "academia"
+                )],
+                "items: []\n",
+                &[note("n", "N", Some("2026-10-02"))],
+                &[],
+                &[],
+            )
+            .is_err()
+        );
+        // Not even a draft's, which would collide once it is published.
+        assert!(
+            try_site(
+                vec![activity(
+                    "published-notes-n",
+                    "2026-10-01",
+                    "completed",
+                    "academia"
+                )],
+                "items: []\n",
+                &[draft_note("n", "N", "2026-10-02")],
+                &[],
+                &[],
+            )
+            .is_err()
+        );
+        for reading in [
+            // A reading item is announced only under a stable id.
+            "items:\n  - title: T\n    published: 2026-10-01\n",
+            "items:\n  - id: Not a slug\n    title: T\n",
+            "items:\n  - id: same\n    title: A\n  - id: same\n    title: B\n",
+            "items:\n  - id: t\n    title: T\n    published: 2026-02-30\n",
+        ] {
+            assert!(
+                try_site(Vec::new(), reading, &[], &[], &[]).is_err(),
+                "{reading}"
+            );
+        }
+        // A companion passage cannot carry the article's publication day.
+        let companion = "---\nof: n\nlang: ja\npublished: 2026-10-02\n---\n\n本文。\n".to_owned();
+        assert!(
+            try_site(
+                Vec::new(),
+                "items: []\n",
+                &[note("n", "N", None), companion],
+                &[],
+                &[]
+            )
+            .is_err()
+        );
     }
 }

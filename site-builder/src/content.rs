@@ -12,6 +12,7 @@ use pulldown_cmark::{CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd, 
 
 use crate::music::{MusicMetadata, card_html, music_paragraph};
 use crate::theorems::{self, Analysis, TheoremNumbering, TheoremOptions};
+use crate::timeline::{ArticleName, ArticleSection, ArticleUpdate};
 use serde::de::DeserializeOwned;
 
 use chrono::NaiveDate;
@@ -30,6 +31,9 @@ pub(crate) struct ValidatedSiteContent {
     writings: Vec<ValidatedWriting>,
     projects: Vec<Project>,
     miscellany: Miscellany,
+    /// The entries in Updates for published articles, derived from
+    /// `miscellany` (src/timeline.rs).
+    article_updates: Vec<ArticleUpdate>,
     home: ValidatedHome,
 }
 
@@ -54,6 +58,10 @@ impl ValidatedSiteContent {
         &self.miscellany
     }
 
+    pub(crate) fn article_updates(&self) -> &[ArticleUpdate] {
+        &self.article_updates
+    }
+
     pub(crate) fn home(&self) -> &ValidatedHome {
         &self.home
     }
@@ -61,15 +69,31 @@ impl ValidatedSiteContent {
     /// Site content with only the given Miscellany, for rendering tests.
     #[cfg(test)]
     pub(crate) fn with_miscellany(miscellany: Miscellany) -> Self {
-        Self {
+        Self::with_updates_and_miscellany(Vec::new(), miscellany)
+            .expect("fixture articles need no update records")
+    }
+
+    /// Site content with only the given update records and Miscellany, for
+    /// tests of the Updates timeline. Ids are checked as in `load`.
+    #[cfg(test)]
+    pub(crate) fn with_updates_and_miscellany(
+        mut updates: Vec<Update>,
+        miscellany: Miscellany,
+    ) -> Result<Self> {
+        let mut diagnostics = Diagnostics::default();
+        diagnostics.extend(validate_update_ids(&updates, &miscellany));
+        diagnostics.finish("content validation failed")?;
+        sort_updates(&mut updates);
+        Ok(Self {
             publications: Vec::new(),
-            updates: Vec::new(),
+            updates,
             writings: Vec::new(),
             projects: Vec::new(),
+            article_updates: miscellany.article_updates(),
             miscellany,
             home: ValidatedHome::from_json(r#"{"bio":["Fixture biography."]}"#)
                 .expect("the fixture biography is valid"),
-        }
+        })
     }
 }
 
@@ -201,16 +225,115 @@ impl Miscellany {
 }
 
 impl Miscellany {
-    /// Note slugs, sketch slugs, and diary anchors must be unique, drafts
-    /// included, so that publishing a draft can never collide with an
-    /// existing URL.
+    /// The entries in Updates for published articles that state the day they
+    /// were published, in no particular order. An article without that day
+    /// has no entry: no other date (its own `date`, a Git or build time, the
+    /// time it was published from the Writing Studio) stands in for it.
+    pub(crate) fn article_updates(&self) -> Vec<ArticleUpdate> {
+        let reading = self.reading.iter().filter_map(|item| {
+            let work = item.work();
+            let id = work.id.as_deref()?;
+            Some(ArticleUpdate::new(
+                ArticleSection::Reading,
+                id,
+                ArticleName::Title {
+                    text: work.title.clone(),
+                    lang: work.lang.as_ref().map(|tag| tag.as_str().to_owned()),
+                },
+                format!("/miscellany/reading/#{}", reading_anchor(id)),
+                work.published?,
+            ))
+        });
+        let notes = self.public_notes().filter_map(|note| {
+            let metadata = note.metadata();
+            Some(ArticleUpdate::new(
+                ArticleSection::Notes,
+                &metadata.slug,
+                ArticleName::Title {
+                    text: metadata.title.clone(),
+                    lang: metadata.title_language().map(str::to_owned),
+                },
+                format!("/miscellany/notes/{}/", metadata.slug),
+                metadata.published?,
+            ))
+        });
+        let diary = self.public_diary().filter_map(|entry| {
+            let metadata = entry.metadata();
+            let name = match &metadata.title {
+                Some(title) => ArticleName::Title {
+                    text: title.clone(),
+                    lang: metadata.title_language().map(str::to_owned),
+                },
+                None => ArticleName::DiaryDay(metadata.date),
+            };
+            Some(ArticleUpdate::new(
+                ArticleSection::Diary,
+                &metadata.id(),
+                name,
+                format!("{}#{}", metadata.month_path(), metadata.anchor()),
+                metadata.published?,
+            ))
+        });
+        let sketches = self.public_sketches().filter_map(|sketch| {
+            let metadata = sketch.metadata();
+            Some(ArticleUpdate::new(
+                ArticleSection::Sketches,
+                &metadata.slug,
+                ArticleName::Title {
+                    text: metadata.title.clone(),
+                    lang: metadata.title_language().map(str::to_owned),
+                },
+                format!("/miscellany/sketches/{}/", metadata.slug),
+                metadata.published?,
+            ))
+        });
+        reading.chain(notes).chain(diary).chain(sketches).collect()
+    }
+
+    /// The update ids that articles with a publication day have or would
+    /// have once published, drafts included, so that publishing a draft can
+    /// never take an id already in use.
+    fn article_update_ids(&self) -> Vec<String> {
+        let reading = self
+            .reading
+            .iter()
+            .filter(|item| item.work.published.is_some())
+            .filter_map(|item| item.work.id.as_deref())
+            .map(|id| ArticleUpdate::id_for(ArticleSection::Reading, id));
+        let notes = self
+            .notes
+            .iter()
+            .filter(|note| note.metadata.published.is_some())
+            .map(|note| ArticleUpdate::id_for(ArticleSection::Notes, &note.metadata.slug));
+        let diary = self
+            .diary
+            .iter()
+            .filter(|entry| entry.metadata.published.is_some())
+            .map(|entry| ArticleUpdate::id_for(ArticleSection::Diary, &entry.metadata.id()));
+        let sketches = self
+            .sketches
+            .iter()
+            .filter(|sketch| sketch.metadata.published.is_some())
+            .map(|sketch| ArticleUpdate::id_for(ArticleSection::Sketches, &sketch.metadata.slug));
+        reading.chain(notes).chain(diary).chain(sketches).collect()
+    }
+
+    /// Reading ids, note slugs, sketch slugs, and diary anchors must be
+    /// unique, drafts included, so that publishing a draft can never collide
+    /// with an existing URL.
     fn validate_identifiers(&self) -> Vec<anyhow::Error> {
         let mut errors = validate_unique(
+            self.reading
+                .iter()
+                .filter_map(|record| record.work.id.as_deref()),
+            "reading id",
+        );
+        errors.extend(validate_unique(
             self.notes
                 .iter()
                 .map(|record| record.metadata.slug.as_str()),
             "note slug",
-        );
+        ));
         errors.extend(validate_unique(
             self.sketches
                 .iter()
@@ -536,10 +659,7 @@ pub(crate) fn load(root: &Path) -> Result<ValidatedSiteContent> {
         publications.iter().map(|record| record.slug.as_str()),
         "publication slug",
     ));
-    diagnostics.extend(validate_unique(
-        updates.iter().map(|record| record.id.as_str()),
-        "update id",
-    ));
+    diagnostics.extend(validate_update_ids(&updates, &miscellany));
     diagnostics.extend(validate_unique(
         writings.iter().map(|record| record.metadata.slug.as_str()),
         "writing slug",
@@ -563,6 +683,7 @@ pub(crate) fn load(root: &Path) -> Result<ValidatedSiteContent> {
         updates,
         writings,
         projects,
+        article_updates: miscellany.article_updates(),
         miscellany,
         home,
     })
@@ -1363,6 +1484,24 @@ fn render_math_event<'a>(formula: &str, display: bool) -> Result<Event<'a>> {
     Ok(Event::Html(CowStr::Boxed(rendered.into_boxed_str())))
 }
 
+/// Update ids name the Updates anchors and feed guids, so the ids of update
+/// records and of articles' entries must all differ.
+fn validate_update_ids(updates: &[Update], miscellany: &Miscellany) -> Vec<anyhow::Error> {
+    let article_ids = miscellany.article_update_ids();
+    validate_unique(
+        updates
+            .iter()
+            .map(|record| record.id.as_str())
+            .chain(article_ids.iter().map(String::as_str)),
+        "update id",
+    )
+}
+
+/// The fragment identifier of the reading item with this id.
+pub(crate) fn reading_anchor(id: &str) -> String {
+    format!("reading-{id}")
+}
+
 fn validate_unique<'a>(values: impl Iterator<Item = &'a str>, label: &str) -> Vec<anyhow::Error> {
     let mut seen = HashSet::new();
     let mut errors = Vec::new();
@@ -1844,6 +1983,7 @@ mod tests {
             writings,
             projects: Vec::new(),
             miscellany: Miscellany::default(),
+            article_updates: Vec::new(),
             home: ValidatedHome::from_json(r#"{"bio":["Synthetic biography."]}"#).unwrap(),
         };
         let started = Instant::now();

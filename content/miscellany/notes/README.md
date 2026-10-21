@@ -9,6 +9,7 @@ title: Note title
 lang: en
 description: Optional one-line description shown in the index.
 order: 10
+published: 2026-10-14
 math: false
 draft: true
 ---
@@ -20,6 +21,7 @@ Body in Markdown.
 - `lang` is the language of this file's text: `en`, `ja`, `de`, or `mixed`. The title takes that language too; give `titleLang` (any language tag) when it differs, for example for a `mixed` note with a Japanese title.
 - `description` is optional. Without it, the index shows only the title.
 - `order` is optional. Notes with an `order` come first, lowest first, then the rest by slug. There is no date.
+- `published` is optional: the day the note was published on the site. With it, the note is announced in Updates on that day (see `../README.md`); without it, it is not. It is never taken from Git or the build.
 - `math: true` renders `$…$` and `$$…$$` with KaTeX at build time.
 - `draft` defaults to `true`. Set `draft: false` to publish.
 

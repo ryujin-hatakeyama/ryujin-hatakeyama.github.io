@@ -1039,6 +1039,43 @@ main { min-height: 64vh; }
 .miscellany-contents a:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .miscellany-contents a, .miscellany-chevron { transition: none; } }
 
+/* The overview's layout: the name with the search beside it, then the
+   sections. On a wide screen the search heads a column of its own at the
+   right, over the latest updates; on a narrower one the updates are left to
+   the Updates page, and on a phone the search goes below the name. */
+.miscellany-home {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 17rem);
+  grid-template-areas: "title search" "sections sections";
+  align-items: center;
+  column-gap: 2rem;
+  max-width: 48rem;
+  padding-top: 2.75rem;
+}
+.miscellany-home > .miscellany-header { grid-area: title; padding-top: 0; margin-bottom: 0; }
+.miscellany-home > .miscellany-search { grid-area: search; max-width: none; }
+.miscellany-home > .miscellany-overview { grid-area: sections; align-self: start; margin-top: 1.75rem; }
+.miscellany-updates { display: none; }
+@media (min-width: 62rem) {
+  .miscellany-home {
+    grid-template-columns: minmax(0, 34rem) minmax(16rem, 20rem);
+    grid-template-areas: "title search" "sections updates";
+    justify-content: space-between;
+    max-width: 66rem;
+  }
+  .miscellany-updates { display: block; grid-area: updates; align-self: start; margin-top: 1.75rem; }
+}
+
+/* The latest updates beside the sections: a date over a line of text, a
+   hairline between entries, nothing more. */
+.miscellany-updates h2 { margin: 0; padding-bottom: .45rem; border-bottom: 1px solid var(--rule); color: var(--ink-soft); font-family: var(--sans); font-size: .82rem; font-weight: 600; }
+.recent-updates { margin: 0; padding: 0; list-style: none; }
+.recent-updates li { padding: .7rem 0; }
+.recent-updates li + li { border-top: 1px solid color-mix(in srgb, var(--rule) 70%, transparent); }
+.recent-updates time { display: block; margin-bottom: .2rem; color: var(--ink-faint); font-family: var(--mono); font-size: .67rem; }
+.recent-updates p { margin: 0; font-size: .88rem; line-height: 1.5; }
+.miscellany-updates-all { margin: .3rem 0 0; font-size: .76rem; }
+
 .miscellany-article-header { margin-bottom: 1.4rem; }
 .miscellany-article-header > .language-filter { margin-top: .4rem; }
 
@@ -1278,6 +1315,8 @@ main { min-height: 64vh; }
 @media (max-width: 36rem) {
   .miscellany-header { padding-top: 1.6rem; margin-bottom: 1.35rem; }
   .miscellany-heading { gap: .7rem; }
+  .miscellany-home { grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "search" "sections"; row-gap: .7rem; padding-top: 1.6rem; }
+  .miscellany-home > .miscellany-overview { margin-top: .65rem; }
   .miscellany-heading .miscellany-search { flex-basis: 100%; }
   .miscellany-search { max-width: none; }
   .diary-month-header + .miscellany-search { max-width: none; }
@@ -1294,5 +1333,5 @@ main { min-height: 64vh; }
 
 @media print {
   .music-player, .music-play { display: none !important; }
-  .miscellany-sections, .miscellany-search, .diary-month-nav, .diary-days { display: none; }
+  .miscellany-sections, .miscellany-search, .miscellany-updates, .diary-month-nav, .diary-days { display: none; }
 }

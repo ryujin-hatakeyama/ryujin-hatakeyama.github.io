@@ -873,6 +873,12 @@ impl ReadingList {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReadingItem {
+    /// A stable identity for the item, independent of its title: it names
+    /// the item's anchor and its entry in Updates. Required with `published`.
+    pub id: Option<String>,
+    /// The day the item was published on the site, as the author states it
+    /// (see [`NoteFrontMatter::published`]).
+    pub published: Option<NaiveDate>,
     pub author: Option<String>,
     pub title: String,
     pub lang: Option<LanguageTag>,
@@ -946,6 +952,13 @@ impl ReadingItem {
         if let Some(url) = &self.url {
             validate_http_url(url).with_context(|| format!("{source}: invalid url {url:?}"))?;
         }
+        if let Some(id) = &self.id {
+            validate_slug(id).with_context(|| format!("{source}: invalid reading id"))?;
+        }
+        ensure!(
+            self.published.is_none() || self.id.is_some(),
+            "{source}: published requires an id, which names the item's entry in Updates"
+        );
         self.comments(source).map(|_| ())
     }
 
@@ -1116,8 +1129,9 @@ impl TryFrom<String> for LanguageTag {
 /// A study note, published at `/miscellany/notes/<slug>/`. This file holds the
 /// note's identity and shared metadata and its first passage, written in
 /// `lang`. Further passages live in companion files (see
-/// [`PassageFrontMatter`]). Notes carry no date; the index follows the
-/// optional editorial `order` (lowest first), then the slug.
+/// [`PassageFrontMatter`]). Notes carry no date of their own (`published`
+/// only places their entry in Updates); the index follows the optional
+/// editorial `order` (lowest first), then the slug.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NoteFrontMatter {
@@ -1128,6 +1142,11 @@ pub struct NoteFrontMatter {
     pub lang: PassageLanguage,
     pub description: Option<String>,
     pub order: Option<u32>,
+    /// The day the note was published on the site, as the author states it.
+    /// It is never taken from Git, the build, or the time of publishing, and
+    /// it only places the note's entry in Updates (src/timeline.rs); a note
+    /// without it has no entry there.
+    pub published: Option<NaiveDate>,
     #[serde(default)]
     pub math: bool,
     /// How theorem environments are numbered: by section (the default) or
@@ -1179,6 +1198,9 @@ pub struct SketchFrontMatter {
     pub lang: PassageLanguage,
     pub date: NaiveDate,
     pub description: Option<String>,
+    /// The day the sketch was published, which need not be its `date`
+    /// (see [`NoteFrontMatter::published`]).
+    pub published: Option<NaiveDate>,
     #[serde(default)]
     pub math: bool,
     /// How theorem environments are numbered: by section (the default) or
@@ -1227,6 +1249,9 @@ pub struct DiaryFrontMatter {
     pub title: Option<String>,
     pub title_lang: Option<LanguageTag>,
     pub lang: PassageLanguage,
+    /// The day the entry was published, which is a different thing from the
+    /// day it records, `date` (see [`NoteFrontMatter::published`]).
+    pub published: Option<NaiveDate>,
     #[serde(default)]
     pub math: bool,
     /// How theorem environments are numbered: by section (the default) or

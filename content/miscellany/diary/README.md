@@ -8,6 +8,7 @@ date: 2026-10-10
 lang: ja
 title: Optional title
 slug: optional-slug
+published: 2026-10-12
 math: false
 draft: true
 ---
@@ -18,6 +19,7 @@ Body in Markdown. Entries may be one line or many paragraphs.
 - `date` is the date of the entry, written by hand. It is never taken from Git or the build.
 - `lang` is the language of this file's text: `en`, `ja`, `de`, or `mixed`. Give `titleLang` when the title's language differs.
 - `title` is optional; the date always heads the entry.
+- `published` is optional: the day the entry was published, which is a different thing from `date`, the day it records. With it, the entry is announced in Updates on that day (see `../README.md`); without it, it is not.
 - Each entry is linkable at `/miscellany/diary/YYYY/MM/#diary-YYYY-MM-DD`. If two entries share a date, give at least one a `slug`; its anchor becomes `#diary-YYYY-MM-DD-<slug>`. Changing `date` or `slug` changes the link. Links in the earlier form, `/miscellany/diary/#diary-…`, are forwarded to the month's page by the Diary page's script.
 - `draft` defaults to `true`. Set `draft: false` to publish.
 
