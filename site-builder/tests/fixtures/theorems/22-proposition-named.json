@@ -1,0 +1,83 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Definition 1.1",
+      "kind": "definition",
+      "label": "def-conservativity",
+      "line": 3,
+      "name": "定義的拡張の保守性 (conservativity of definitional extension)",
+      "number": "1.1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proposition 1.2",
+      "kind": "proposition",
+      "label": "prp-conservativity",
+      "line": 9,
+      "name": "Conservativity of Definitional Extension",
+      "number": "1.2",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proof of Proposition 1.2",
+      "kind": "proof",
+      "label": null,
+      "line": 16,
+      "name": null,
+      "number": null,
+      "proofOf": "prp-conservativity",
+      "qed": 1
+    },
+    {
+      "head": "Theorem 1.3",
+      "kind": "theorem",
+      "label": "thm-plain",
+      "line": 23,
+      "name": null,
+      "number": "1.3",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proposition 1.4",
+      "kind": "proposition",
+      "label": "prp-long",
+      "line": 27,
+      "name": "A rather long name for a proposition, long enough to wrap onto a second line on a narrow screen",
+      "number": "1.4",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Lemma 1.5",
+      "kind": "lemma",
+      "label": "lem-escape",
+      "line": 31,
+      "name": "<b>&amp; \"quoted\"</b>",
+      "number": "1.5",
+      "proofOf": null,
+      "qed": 0
+    }
+  ],
+  "numbering": "section",
+  "references": [
+    {
+      "label": "prp-conservativity",
+      "line": 35,
+      "text": "Proposition 1.2"
+    },
+    {
+      "label": "def-conservativity",
+      "line": 35,
+      "text": "Definition 1.1"
+    },
+    {
+      "label": "prp-long",
+      "line": 35,
+      "text": "Proposition 1.4"
+    }
+  ]
+}

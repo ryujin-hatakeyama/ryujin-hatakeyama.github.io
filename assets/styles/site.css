@@ -1070,24 +1070,42 @@ main { min-height: 64vh; }
 
 /* Theorem environments (site-builder/src/theorems.rs), as amsthm sets them,
    in the text's own type: a run-in heading (the kind and number bold, or
-   italic for remarks and proofs; the name upright), the body italic for
-   theorems and their kin and upright for definitions, examples, remarks,
-   and proofs, and ∎ at the right of a proof's last line. No card, frame,
-   or colour. Formulas, code, and Japanese or Chinese text (which has no
-   italic) stay upright inside an italic body. The Writing Studio's publish
-   preview uses these rules too. */
-.theorem { margin: 0 0 1.5em; }
+   italic for remarks and proofs; the name upright and in the text's own
+   weight), the body italic for theorems and their kin and upright for
+   definitions, examples, remarks, and proofs, and ∎ at the right of a
+   proof's last line. Formulas, code, and Japanese or Chinese text (which
+   has no italic) stay upright inside an italic body.
+
+   Where a statement begins and ends: a thin rule at its left, the height
+   of its text (every paragraph, list, and formula of it), and a little
+   more room around it than around a paragraph. No card, background, or
+   colour by kind. A proof is the text's own, without the rule, held close
+   to what it proves. A name in Japanese has full-width parentheses
+   ("Definition 2.3 （定義的拡張の保守性）"), set proportionally so they
+   and the full stop after them sit as close as Latin ones.
+   The Writing Studio's publish preview uses these rules too; its editor
+   draws the same rule (studio/src/styles/studio.css, .cm-lp-thm). */
+.theorem { margin: 2em 0; }
+.theorem:not(.theorem-proof) { padding: .05em 0 .05em 1.05em; border-left: 1.5px solid color-mix(in srgb, var(--ink) 30%, transparent); }
+.theorem-proof { margin-top: -.5em; }
 .theorem > :first-child { margin-top: 0; }
 .theorem > :last-child { margin-bottom: 0; }
 .theorem-plain { font-style: italic; }
 .theorem-plain .katex, .theorem-plain code, .theorem-plain pre, .theorem-plain .upright, .theorem-head { font-style: normal; }
 .theorem-head strong { font-weight: 650; }
 .theorem-head em { font-style: italic; }
+.theorem-name { font-feature-settings: "palt"; }
 .theorem .qed { float: right; margin-left: 1em; font-style: normal; }
-/* After a formula or a list, ∎ on a line of its own, at the right; never carried past the environment. */
-.theorem .qed-line { margin-top: 0; text-align: right; }
+/* A proof ending in a displayed formula: ∎ close under it, at the right, not a paragraph's space below. */
+.theorem .katex-display:has(+ .qed) { margin-bottom: 0; }
+/* After a formula or a list, ∎ on a line of its own, at the right, close under it; never carried past the environment. */
+.theorem :has(+ .qed-line), .theorem :has(+ .qed-line) > .katex-display:last-child { margin-bottom: 0; }
+.theorem .qed-line { margin-top: 0; line-height: 1.2; text-align: right; }
 .theorem .qed-line .qed { float: none; }
 .theorem::after { content: ""; display: block; clear: both; }
+@media (max-width: 36rem) {
+  .theorem:not(.theorem-proof) { padding-left: .8em; }
+}
 
 /* Search: a quiet field on the overview and on each section, and the search
    page. The field is the size of body text (16px), so iPhone Safari does not

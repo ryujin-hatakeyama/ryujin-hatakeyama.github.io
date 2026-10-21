@@ -740,6 +740,22 @@ pub(crate) struct TheoremOptions<'a> {
     pub(crate) first_line: usize,
 }
 
+/// How a name is set after the number: in Japanese (or Chinese) in full-width
+/// parentheses, "Definition 2.3 （定義的拡張の保守性）" (the site's CSS sets them
+/// proportionally); otherwise "Definition 2.3 (Conservativity)". Decided by the name's
+/// first character; the same rule as the Studio's (studio/src/publish/theorems.ts,
+/// `nameParts`).
+pub fn name_parts(name: &str) -> (&'static str, &'static str, &'static str) {
+    let wide = name.chars().next().is_some_and(|c| {
+        matches!(c, '\u{3000}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}' | '\u{f900}'..='\u{faff}' | '\u{ff00}'..='\u{ffef}')
+    });
+    if wide {
+        (" ", "（", "）")
+    } else {
+        (" ", "(", ")")
+    }
+}
+
 fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -929,7 +945,10 @@ pub(crate) fn apply<'a>(
         let name = spec
             .name
             .as_ref()
-            .map(|name| format!(" ({})", escape(name)))
+            .map(|name| {
+                let (before, open, close) = name_parts(name);
+                format!(r#"{before}<span class="theorem-name">{open}{}{close}</span>"#, escape(name))
+            })
             .unwrap_or_default();
         heads.push(format!(
             r#"<span class="theorem-head"><{tag}>{}</{tag}>{name}<{tag}>.</{tag}></span> "#,

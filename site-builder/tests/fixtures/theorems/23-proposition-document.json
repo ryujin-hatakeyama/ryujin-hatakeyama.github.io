@@ -1,0 +1,43 @@
+{
+  "diagnostics": [],
+  "environments": [
+    {
+      "head": "Proposition 1",
+      "kind": "proposition",
+      "label": "prp-first",
+      "line": 1,
+      "name": "命題",
+      "number": "1",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proposition 2",
+      "kind": "proposition",
+      "label": "prp-second",
+      "line": 5,
+      "name": null,
+      "number": "2",
+      "proofOf": null,
+      "qed": 0
+    },
+    {
+      "head": "Proof of Proposition 2",
+      "kind": "proof",
+      "label": null,
+      "line": 9,
+      "name": null,
+      "number": null,
+      "proofOf": "prp-second",
+      "qed": 1
+    }
+  ],
+  "numbering": "document",
+  "references": [
+    {
+      "label": "prp-first",
+      "line": 10,
+      "text": "Proposition 1"
+    }
+  ]
+}

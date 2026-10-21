@@ -37,22 +37,36 @@ fn environments_in_html(html: &str) -> Vec<Value> {
         let body = &rest[..end];
         let head_html = body
             .split_once("<span class=\"theorem-head\">")
-            .map_or("", |(_, h)| h.split_once("</span>").map_or(h, |(h, _)| h));
+            .map_or("", |(_, h)| h);
         let tag = if head_html.starts_with("<strong>") {
             "strong"
         } else {
             "em"
         };
         let close = format!("</{tag}>");
+        // The heading ends with its full stop: "<strong>.</strong></span>".
+        let head_html = head_html
+            .split_once(&format!("<{tag}>.</{tag}></span>"))
+            .map_or(head_html, |(h, _)| h);
         let (head, after) = head_html
             .trim_start_matches(&format!("<{tag}>"))
             .split_once(&close)
             .unwrap_or(("", ""));
+        // The name, after a space: "(Name)", or "（名前）".
         let name = after
-            .split_once(&format!("<{tag}>.</{tag}>"))
-            .map(|(name, _)| name.trim())
-            .filter(|name| !name.is_empty())
-            .map(|name| unescape(name.trim_start_matches('(').trim_end_matches(')')));
+            .split_once("<span class=\"theorem-name\">")
+            .and_then(|(before, name)| {
+                assert_eq!(before, " ", "before the name");
+                name.split_once("</span>")
+            })
+            .map(|(name, _)| {
+                let inner = name
+                    .strip_prefix('(')
+                    .and_then(|n| n.strip_suffix(')'))
+                    .or_else(|| name.strip_prefix('（').and_then(|n| n.strip_suffix('）')))
+                    .expect("a name in parentheses");
+                unescape(inner)
+            });
         out.push(json!({
             "kind": attribute("data-kind"),
             "label": attribute("id"),

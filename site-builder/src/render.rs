@@ -3763,7 +3763,7 @@ mod miscellany_tests {
         let main = main_of(&html);
         for fragment in [
             r#"<div class="theorem theorem-definition" data-kind="definition" id="en-def-value">"#,
-            r#"<span class="theorem-head"><strong>Definition 1.1</strong> (Value)<strong>.</strong></span> A term"#,
+            r#"<span class="theorem-head"><strong>Definition 1.1</strong> <span class="theorem-name">(Value)</span><strong>.</strong></span> A term"#,
             r#"<div class="theorem theorem-plain" data-kind="lemma" id="en-lem-step">"#,
             r##"<span class="theorem-head"><em>Proof of Lemma 1.2</em><em>.</em></span> By <a class="theorem-ref" href="#en-def-value">Definition 1.1</a>."##,
             r#"<span class="qed" role="img" aria-label="End of proof">∎</span>"#,
