@@ -652,6 +652,14 @@ fn cv(publications: &[&Publication], presentations: &[&Publication]) -> Markup {
                         p { "Supervisor: " a href="https://www.kb.ecei.tohoku.ac.jp/~sumii/" { "Prof. Eijiro Sumii" } "." }
                     }
                 }
+                div.cv-entry {
+                    time datetime="2025" { "2025" }
+                    div {
+                        p { strong { "Bachelor of Engineering, Tohoku University" } }
+                        p { "School of Engineering, Department of Electrical, Information and Physics Engineering" }
+                        p { "Computer Science Course" }
+                    }
+                }
             }
             section aria-labelledby="programs-heading" {
                 h2 id="programs-heading" { "Academic programs" }
