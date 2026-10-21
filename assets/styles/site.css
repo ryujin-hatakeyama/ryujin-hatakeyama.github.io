@@ -1056,14 +1056,26 @@ main { min-height: 64vh; }
 .miscellany-home > .miscellany-search { grid-area: search; max-width: none; }
 .miscellany-home > .miscellany-overview { grid-area: sections; align-self: start; margin-top: 1.75rem; }
 .miscellany-updates { display: none; }
+/* On a wide screen, two columns that close up into one composition: the
+   sections, a little larger, at the left; the search and the latest
+   updates in a narrower column at the right, its search level with the
+   heading and its updates level with the first section. The frame is
+   narrower than the page, so the middle never opens into a gulf, and the
+   two columns end at about the same height. */
 @media (min-width: 62rem) {
   .miscellany-home {
-    grid-template-columns: minmax(0, 34rem) minmax(16rem, 20rem);
+    grid-template-columns: minmax(0, 33rem) minmax(16rem, 19rem);
     grid-template-areas: "title search" "sections updates";
-    justify-content: space-between;
-    max-width: 66rem;
+    justify-content: start;
+    column-gap: clamp(3.5rem, 6vw, 5.5rem);
+    max-width: none;
+    padding-top: 3.25rem;
   }
-  .miscellany-updates { display: block; grid-area: updates; align-self: start; margin-top: 1.75rem; }
+  .miscellany-home > .miscellany-overview { margin-top: 2.1rem; }
+  .miscellany-home .miscellany-contents a { grid-template-columns: 1.1rem minmax(0, 1fr) auto; column-gap: .9rem; min-height: 3.45rem; }
+  .miscellany-home .miscellany-contents .miscellany-icon { width: 1.1rem; height: 1.1rem; }
+  .miscellany-home .miscellany-contents-label { font-size: 1.18rem; }
+  .miscellany-updates { display: block; grid-area: updates; align-self: start; margin-top: 2.1rem; }
 }
 
 /* The latest updates beside the sections: a date over a line of text, a
@@ -1339,3 +1351,50 @@ main { min-height: 64vh; }
   .music-player, .music-play { display: none !important; }
   .miscellany-sections, .miscellany-search, .miscellany-updates, .diary-month-nav, .diary-days { display: none; }
 }
+
+/* A visitor's own reading marks (client/site.ts), shown only once they have
+   opened something. They take no room: each mark is a zero-width box whose
+   sign is drawn beside it, so a title never moves or rewraps when its mark
+   appears. A dot for an article not yet opened, a slightly quieter title for
+   one opened, a small check for one marked as read; each also says so to
+   screen readers. The title itself stays fully legible in every state. */
+.reading-mark { display: inline-block; position: relative; width: 0; height: 0; vertical-align: middle; }
+.reading-mark::before { position: absolute; left: .42em; top: 0; transform: translateY(-50%); line-height: 1; pointer-events: none; }
+.reading-mark[data-state='unvisited']::before { content: ''; width: .36em; height: .36em; border-radius: 50%; background: var(--accent); }
+.reading-mark[data-state='read']::before { content: '✓'; content: '✓' / ''; color: var(--ink-faint); font-size: .78em; font-weight: 600; }
+[data-reading-list] a[data-reading-state='visited'],
+[data-reading-list] a[data-reading-state='read'],
+.reading-title[data-reading-state='visited'] cite,
+.reading-title[data-reading-state='read'] cite,
+.diary-title[data-reading-state='visited'],
+.diary-title[data-reading-state='read'] { color: color-mix(in srgb, var(--ink) 78%, var(--paper)); }
+/* A Diary month's row lines its items up as a row; the mark sits on its middle. */
+.diary-months li > .reading-mark { align-self: center; }
+@media (forced-colors: active) {
+  .reading-mark[data-state='unvisited']::before { background: CanvasText; }
+}
+
+/* Mark as read: one quiet control after the text, never in its way. */
+.reading-control { max-width: var(--reading); margin: 2.4rem 0 0; padding-top: 1rem; border-top: 1px solid var(--rule); }
+.diary-entry .reading-control { grid-column: 2; margin-top: 1.1rem; padding-top: 0; border-top: 0; }
+.reading-control button {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  min-height: 2rem;
+  padding: .2rem .7rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-family: var(--sans);
+  font-size: .8rem;
+  cursor: pointer;
+}
+.reading-control button::before { content: '✓'; content: '✓' / ''; color: var(--ink-faint); font-size: .85em; }
+.reading-control[data-read='true'] button::before { color: var(--accent-strong); }
+.reading-control button:hover { border-color: var(--rule-strong); color: var(--ink); }
+.reading-control button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.diary-entry .reading-control button { min-height: 1.8rem; padding: .1rem .55rem; font-size: .74rem; }
+@media print { .reading-control, .reading-mark { display: none !important; } }

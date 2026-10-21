@@ -30,7 +30,7 @@ Every page is indexed as Japanese (`forceLanguage: "ja"`), so Japanese text is d
 
 ## Results
 
-Results are in Pagefind's order of relevance. A Diary month is split into its entries and the Reading page into its works, using the anchors of the page (`diary-YYYY-MM-DD[-slug]`, `reading-<hash>`), so each result leads to the entry or work itself, and each entry appears once. Each result shows its title (a diary entry's date, and its title if it has one), its section, a sketch's date, and a short excerpt with the matched words marked.
+Results are in Pagefind's order of relevance. A Diary month is split into its entries and the Reading page into its works, using the anchors of the page (`diary-YYYY-MM-DD[-slug]`, `reading-<id>` or `reading-<hash>`), so each result leads to the entry or work itself, and each entry appears once. Each result shows its title (a diary entry's date, and its title if it has one), its section, a sketch's date, and a short excerpt with the matched words marked.
 
 The query and section are kept in the address (`?q=…&section=diary`), so a reload or a shared link repeats the search. A section's own search field (on its index and, for the Diary, on each month) starts with that section chosen. Without JavaScript the forms still lead to the search page, which says that searching needs JavaScript.
 
