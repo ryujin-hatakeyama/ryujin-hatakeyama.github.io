@@ -1430,6 +1430,8 @@ main { min-height: 64vh; }
    under the sections when a category has nothing published yet, further after a list. */
 .site-message { max-width: 34rem; margin: 3.25rem 0 0; font-family: var(--sans); }
 .miscellany-header + .site-message { margin-top: .5rem; }
+/* The page ends with the form: the footer follows at its usual distance, not pushed down to fill a screen. */
+main:has(> .site-message) { min-height: 0; }
 .site-message[hidden] { display: none; }
 .site-message h2 { margin: 0 0 .7rem; color: var(--ink); font-size: .95rem; font-weight: 500; letter-spacing: 0; }
 .site-message form { display: grid; gap: .3rem; }
