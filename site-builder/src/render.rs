@@ -1584,8 +1584,10 @@ fn reading_page(miscellany: &Miscellany) -> Markup {
     let anchors = reading_anchors(items);
     html! {
         (miscellany_section_header(READING, &languages))
-        // Nothing published: no list, and nothing said in its place.
-        @if !items.is_empty() {
+        // Nothing published: the one quiet line every category says alike.
+        @if items.is_empty() {
+            (no_entries())
+        } @else {
             ol.reading-list data-pagefind-body data-pagefind-filter=(search_filter(READING)) data-pagefind-meta="title:Reading" {
                 @for (item, anchor) in items.iter().zip(&anchors) {
                     @let work = item.work();
@@ -1642,8 +1644,10 @@ fn notes_page(miscellany: &Miscellany) -> Markup {
     let notes: Vec<_> = miscellany.public_notes().collect();
     html! {
         (miscellany_section_header(NOTES, &[]))
-        // Nothing published: no list, and nothing said in its place.
-        @if !notes.is_empty() {
+        // Nothing published: the one quiet line every category says alike.
+        @if notes.is_empty() {
+            (no_entries())
+        } @else {
             ol.miscellany-list data-reading-list {
                 @for note in notes {
                     @let metadata = note.metadata();
@@ -1723,8 +1727,10 @@ fn sketches_page(miscellany: &Miscellany) -> Markup {
     let sketches: Vec<_> = miscellany.public_sketches().collect();
     html! {
         (miscellany_section_header(SKETCHES, &[]))
-        // Nothing published: no list, and nothing said in its place.
-        @if !sketches.is_empty() {
+        // Nothing published: the one quiet line every category says alike.
+        @if sketches.is_empty() {
+            (no_entries())
+        } @else {
             ol.miscellany-list.sketch-list data-reading-list {
                 @for sketch in sketches {
                     @let metadata = sketch.metadata();
@@ -1838,8 +1844,10 @@ fn diary_page(miscellany: &Miscellany) -> Markup {
     }
     html! {
         (miscellany_section_header(DIARY, &[]))
-        // Nothing published: no list, and nothing said in its place.
-        @if !months.is_empty() {
+        // Nothing published: the one quiet line every category says alike.
+        @if months.is_empty() {
+            (no_entries())
+        } @else {
             div.diary-archive data-diary-archive {
                 @for (year, list) in &years {
                     section.diary-year aria-labelledby=(format!("diary-year-{year}")) {
@@ -3726,11 +3734,10 @@ mod miscellany_tests {
             // section's name as the page's one h1.
             assert!(main.contains(&format!(r#"<div class="miscellany-title"><nav class="miscellany-trail" aria-label="Breadcrumb"><a href="/miscellany/">Miscellany</a><span class="miscellany-trail-separator" aria-hidden="true">/</span></nav><h1>{title}</h1></div>"#)), "{path}");
             assert_eq!(main.matches("<h1").count(), 1);
-            // Nothing said for having nothing: no description, no "No entries yet.", no empty state.
+            // Every category says the same one line for having nothing, and no description.
+            assert!(main.contains(r#"</header><p class="empty-state miscellany-empty">No entries yet.</p><section class="site-message""#), "{path}");
             for said in [
-                "empty-state",
                 "miscellany-description",
-                "No entries yet",
                 "No notes yet",
                 "No sketches yet",
                 "Books and papers",
@@ -3739,13 +3746,9 @@ mod miscellany_tests {
             ] {
                 assert!(!main.contains(said), "{path}: {said}");
             }
-            // The search, always; the sections' header, then straight to the message form.
+            // The search, always.
             assert!(
                 main.contains(r#"<form class="miscellany-search""#),
-                "{path}"
-            );
-            assert!(
-                main.contains(r#"</header><section class="site-message""#),
                 "{path}"
             );
             // (The message form at the end has its own heading, apart from the section's entries.)
@@ -5565,6 +5568,11 @@ pub(crate) fn articles_json(miscellany: &Miscellany) -> String {
         out.insert(category.to_owned(), serde_json::Value::Array(list));
     }
     serde_json::Value::Object(out).to_string()
+}
+
+/// What a category with nothing published says: the same for all four.
+fn no_entries() -> Markup {
+    html! { p.empty-state.miscellany-empty { "No entries yet." } }
 }
 
 /// The form at the end of a category's page, under "Messages welcome.": a

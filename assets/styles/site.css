@@ -1426,10 +1426,12 @@ main { min-height: 64vh; }
    (site-builder/src/render.rs message_form, client/site.ts): quiet, the
    site's own fields and rule; nothing sent is shown on the site. */
 /* Messages welcome. (render.rs message_form): open from the start, and quiet, as the page's
-   own text is: no rule, panel, or note; the fields as the site's search field is drawn. Close
-   under the sections when a category has nothing published yet, further after a list. */
-.site-message { max-width: 34rem; margin: 3.25rem 0 0; font-family: var(--sans); }
-.miscellany-header + .site-message { margin-top: .5rem; }
+   own text is: no rule, panel, or note; the fields as the site's search field is drawn. */
+.site-message { max-width: 34rem; margin: 4.5rem 0 0; font-family: var(--sans); }
+/* A category with nothing published: its one quiet line about 40 px under the sections, then
+   about 80 px to the form; after a list, the form keeps a clear distance from the last entry. */
+.miscellany-header + .miscellany-empty { margin-top: 2.5rem; }
+.miscellany-empty + .site-message { margin-top: 5rem; }
 /* The page ends with the form: the footer follows at its usual distance, not pushed down to fill a screen. */
 main:has(> .site-message) { min-height: 0; }
 .site-message[hidden] { display: none; }

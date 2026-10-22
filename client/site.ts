@@ -470,7 +470,7 @@ function setUpSearch(): void {
     shown = 0;
     list.replaceChildren();
     if (found.length === 0) {
-      status.textContent = `No results for “${query}”${where}.`;
+      status.textContent = 'No matches.';
       if (label) {
         const everywhere = document.createElement('a');
         const params = new URLSearchParams({ q: query });
