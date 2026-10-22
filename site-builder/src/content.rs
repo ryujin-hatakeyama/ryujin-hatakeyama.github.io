@@ -1274,6 +1274,11 @@ pub(crate) fn render_markdown_analyzed(
         |range: &Range<usize>| prepared.as_ref().is_some_and(|p| p.is_fence(range.start));
 
     let mut events = Vec::new();
+    // A ruby being read (<ruby> seen, </ruby> not yet).
+    let mut ruby: Option<Vec<Event<'_>>> = None;
+    // The ruby just written (its place in `events`), which keeps a closing
+    // bracket or stop right after it in its box.
+    let mut ruby_written: Option<usize> = None;
     // Each event's place in the text, for the theorem environments.
     let mut ranges: Vec<Option<Range<usize>>> = Vec::new();
     // How deep in blocks the parser is: a music card stands only at the top
@@ -1339,6 +1344,47 @@ pub(crate) fn render_markdown_analyzed(
             }
             (event, _) => event,
         };
+        // Ruby, as the Writing Studio writes it: <ruby>漢字<rt>かんじ</rt></ruby>, plain
+        // text in both, on one line. Read whole (from <ruby> to </ruby>) and
+        // written as that markup with its text escaped; any other HTML is refused.
+        // What no line may start with, right after it, goes in its box (site.css
+        // .prose .ruby is set whole, and a line could otherwise break before it).
+        let event = match (ruby_written.take(), event) {
+            (Some(at), Event::Text(text)) => {
+                let kept = text
+                    .char_indices()
+                    .find(|(_, c)| !RUBY_CLOSERS.contains(*c))
+                    .map_or(text.len(), |(i, _)| i);
+                if kept > 0 {
+                    if let Event::InlineHtml(html) = &events[at] {
+                        let html = html.strip_suffix("</span>").unwrap_or(html);
+                        events[at] =
+                            Event::InlineHtml(format!("{html}{}</span>", &text[..kept]).into());
+                    }
+                }
+                if kept == text.len() {
+                    continue;
+                }
+                Event::Text(text[kept..].to_owned().into())
+            }
+            (_, event) => event,
+        };
+        if let Some(parts) = ruby.as_mut() {
+            parts.push(event);
+            if matches!(parts.last(), Some(Event::InlineHtml(h)) if h.as_ref() == "</ruby>") {
+                let html = ruby_html(&ruby.take().unwrap())?;
+                ruby_written = Some(events.len());
+                events.push(Event::InlineHtml(html.into()));
+                ranges.push(None);
+            } else if parts.len() > 64 {
+                bail!("raw HTML is not permitted in Markdown content")
+            }
+            continue;
+        }
+        if matches!(&event, Event::InlineHtml(h) if h.as_ref() == "<ruby>") {
+            ruby = Some(Vec::new());
+            continue;
+        }
         match &event {
             Event::Html(_) if is_fence(&range) => {}
             Event::Html(_) | Event::InlineHtml(_) => {
@@ -1377,6 +1423,7 @@ pub(crate) fn render_markdown_analyzed(
         placed.is_none() || listed,
         "::: {{#refs}} must stand at the top level, apart from other blocks"
     );
+    ensure!(ruby.is_none(), "a <ruby> is never closed with </ruby>");
     let analysis = match (&prepared, rules.theorems) {
         (Some(prepared), Some(options)) => {
             let (applied, analysis) =
@@ -1397,6 +1444,46 @@ pub(crate) fn render_markdown_analyzed(
     let mut output = String::new();
     html::push_html(&mut output, events.into_iter());
     Ok((output, analysis))
+}
+
+/// What no line may start with (closing brackets, stops), kept with the ruby
+/// before it: the Writing Studio's RUBY_CLOSERS (studio/src/publish/syntax.ts).
+const RUBY_CLOSERS: &str = "」』）〕］｝】〉》〙〗、。，．・：；？！‼⁇⁈⁉”’),.;:?";
+
+/// A ruby's events (after <ruby>, through </ruby>): text, <rt>, text, </rt>,
+/// </ruby>, and nothing else; written as that markup, the text escaped, in
+/// its box (site.css .prose .ruby, which keeps the lines evenly spaced).
+fn ruby_html(parts: &[Event<'_>]) -> Result<String> {
+    let mut base = String::new();
+    let mut reading = String::new();
+    let mut stage = 0;
+    for part in parts {
+        match (stage, part) {
+            (0 | 2, Event::Text(text)) => {
+                (if stage == 0 { &mut base } else { &mut reading }).push_str(text)
+            }
+            (0, Event::InlineHtml(h)) if h.as_ref() == "<rt>" => stage = 2,
+            (2, Event::InlineHtml(h)) if h.as_ref() == "</rt>" => stage = 3,
+            (3, Event::InlineHtml(h)) if h.as_ref() == "</ruby>" => stage = 4,
+            _ => bail!(
+                "a ruby is written <ruby>base<rt>reading</rt></ruby>, with plain text in both"
+            ),
+        }
+    }
+    ensure!(
+        stage == 4 && !base.trim().is_empty() && !reading.trim().is_empty(),
+        "a ruby is written <ruby>base<rt>reading</rt></ruby>, with plain text in both"
+    );
+    let escape = |text: &str| {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+    };
+    Ok(format!(
+        "<span class=\"ruby\"><ruby>{}<rt>{}</rt></ruby></span>",
+        escape(&base),
+        escape(&reading)
+    ))
 }
 
 fn prefixed<'a>(label: CowStr<'a>, rules: &MarkdownRules<'_>) -> CowStr<'a> {
@@ -2389,6 +2476,52 @@ mod tests {
             html.contains(r#"<div id="2026-10-10-en-ref-Weiss2017" class="csl-entry""#),
             "{html}"
         );
+    }
+
+    #[test]
+    fn ruby_as_the_studio_writes_it_is_kept_and_anything_else_refused() {
+        let rendered = |body: &str| {
+            Miscellany::from_sources("items: []", &[&note("draft: false\n", body)], &[]).map(|m| {
+                m.public_notes()
+                    .next()
+                    .unwrap()
+                    .passages()
+                    .iter()
+                    .next()
+                    .unwrap()
+                    .rendered_body()
+                    .to_owned()
+            })
+        };
+        let html = rendered("\n本文の<ruby>漢字<rt>かんじ</rt></ruby>と<ruby>A&amp;B<rt>エー</rt></ruby>。`<ruby>code<rt>x</rt></ruby>`\n").unwrap();
+        // A stop right after a ruby is kept in its box (no line starts with it).
+        assert!(
+            html.contains(
+                "本文の<span class=\"ruby\"><ruby>漢字<rt>かんじ</rt></ruby></span>と<span class=\"ruby\"><ruby>A&amp;B<rt>エー</rt></ruby>。</span>"
+            ),
+            "{html}"
+        );
+        let brackets = rendered(
+            "\n「<ruby>躊躇<rt>ちゅうちょ</rt></ruby>」、と<ruby>鬱<rt>うつ</rt></ruby>\n",
+        )
+        .unwrap();
+        assert!(
+            brackets.contains(
+                "「<span class=\"ruby\"><ruby>躊躇<rt>ちゅうちょ</rt></ruby>」、</span>と<span class=\"ruby\"><ruby>鬱<rt>うつ</rt></ruby></span>"
+            ),
+            "{brackets}"
+        );
+        // In code, as written (escaped), never markup.
+        assert!(
+            html.contains("<code>&lt;ruby&gt;code&lt;rt&gt;x&lt;/rt&gt;&lt;/ruby&gt;</code>"),
+            "{html}"
+        );
+        let error = |body: &str| format!("{:#}", rendered(body).unwrap_err());
+        assert!(error("<ruby>漢字<b>x</b><rt>かんじ</rt></ruby>\n").contains("plain text in both"));
+        assert!(error("<ruby>漢字</ruby>\n").contains("plain text in both"));
+        assert!(error("<ruby>漢字<rt>かんじ</rt>\n").contains("never closed"));
+        assert!(error("<ruby><rt>かんじ</rt></ruby>\n").contains("plain text in both"));
+        assert!(error("<span>x</span>\n").contains("raw HTML is not permitted"));
     }
 
     #[test]

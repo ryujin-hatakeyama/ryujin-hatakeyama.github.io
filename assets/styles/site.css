@@ -448,6 +448,23 @@ main { min-height: 64vh; }
 .prose code:not(pre code) { padding: .08em .3em; background: var(--code-bg); font-family: var(--mono); font-size: .82em; }
 .prose hr { margin: 4rem auto; width: 5rem; border: 0; border-top: 1px solid var(--rule-strong); }
 .prose .footnotes { margin-top: 5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: .82em; }
+/* Ruby (<ruby>漢字<rt>かんじ</rt></ruby>, written by the site's builder in a
+   span.ruby): the browser's own ruby layout sets the reading, half the
+   text's size, over its base, and a longer reading spreads the base. The
+   reading sits in the line's leading, so a paragraph's lines are as far
+   apart with ruby as without, in Chrome, Safari, and Firefox
+   (e2e/ruby.e2e.ts in the Writing Studio measures them). Left to itself,
+   Safari makes room for the reading over a paragraph's first line, and
+   Firefox, in a text set in the Latin face, draws the reading against a
+   kanji's top (it measures the base by the Latin face). So the ruby is one
+   box, as it is never broken anyway, set in the Japanese face its kanji are
+   drawn in, whose top margin gives the line back the reading's height: in
+   the line it takes no more room than a letter. Neither the text's size nor
+   its line-height changes (a ruby's own line-height, set to 1, spread the
+   lines in Safari and Firefox). */
+.prose .ruby { display: inline-block; margin-top: -1em; font-family: 'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif JP', var(--serif); line-height: 1; text-indent: 0; }
+.prose ruby { ruby-position: over; }
+.prose rt { padding-bottom: .25em; font-size: .5em; line-height: 1; letter-spacing: .02em; }
 /* The works a text cites (site-builder/src/references.rs), as its style
    sets them: each entry a paragraph with a hanging indent, long addresses
    allowed to break; a citation links to its entry. */
