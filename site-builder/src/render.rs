@@ -175,7 +175,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 noindex: false,
                 article: false,
             },
-            html! { (reading_page(content.miscellany())) (message_form(content.miscellany(), "reading", "Reading")) },
+            html! { (reading_page(content.miscellany())) (message_form(content.miscellany(), "reading")) },
         ),
         page(
             "miscellany/notes/index.html",
@@ -188,7 +188,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 noindex: false,
                 article: false,
             },
-            html! { (notes_page(content.miscellany())) (message_form(content.miscellany(), "notes", "Notes")) },
+            html! { (notes_page(content.miscellany())) (message_form(content.miscellany(), "notes")) },
         ),
         page(
             "miscellany/diary/index.html",
@@ -201,7 +201,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 noindex: false,
                 article: false,
             },
-            html! { (diary_page(content.miscellany())) (message_form(content.miscellany(), "diary", "the Diary")) },
+            html! { (diary_page(content.miscellany())) (message_form(content.miscellany(), "diary")) },
         ),
         page(
             "miscellany/sketches/index.html",
@@ -214,7 +214,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 noindex: false,
                 article: false,
             },
-            html! { (sketches_page(content.miscellany())) (message_form(content.miscellany(), "sketches", "Sketches")) },
+            html! { (sketches_page(content.miscellany())) (message_form(content.miscellany(), "sketches")) },
         ),
         // Results depend on the query; the page itself is not for search
         // engines and is not in the sitemap.
@@ -1218,7 +1218,6 @@ fn writing_detail(writing: &ValidatedWriting) -> Markup {
 struct MiscellanySection {
     path: &'static str,
     label: &'static str,
-    description: &'static str,
     key: &'static str,
 }
 
@@ -1227,25 +1226,21 @@ const MISCELLANY_SECTIONS: [MiscellanySection; 4] = [
     MiscellanySection {
         path: "/miscellany/reading/",
         label: "Reading",
-        description: "Books and papers",
         key: "reading",
     },
     MiscellanySection {
         path: "/miscellany/notes/",
         label: "Notes",
-        description: "Study notes",
         key: "notes",
     },
     MiscellanySection {
         path: "/miscellany/diary/",
         label: "Diary",
-        description: "Occasional entries",
         key: "diary",
     },
     MiscellanySection {
         path: "/miscellany/sketches/",
         label: "Sketches",
-        description: "",
         key: "sketches",
     },
 ];
@@ -1425,8 +1420,8 @@ fn miscellany_sections(current_path: &str) -> Markup {
 }
 
 /// A section page's top: `Miscellany / Reading` as its heading, with the
-/// section's search beside it (below it on a phone), then the sections and
-/// the section's description.
+/// section's search beside it (below it on a phone, always there, entries or
+/// none), then the sections.
 fn miscellany_section_header(section: &MiscellanySection, languages: &[DisplayLanguage]) -> Markup {
     html! {
         header.miscellany-header {
@@ -1438,7 +1433,6 @@ fn miscellany_section_header(section: &MiscellanySection, languages: &[DisplayLa
                 (search_form(Some(section)))
             }
             (miscellany_sections(section.path))
-            @if !section.description.is_empty() { p.miscellany-description { (section.description) } }
             (language_filter(languages))
         }
     }
@@ -1590,9 +1584,8 @@ fn reading_page(miscellany: &Miscellany) -> Markup {
     let anchors = reading_anchors(items);
     html! {
         (miscellany_section_header(READING, &languages))
-        @if items.is_empty() {
-            p.empty-state { "No entries yet." }
-        } @else {
+        // Nothing published: no list, and nothing said in its place.
+        @if !items.is_empty() {
             ol.reading-list data-pagefind-body data-pagefind-filter=(search_filter(READING)) data-pagefind-meta="title:Reading" {
                 @for (item, anchor) in items.iter().zip(&anchors) {
                     @let work = item.work();
@@ -1649,9 +1642,8 @@ fn notes_page(miscellany: &Miscellany) -> Markup {
     let notes: Vec<_> = miscellany.public_notes().collect();
     html! {
         (miscellany_section_header(NOTES, &[]))
-        @if notes.is_empty() {
-            p.empty-state { "No notes yet." }
-        } @else {
+        // Nothing published: no list, and nothing said in its place.
+        @if !notes.is_empty() {
             ol.miscellany-list data-reading-list {
                 @for note in notes {
                     @let metadata = note.metadata();
@@ -1731,9 +1723,8 @@ fn sketches_page(miscellany: &Miscellany) -> Markup {
     let sketches: Vec<_> = miscellany.public_sketches().collect();
     html! {
         (miscellany_section_header(SKETCHES, &[]))
-        @if sketches.is_empty() {
-            p.empty-state { "No sketches yet." }
-        } @else {
+        // Nothing published: no list, and nothing said in its place.
+        @if !sketches.is_empty() {
             ol.miscellany-list.sketch-list data-reading-list {
                 @for sketch in sketches {
                     @let metadata = sketch.metadata();
@@ -1847,9 +1838,8 @@ fn diary_page(miscellany: &Miscellany) -> Markup {
     }
     html! {
         (miscellany_section_header(DIARY, &[]))
-        @if months.is_empty() {
-            p.empty-state { "No entries yet." }
-        } @else {
+        // Nothing published: no list, and nothing said in its place.
+        @if !months.is_empty() {
             div.diary-archive data-diary-archive {
                 @for (year, list) in &years {
                     section.diary-year aria-labelledby=(format!("diary-year-{year}")) {
@@ -3724,19 +3714,11 @@ mod miscellany_tests {
     #[test]
     fn empty_sections_are_quiet_and_contain_no_entries() {
         let content = ValidatedSiteContent::with_miscellany(Miscellany::default());
-        for (path, title, empty) in [
-            (
-                "miscellany/reading/index.html",
-                "Reading",
-                "No entries yet.",
-            ),
-            ("miscellany/notes/index.html", "Notes", "No notes yet."),
-            ("miscellany/diary/index.html", "Diary", "No entries yet."),
-            (
-                "miscellany/sketches/index.html",
-                "Sketches",
-                "No sketches yet.",
-            ),
+        for (path, title) in [
+            ("miscellany/reading/index.html", "Reading"),
+            ("miscellany/notes/index.html", "Notes"),
+            ("miscellany/diary/index.html", "Diary"),
+            ("miscellany/sketches/index.html", "Sketches"),
         ] {
             let html = page_html(&content, path);
             let main = main_of(&html);
@@ -3744,7 +3726,28 @@ mod miscellany_tests {
             // section's name as the page's one h1.
             assert!(main.contains(&format!(r#"<div class="miscellany-title"><nav class="miscellany-trail" aria-label="Breadcrumb"><a href="/miscellany/">Miscellany</a><span class="miscellany-trail-separator" aria-hidden="true">/</span></nav><h1>{title}</h1></div>"#)), "{path}");
             assert_eq!(main.matches("<h1").count(), 1);
-            assert!(main.contains(&format!(r#"<p class="empty-state">{empty}</p>"#)));
+            // Nothing said for having nothing: no description, no "No entries yet.", no empty state.
+            for said in [
+                "empty-state",
+                "miscellany-description",
+                "No entries yet",
+                "No notes yet",
+                "No sketches yet",
+                "Books and papers",
+                "Study notes",
+                "Occasional entries",
+            ] {
+                assert!(!main.contains(said), "{path}: {said}");
+            }
+            // The search, always; the sections' header, then straight to the message form.
+            assert!(
+                main.contains(r#"<form class="miscellany-search""#),
+                "{path}"
+            );
+            assert!(
+                main.contains(r#"</header><section class="site-message""#),
+                "{path}"
+            );
             // (The message form at the end has its own heading, apart from the section's entries.)
             let entries = main
                 .split(r#"<section class="site-message""#)
@@ -4174,7 +4177,7 @@ mod multilingual_tests {
             "---\nslug: shown\ntitle: A <shown> note\nlang: en\ndraft: false\n---\n\nText.\n";
         let draft = "---\nslug: private-draft\ntitle: Not yet\nlang: en\n---\n\nText.\n";
         let miscellany = miscellany(&[published, draft], &[DIARY_JA]);
-        let form = message_form(&miscellany, "notes", "Notes").into_string();
+        let form = message_form(&miscellany, "notes").into_string();
         assert!(form.contains(r#"data-category="notes""#), "{form}");
         assert!(form.contains(MESSAGE_ENDPOINT));
         assert!(form.contains(r#"value="shown""#));
@@ -4187,6 +4190,30 @@ mod multilingual_tests {
             "{form}"
         );
         assert!(form.contains(r#"name="website""#));
+        // Its words: the heading, the two labels, Send; nothing explained, nothing like a public comment.
+        assert!(
+            form.contains(r#"<h2 id="site-message-heading">Messages welcome.</h2><form"#),
+            "{form}"
+        );
+        assert!(form.contains(r#"<label for="site-message-body">Message</label><textarea id="site-message-body" name="body" rows="3""#), "{form}");
+        assert!(
+            form.contains(r#"Name <span class="site-message-optional">(optional)</span>"#),
+            "{form}"
+        );
+        assert!(
+            form.contains(r#"<button type="submit">Send</button>"#),
+            "{form}"
+        );
+        for word in [
+            "Write to the author",
+            "reaches",
+            "not shown",
+            "Comment",
+            "Post",
+            "Publish",
+        ] {
+            assert!(!form.contains(word), "{word}");
+        }
         let json: serde_json::Value = serde_json::from_str(&articles_json(&miscellany)).unwrap();
         assert_eq!(
             json["notes"],
@@ -5540,20 +5567,21 @@ pub(crate) fn articles_json(miscellany: &Miscellany) -> String {
     serde_json::Value::Object(out).to_string()
 }
 
-/// The form at the end of a category's page: a message, a name if one
-/// likes, and the articles it is about if any (else the category as a
-/// whole). Drawn hidden; the site's script shows it (client/site.ts), so a
+/// The form at the end of a category's page, under "Messages welcome.": a
+/// message, a name if one likes, and the articles it is about if there are
+/// any to choose (else the category as a whole). Open from the start, and
+/// quiet: no explanation, no panel; the words and the form say what it is.
+/// A message reaches the author's Writing Studio only, never this site. Drawn hidden; the site's script shows it (client/site.ts), so a
 /// page without scripts shows nothing that cannot work.
-fn message_form(miscellany: &Miscellany, category: &str, label: &str) -> Markup {
+fn message_form(miscellany: &Miscellany, category: &str) -> Markup {
     let choices = message_choices(miscellany, category);
     html! {
         section.site-message aria-labelledby="site-message-heading" data-site-message data-category=(category) data-endpoint=(MESSAGE_ENDPOINT) hidden {
-            h2 #site-message-heading { "Write to the author" }
-            p.site-message-note { "A message about " (label) " reaches Ryujin Hatakeyama only. It is not shown on this site." }
+            h2 #site-message-heading { "Messages welcome." }
             form data-site-message-form novalidate {
                 label for="site-message-body" { "Message" }
-                textarea #site-message-body name="body" rows="5" maxlength="4000" required {}
-                label for="site-message-name" { "Your name " span.site-message-optional { "(optional)" } }
+                textarea #site-message-body name="body" rows="3" maxlength="4000" required {}
+                label for="site-message-name" { "Name " span.site-message-optional { "(optional)" } }
                 input #site-message-name type="text" name="name" maxlength="80" autocomplete="name";
                 @if !choices.is_empty() {
                     details.site-message-articles {

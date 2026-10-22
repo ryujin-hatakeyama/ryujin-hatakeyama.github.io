@@ -964,6 +964,12 @@ function setUpSiteMessage(): void {
   if (!endpoint || !status || !button || !body) return;
   section.hidden = false;
   const shownAt = Date.now();
+  // Three lines to start with; taller as the message grows (to about half a screen, then it scrolls).
+  const grow = () => {
+    body.style.height = 'auto';
+    body.style.height = `${Math.min(body.scrollHeight + 2, Math.max(window.innerHeight * 0.5, 160))}px`;
+  };
+  body.addEventListener('input', grow);
   const say = (text: string, kind: 'done' | 'problem' | '') => {
     status.textContent = text;
     status.dataset.kind = kind;
@@ -991,7 +997,8 @@ function setUpSiteMessage(): void {
       const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), credentials: 'omit', mode: 'cors' });
       if (response.status === 202) {
         form.reset();
-        say('Sent. Thank you: it reaches the author only, and is not shown here.', 'done');
+        grow();
+        say('Sent. Thank you.', 'done');
         return;
       }
       const answer = (await response.json().catch(() => ({}))) as { error?: string };

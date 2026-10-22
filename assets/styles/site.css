@@ -1425,14 +1425,17 @@ main { min-height: 64vh; }
 /* A message to the author, at the end of a category's page
    (site-builder/src/render.rs message_form, client/site.ts): quiet, the
    site's own fields and rule; nothing sent is shown on the site. */
-.site-message { max-width: 40rem; margin: 4rem 0 0; padding-top: 1.6rem; border-top: 1px solid var(--rule); font-family: var(--sans); }
+/* Messages welcome. (render.rs message_form): open from the start, and quiet, as the page's
+   own text is: no rule, panel, or note; the fields as the site's search field is drawn. Close
+   under the sections when a category has nothing published yet, further after a list. */
+.site-message { max-width: 34rem; margin: 3.25rem 0 0; font-family: var(--sans); }
+.miscellany-header + .site-message { margin-top: .5rem; }
 .site-message[hidden] { display: none; }
-.site-message h2 { margin: 0 0 .35rem; font-size: 1.05rem; font-weight: 600; }
-.site-message-note { margin: 0 0 1rem; color: var(--ink-soft); font-size: .88rem; line-height: 1.55; }
-.site-message form { display: grid; gap: .35rem; }
-.site-message label { color: var(--ink-soft); font-size: .86rem; }
-.site-message textarea, .site-message input[type='text'] { box-sizing: border-box; width: 100%; margin-bottom: .55rem; padding: .55rem .65rem; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--paper); color: var(--ink); font: inherit; font-size: 16px; line-height: 1.5; }
-.site-message textarea { min-height: 7.5rem; resize: vertical; }
+.site-message h2 { margin: 0 0 .7rem; color: var(--ink); font-size: .95rem; font-weight: 500; letter-spacing: 0; }
+.site-message form { display: grid; gap: .3rem; }
+.site-message label { color: var(--ink-soft); font-size: .84rem; }
+.site-message textarea, .site-message input[type='text'] { box-sizing: border-box; width: 100%; margin-bottom: .5rem; padding: .45rem .6rem; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--paper); color: var(--ink); font: inherit; font-size: 16px; line-height: 1.5; }
+.site-message textarea { min-height: calc(3lh + .9rem + 2px); resize: vertical; overflow-y: auto; }
 .site-message textarea:focus-visible, .site-message input:focus-visible, .site-message button:focus-visible, .site-message summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .site-message-optional { color: var(--ink-faint, var(--ink-soft)); font-weight: 400; }
 .site-message-articles { margin: 0 0 .7rem; font-size: .88rem; }
@@ -1442,7 +1445,7 @@ main { min-height: 64vh; }
 .site-message-articles input { flex: none; accent-color: var(--accent); }
 .site-message-trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 .site-message-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin: 0; }
-.site-message button { min-height: 2.75rem; padding: 0 1.3rem; border: 0; border-radius: 6px; background: var(--accent-strong, var(--accent)); color: var(--paper); font: inherit; font-weight: 600; cursor: pointer; }
+.site-message button { min-height: 2.5rem; padding: 0 1rem; border: 0; border-radius: 4px; background: var(--accent-strong, var(--accent)); color: var(--paper); font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer; }
 .site-message button:disabled { opacity: .6; cursor: default; }
 .site-message-status { color: var(--ink-soft); font-size: .88rem; }
 .site-message-status[data-kind='done'] { color: var(--accent-strong, var(--accent)); }
