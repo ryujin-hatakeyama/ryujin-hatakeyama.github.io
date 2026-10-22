@@ -1445,7 +1445,7 @@ main { min-height: 64vh; }
 .site-message-articles input { flex: none; accent-color: var(--accent); }
 .site-message-trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 .site-message-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin: 0; }
-.site-message button { min-height: 2.5rem; padding: 0 1rem; border: 0; border-radius: 4px; background: var(--accent-strong, var(--accent)); color: var(--paper); font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer; }
+.site-message button { min-height: 2.75rem; padding: 0 1rem; border: 0; border-radius: 4px; background: var(--accent-strong, var(--accent)); color: var(--paper); font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer; }
 .site-message button:disabled { opacity: .6; cursor: default; }
 .site-message-status { color: var(--ink-soft); font-size: .88rem; }
 .site-message-status[data-kind='done'] { color: var(--accent-strong, var(--accent)); }
