@@ -166,6 +166,11 @@ fn generated_site_files(
     )?;
     artifacts.insert("assets/site.js", client.into_bytes())?;
     artifacts.insert("rss.xml", render::rss(content.updates()).into_bytes())?;
+    // The published articles a message may be about (render::articles_json), for the Studio's intake.
+    artifacts.insert(
+        "miscellany/articles.json",
+        render::articles_json(content.miscellany()).into_bytes(),
+    )?;
     artifacts.insert("sitemap-0.xml", sitemap.into_bytes())?;
     artifacts.insert("sitemap-index.xml", sitemap_index.into_bytes())?;
     artifacts.insert(

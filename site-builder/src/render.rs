@@ -175,7 +175,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 noindex: false,
                 article: false,
             },
-            reading_page(content.miscellany()),
+            html! { (reading_page(content.miscellany())) (message_form(content.miscellany(), "reading", "Reading")) },
         ),
         page(
             "miscellany/notes/index.html",
@@ -188,7 +188,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 noindex: false,
                 article: false,
             },
-            notes_page(content.miscellany()),
+            html! { (notes_page(content.miscellany())) (message_form(content.miscellany(), "notes", "Notes")) },
         ),
         page(
             "miscellany/diary/index.html",
@@ -201,7 +201,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 noindex: false,
                 article: false,
             },
-            diary_page(content.miscellany()),
+            html! { (diary_page(content.miscellany())) (message_form(content.miscellany(), "diary", "the Diary")) },
         ),
         page(
             "miscellany/sketches/index.html",
@@ -214,7 +214,7 @@ pub(crate) fn pages(content: &ValidatedSiteContent, today: NaiveDate) -> Vec<Gen
                 noindex: false,
                 article: false,
             },
-            sketches_page(content.miscellany()),
+            html! { (sketches_page(content.miscellany())) (message_form(content.miscellany(), "sketches", "Sketches")) },
         ),
         // Results depend on the query; the page itself is not for search
         // engines and is not in the sitemap.
@@ -3745,7 +3745,17 @@ mod miscellany_tests {
             assert!(main.contains(&format!(r#"<div class="miscellany-title"><nav class="miscellany-trail" aria-label="Breadcrumb"><a href="/miscellany/">Miscellany</a><span class="miscellany-trail-separator" aria-hidden="true">/</span></nav><h1>{title}</h1></div>"#)), "{path}");
             assert_eq!(main.matches("<h1").count(), 1);
             assert!(main.contains(&format!(r#"<p class="empty-state">{empty}</p>"#)));
-            assert!(!main.contains("<article") && !main.contains("<li") && !main.contains("<h2"));
+            // (The message form at the end has its own heading, apart from the section's entries.)
+            let entries = main
+                .split(r#"<section class="site-message""#)
+                .next()
+                .unwrap();
+            assert!(
+                !entries.contains("<article")
+                    && !entries.contains("<li")
+                    && !entries.contains("<h2")
+            );
+            assert!(main.contains("data-site-message"), "{path}");
             // All four sections, in order, one tap away, even when empty.
             let sections = &main[main
                 .find(r#"<nav class="miscellany-sections" aria-label="Miscellany sections">"#)
@@ -4134,7 +4144,10 @@ mod miscellany_tests {
 
 #[cfg(test)]
 mod multilingual_tests {
-    use super::{fixture_today, miscellany_overview, note_detail, notes_page, pages, reading_page};
+    use super::{
+        MESSAGE_ENDPOINT, articles_json, fixture_today, message_form, miscellany_overview,
+        note_detail, notes_page, pages, reading_page,
+    };
     use crate::content::{Miscellany, ValidatedSiteContent};
     use crate::model::DisplayLanguage;
 
@@ -4154,6 +4167,40 @@ mod multilingual_tests {
         "---\nof: 2026-10-10\nlang: en\n---\n\nA different, shorter English entry.\n";
     const DIARY_OTHER_SAME_DAY: &str = "---\ndate: 2026-10-10\nslug: evening\nlang: en\ndraft: false\n---\n\nAn unrelated entry on the same date.\n";
     const READING: &str = "items:\n  - author: 作者\n    title: 架空の本\n    lang: ja\n    note: My English commentary on a Japanese book.\n  - title: Two Commentaries\n    notes:\n      ja: 日本語の感想。\n      en: An English comment, not a translation.\n  - author: Someone\n    title: No Commentary\n";
+
+    #[test]
+    fn a_message_form_ends_each_category_and_offers_only_published_articles() {
+        let published =
+            "---\nslug: shown\ntitle: A <shown> note\nlang: en\ndraft: false\n---\n\nText.\n";
+        let draft = "---\nslug: private-draft\ntitle: Not yet\nlang: en\n---\n\nText.\n";
+        let miscellany = miscellany(&[published, draft], &[DIARY_JA]);
+        let form = message_form(&miscellany, "notes", "Notes").into_string();
+        assert!(form.contains(r#"data-category="notes""#), "{form}");
+        assert!(form.contains(MESSAGE_ENDPOINT));
+        assert!(form.contains(r#"value="shown""#));
+        // Escaped as text; a draft is never offered.
+        assert!(form.contains("A &lt;shown&gt; note"));
+        assert!(!form.contains("private-draft") && !form.contains("Not yet"));
+        // Hidden until the site's script shows it, with its field for robots.
+        assert!(
+            form.contains(" hidden>") || form.contains(" hidden "),
+            "{form}"
+        );
+        assert!(form.contains(r#"name="website""#));
+        let json: serde_json::Value = serde_json::from_str(&articles_json(&miscellany)).unwrap();
+        assert_eq!(
+            json["notes"],
+            serde_json::json!([{ "id": "shown", "title": "A <shown> note", "url": "/miscellany/notes/shown/" }])
+        );
+        assert_eq!(json["diary"][0]["id"], "2026-10-10");
+        assert_eq!(
+            json["diary"][0]["url"],
+            "/miscellany/diary/2026/10/#diary-2026-10-10"
+        );
+        assert!(json["reading"].as_array().is_some());
+        assert_eq!(json["sketches"], serde_json::json!([]));
+        assert!(!articles_json(&miscellany).contains("private-draft"));
+    }
 
     fn miscellany(notes: &[&str], diary: &[&str]) -> Miscellany {
         Miscellany::from_sources(READING, notes, diary).unwrap()
@@ -4311,7 +4358,9 @@ mod multilingual_tests {
             let controls = html.matches("data-language-filter").count()
                 + html.matches("data-reading-control").count()
                 + html.matches("data-language-notice").count()
-                + html.matches("data-search-more hidden").count();
+                + html.matches("data-search-more hidden").count()
+                // The message form, shown by the site's script.
+                + html.matches("data-site-message data-category").count();
             assert_eq!(hidden, controls, "{}", page.output_path);
             assert!(
                 !html.contains("data-passage=\"en\" hidden")
@@ -5400,6 +5449,136 @@ mod reading_state_tests {
             "Safari may also remove it",
         ] {
             assert!(privacy.contains(words), "{words}");
+        }
+    }
+}
+
+// ------------------------------------------------------------ messages to the author
+
+/// Where the message form sends (the Writing Studio's intake, a Worker with
+/// one door: it takes a message and gives nothing back). Messages are read
+/// only in the Studio; nothing of them is shown on this site.
+const MESSAGE_ENDPOINT: &str =
+    "https://ryujin-site-comments.hatakeyama-ryujin-q7.workers.dev/messages";
+
+/// One published article a message may be about.
+struct MessageChoice {
+    id: String,
+    title: String,
+    url: String,
+}
+
+/// The published articles of a category, as the form offers them and as
+/// `/miscellany/articles.json` lists them: drafts and private writing are
+/// never in them (only what this site publishes).
+fn message_choices(miscellany: &Miscellany, category: &str) -> Vec<MessageChoice> {
+    match category {
+        "notes" => miscellany
+            .public_notes()
+            .map(|note| {
+                let m = note.metadata();
+                MessageChoice {
+                    id: m.slug.clone(),
+                    title: m.title.clone(),
+                    url: note_path(&m.slug),
+                }
+            })
+            .collect(),
+        "sketches" => miscellany
+            .public_sketches()
+            .map(|sketch| {
+                let m = sketch.metadata();
+                MessageChoice {
+                    id: m.slug.clone(),
+                    title: m.title.clone(),
+                    url: sketch_path(&m.slug),
+                }
+            })
+            .collect(),
+        "diary" => miscellany
+            .public_diary()
+            .map(|entry| {
+                let m = entry.metadata();
+                let date = m.date.format("%-d %B %Y").to_string();
+                MessageChoice {
+                    id: m.id(),
+                    title: m
+                        .title
+                        .as_ref()
+                        .map_or_else(|| date.clone(), |t| format!("{date}: {t}")),
+                    url: format!("{}#{}", m.month_path(), m.anchor()),
+                }
+            })
+            .collect(),
+        "reading" => {
+            let items = miscellany.reading();
+            reading_anchors(items)
+                .into_iter()
+                .zip(items)
+                .map(|(anchor, item)| MessageChoice {
+                    title: item.work().title.clone(),
+                    url: format!("/miscellany/reading/#{anchor}"),
+                    id: anchor,
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// `/miscellany/articles.json`: each category's published articles (id,
+/// title, address), which the intake checks a message's articles against.
+pub(crate) fn articles_json(miscellany: &Miscellany) -> String {
+    let mut out = serde_json::Map::new();
+    for category in ["reading", "notes", "diary", "sketches"] {
+        let list: Vec<serde_json::Value> = message_choices(miscellany, category)
+            .into_iter()
+            .map(|c| serde_json::json!({ "id": c.id, "title": c.title, "url": c.url }))
+            .collect();
+        out.insert(category.to_owned(), serde_json::Value::Array(list));
+    }
+    serde_json::Value::Object(out).to_string()
+}
+
+/// The form at the end of a category's page: a message, a name if one
+/// likes, and the articles it is about if any (else the category as a
+/// whole). Drawn hidden; the site's script shows it (client/site.ts), so a
+/// page without scripts shows nothing that cannot work.
+fn message_form(miscellany: &Miscellany, category: &str, label: &str) -> Markup {
+    let choices = message_choices(miscellany, category);
+    html! {
+        section.site-message aria-labelledby="site-message-heading" data-site-message data-category=(category) data-endpoint=(MESSAGE_ENDPOINT) hidden {
+            h2 #site-message-heading { "Write to the author" }
+            p.site-message-note { "A message about " (label) " reaches Ryujin Hatakeyama only. It is not shown on this site." }
+            form data-site-message-form novalidate {
+                label for="site-message-body" { "Message" }
+                textarea #site-message-body name="body" rows="5" maxlength="4000" required {}
+                label for="site-message-name" { "Your name " span.site-message-optional { "(optional)" } }
+                input #site-message-name type="text" name="name" maxlength="80" autocomplete="name";
+                @if !choices.is_empty() {
+                    details.site-message-articles {
+                        summary { "About particular articles " span.site-message-optional { "(optional)" } }
+                        ul {
+                            @for choice in &choices {
+                                li {
+                                    label {
+                                        input type="checkbox" name="articles" value=(choice.id);
+                                        " "
+                                        span { (choice.title) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                div.site-message-trap aria-hidden="true" {
+                    label { "Leave this empty " input type="text" name="website" tabindex="-1" autocomplete="off"; }
+                }
+                p.site-message-actions {
+                    button type="submit" { "Send" }
+                    span.site-message-status role="status" aria-live="polite" {}
+                }
+            }
         }
     }
 }

@@ -26,6 +26,8 @@ const REQUIRED_FILES: &[&str] = &[
     "privacy/index.html",
     "404.html",
     "rss.xml",
+    // The published articles a message may name (render::articles_json).
+    "miscellany/articles.json",
     "robots.txt",
     "sitemap-index.xml",
     "sitemap-0.xml",
@@ -101,8 +103,11 @@ fn audit_public_files(root: &Path, source_root: &Path, files: &[PathBuf]) -> Res
                 .and_then(|value| value.to_str())
                 .unwrap_or_default();
             let in_search_index = relative.starts_with("pagefind");
+            // One JSON file, and only it: the published articles a message may name.
+            let articles = relative == Path::new("miscellany/articles.json");
             ensure!(
                 allowed_extensions.contains(&extension)
+                    || articles
                     || (in_search_index && search_extensions.contains(&extension)),
                 "unexpected public artifact {}",
                 relative.display()

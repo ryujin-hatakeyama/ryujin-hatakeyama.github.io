@@ -73,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setUpSearch();
   setUpMusicCards();
   setUpReadingState();
+  setUpSiteMessage();
 
   for (const control of document.querySelectorAll<HTMLElement>('[data-email-code]')) {
     control.addEventListener('click', (event) => {
@@ -930,4 +931,75 @@ function setUpReadingState(): void {
   });
 
   applyReading(readReading());
+}
+
+// ------------------------------------------------------------ a message to the author
+
+/*
+ * The form at the end of Reading, Notes, Diary, and Sketches
+ * (site-builder/src/render.rs message_form): sent to the Writing Studio's
+ * intake, which keeps it for the author alone. Nothing sent is shown on the
+ * site. The form is drawn hidden and shown here, so a page without scripts
+ * offers nothing that cannot work.
+ */
+const MESSAGE_ERRORS: Readonly<Record<string, string>> = {
+  empty: 'Write a message first.',
+  too_long: 'The message is longer than 4,000 characters.',
+  too_many_links: 'Please include no more than three links.',
+  name_too_long: 'The name is longer than 80 characters.',
+  unknown_article: 'One of the chosen articles is no longer published; reload the page and choose again.',
+  too_many: 'Several messages were sent from here just now. Please try again later.',
+  busy: 'Many messages have arrived today. Please try again tomorrow.',
+};
+
+function setUpSiteMessage(): void {
+  const section = document.querySelector<HTMLElement>('[data-site-message]');
+  const form = section?.querySelector<HTMLFormElement>('[data-site-message-form]');
+  if (!section || !form) return;
+  const endpoint = section.dataset.endpoint ?? '';
+  const category = section.dataset.category ?? '';
+  const status = form.querySelector<HTMLElement>('.site-message-status');
+  const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  const body = form.querySelector<HTMLTextAreaElement>('textarea[name="body"]');
+  if (!endpoint || !status || !button || !body) return;
+  section.hidden = false;
+  const shownAt = Date.now();
+  const say = (text: string, kind: 'done' | 'problem' | '') => {
+    status.textContent = text;
+    status.dataset.kind = kind;
+  };
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const text = body.value.trim();
+    if (!text) {
+      say(MESSAGE_ERRORS.empty!, 'problem');
+      body.focus();
+      return;
+    }
+    const data = new FormData(form);
+    const payload = {
+      category,
+      body: text,
+      name: String(data.get('name') ?? ''),
+      articles: data.getAll('articles').map(String),
+      website: String(data.get('website') ?? ''),
+      elapsed: Date.now() - shownAt,
+    };
+    button.disabled = true;
+    say('Sending…', '');
+    try {
+      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), credentials: 'omit', mode: 'cors' });
+      if (response.status === 202) {
+        form.reset();
+        say('Sent. Thank you: it reaches the author only, and is not shown here.', 'done');
+        return;
+      }
+      const answer = (await response.json().catch(() => ({}))) as { error?: string };
+      say(MESSAGE_ERRORS[answer.error ?? ''] ?? 'The message could not be sent just now. Please try again later.', 'problem');
+    } catch {
+      say('The message could not be sent (no connection?). It is still here; try again.', 'problem');
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
