@@ -77,9 +77,9 @@ Inside any Markdown passage, mark the language of a phrase with `[Stimme]{lang=d
 
 To add a selectable language, add it to `DisplayLanguage` in `site-builder/src/model.rs` with its code, its own name, and its English name; nothing else needs to change.
 
-## Music
+## Music and podcasts
 
-In a note, diary entry, or sketch, a paragraph that holds nothing but an Apple Music address, a Spotify address, or one of each (on two lines, or separated by a space) becomes a music card: the work's title, its performers, and its cover, and a choice of the two services' players. Only songs, albums, and playlists at `https://music.apple.com/…` and `https://open.spotify.com/…` are recognised; an address anywhere else (in a sentence, a list, a quotation, a footnote) stays text.
+In a note, diary entry, or sketch, a paragraph that holds nothing but one address, or two addresses of the same work on two services (on two lines, or separated by a space), becomes a media card: the work's title, a second line, its cover, and "Open" for the chosen service. Recognised: songs, albums, and playlists at `https://music.apple.com/…` and `https://open.spotify.com/…`, and podcasts and episodes at `https://podcasts.apple.com/…` and `https://open.spotify.com/show/…` or `/episode/…`. A podcast card also has the service's own player; music never plays on the page. An address anywhere else (in a sentence, a list, a quotation, a footnote) stays text.
 
 The details come from the file's front matter, written by the Writing Studio when it publishes, one entry per address:
 
@@ -88,7 +88,14 @@ music:
   - {"url": "https://music.apple.com/jp/album/x/1440806071?i=1440806402", "title": "…", "artist": "…", "artwork": "https://is1-ssl.mzstatic.com/…"}
 ```
 
-`url` is the address without tracking parameters; `artist`, `detail` (a further line, such as a song’s album), and `artwork` are optional, and `artwork` must be on the services' own image servers. Without an entry, the card says what it is (“A song on Spotify”) and still links there. The build never asks either service anything; see `docs/music.md`.
+Podcasts go under `podcasts:`, with `show` (an episode's show) in place of `artist`:
+
+```yaml
+podcasts:
+  - {"url": "https://podcasts.apple.com/us/podcast/x/id1200361736?i=1000797757135", "title": "…", "show": "…", "detail": "23 Oct 2026 · 30 min"}
+```
+
+`url` is the address without tracking parameters; `artist` or `show`, `detail` (a further line, such as a song’s album), and `artwork` are optional, and `artwork` must be on the services' own image servers. Without an entry, the card says what it is (“A song on Spotify”, “An episode on Apple Podcasts”) and still links there. The build never asks any service anything; see `docs/media.md`.
 
 ## Theorem environments
 

@@ -36,6 +36,7 @@ const REQUIRED_FILES: &[&str] = &[
     "apple-touch-icon.png",
     "assets/site.css",
     "assets/site.js",
+    "assets/media.js",
     ".nojekyll",
 ];
 

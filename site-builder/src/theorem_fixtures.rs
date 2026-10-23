@@ -123,7 +123,7 @@ fn render(source: &str, numbering: TheoremNumbering) -> (String, Analysis) {
         footnotes: true,
         footnote_prefix: None,
         inline_languages: true,
-        music: None,
+        media: None,
         theorems: Some(TheoremOptions {
             numbering,
             id_prefix: None,

@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail, ensure};
 use chrono::NaiveDate;
 use serde::Deserialize;
 
-use crate::music::{MusicMetadata, validate_metadata as validate_music};
+use crate::media::{self, MusicMetadata, PodcastMetadata};
 use crate::references::{Reference, validate as validate_references};
 use crate::theorems::TheoremNumbering;
 
@@ -1154,10 +1154,12 @@ pub struct NoteFrontMatter {
     /// through the text (src/theorems.rs).
     #[serde(default)]
     pub theorem_numbering: TheoremNumbering,
-    /// What the Writing Studio found out about the music addresses in the
-    /// text, for their cards (src/music.rs).
+    /// What the Writing Studio found out about the media addresses in the
+    /// text, for their cards (src/media/): `music:` and `podcasts:`.
     #[serde(default)]
     pub music: Vec<MusicMetadata>,
+    #[serde(default)]
+    pub podcasts: Vec<PodcastMetadata>,
     /// The works the text cites, set in its citation style by the Writing
     /// Studio, listed where the text has `::: {#refs}` (src/references.rs).
     #[serde(default)]
@@ -1168,7 +1170,8 @@ pub struct NoteFrontMatter {
 
 impl NoteFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
-        validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
+        media::details(&self.music, &self.podcasts)
+            .with_context(|| format!("{source}: invalid media details"))?;
         validate_references(&self.references)
             .with_context(|| format!("{source}: invalid references"))?;
         validate_slug(&self.slug).with_context(|| format!("{source}: invalid note slug"))?;
@@ -1214,10 +1217,12 @@ pub struct SketchFrontMatter {
     /// through the text (src/theorems.rs).
     #[serde(default)]
     pub theorem_numbering: TheoremNumbering,
-    /// What the Writing Studio found out about the music addresses in the
-    /// text, for their cards (src/music.rs).
+    /// What the Writing Studio found out about the media addresses in the
+    /// text, for their cards (src/media/): `music:` and `podcasts:`.
     #[serde(default)]
     pub music: Vec<MusicMetadata>,
+    #[serde(default)]
+    pub podcasts: Vec<PodcastMetadata>,
     /// The works the text cites, set in its citation style by the Writing
     /// Studio, listed where the text has `::: {#refs}` (src/references.rs).
     #[serde(default)]
@@ -1228,7 +1233,8 @@ pub struct SketchFrontMatter {
 
 impl SketchFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
-        validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
+        media::details(&self.music, &self.podcasts)
+            .with_context(|| format!("{source}: invalid media details"))?;
         validate_references(&self.references)
             .with_context(|| format!("{source}: invalid references"))?;
         validate_slug(&self.slug).with_context(|| format!("{source}: invalid sketch slug"))?;
@@ -1271,10 +1277,12 @@ pub struct DiaryFrontMatter {
     /// through the text (src/theorems.rs).
     #[serde(default)]
     pub theorem_numbering: TheoremNumbering,
-    /// What the Writing Studio found out about the music addresses in the
-    /// text, for their cards (src/music.rs).
+    /// What the Writing Studio found out about the media addresses in the
+    /// text, for their cards (src/media/): `music:` and `podcasts:`.
     #[serde(default)]
     pub music: Vec<MusicMetadata>,
+    #[serde(default)]
+    pub podcasts: Vec<PodcastMetadata>,
     /// The works the text cites, set in its citation style by the Writing
     /// Studio, listed where the text has `::: {#refs}` (src/references.rs).
     #[serde(default)]
@@ -1285,7 +1293,8 @@ pub struct DiaryFrontMatter {
 
 impl DiaryFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
-        validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
+        media::details(&self.music, &self.podcasts)
+            .with_context(|| format!("{source}: invalid media details"))?;
         validate_references(&self.references)
             .with_context(|| format!("{source}: invalid references"))?;
         if let Some(slug) = &self.slug {
@@ -1351,10 +1360,12 @@ pub struct PassageFrontMatter {
     /// through the text (src/theorems.rs).
     #[serde(default)]
     pub theorem_numbering: TheoremNumbering,
-    /// What the Writing Studio found out about the music addresses in the
-    /// text, for their cards (src/music.rs).
+    /// What the Writing Studio found out about the media addresses in the
+    /// text, for their cards (src/media/): `music:` and `podcasts:`.
     #[serde(default)]
     pub music: Vec<MusicMetadata>,
+    #[serde(default)]
+    pub podcasts: Vec<PodcastMetadata>,
     /// The works the text cites, set in its citation style by the Writing
     /// Studio, listed where the text has `::: {#refs}` (src/references.rs).
     #[serde(default)]
@@ -1363,7 +1374,8 @@ pub struct PassageFrontMatter {
 
 impl PassageFrontMatter {
     pub fn validate(&self, source: &str) -> Result<()> {
-        validate_music(&self.music).with_context(|| format!("{source}: invalid music details"))?;
+        media::details(&self.music, &self.podcasts)
+            .with_context(|| format!("{source}: invalid media details"))?;
         validate_references(&self.references)
             .with_context(|| format!("{source}: invalid references"))?;
         ensure!(

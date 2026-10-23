@@ -10,7 +10,9 @@ use std::ops::Range;
 
 use pulldown_cmark::{CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd, html};
 
-use crate::music::{MusicMetadata, card_html, music_paragraph};
+use crate::media::{
+    self, MediaDetails, MusicMetadata, PodcastMetadata, card_html, media_paragraph,
+};
 use crate::references::{self, Reference};
 use crate::theorems::{self, Analysis, TheoremNumbering, TheoremOptions};
 use crate::timeline::{ArticleName, ArticleSection, ArticleUpdate};
@@ -527,8 +529,10 @@ trait ArticleMetadata: DeserializeOwned {
     /// Whether several articles share a page (diary entries share their
     /// month's), so identifiers in a passage carry the article's identity.
     const SHARES_PAGE: bool = false;
-    /// The details of the music cards in its first passage.
+    /// The details of the media cards in its first passage (`music:` and
+    /// `podcasts:`).
     fn music(&self) -> &[MusicMetadata];
+    fn podcasts(&self) -> &[PodcastMetadata];
     /// The works its first passage cites (src/references.rs).
     fn references(&self) -> &[Reference];
 }
@@ -555,6 +559,9 @@ impl ArticleMetadata for NoteFrontMatter {
     }
     fn music(&self) -> &[MusicMetadata] {
         &self.music
+    }
+    fn podcasts(&self) -> &[PodcastMetadata] {
+        &self.podcasts
     }
     fn references(&self) -> &[Reference] {
         &self.references
@@ -584,6 +591,9 @@ impl ArticleMetadata for SketchFrontMatter {
     }
     fn music(&self) -> &[MusicMetadata] {
         &self.music
+    }
+    fn podcasts(&self) -> &[PodcastMetadata] {
+        &self.podcasts
     }
     fn references(&self) -> &[Reference] {
         &self.references
@@ -615,6 +625,9 @@ impl ArticleMetadata for DiaryFrontMatter {
     }
     fn music(&self) -> &[MusicMetadata] {
         &self.music
+    }
+    fn podcasts(&self) -> &[PodcastMetadata] {
+        &self.podcasts
     }
     fn references(&self) -> &[Reference] {
         &self.references
@@ -926,7 +939,10 @@ fn parse_article_source<M: ArticleMetadata>(file: SourceFile) -> Result<ArticleS
             metadata.lang,
             metadata.title,
             metadata.math,
-            (&metadata.music, &metadata.references),
+            (
+                &media::details(&metadata.music, &metadata.podcasts)?,
+                &metadata.references,
+            ),
             (metadata.theorem_numbering, &metadata.of, first_line),
         )?;
         Ok(ArticleSource::Companion {
@@ -943,7 +959,10 @@ fn parse_article_source<M: ArticleMetadata>(file: SourceFile) -> Result<ArticleS
             metadata.language(),
             None,
             metadata.math(),
-            (metadata.music(), metadata.references()),
+            (
+                &media::details(metadata.music(), metadata.podcasts())?,
+                metadata.references(),
+            ),
             (metadata.theorem_numbering(), &metadata.id(), first_line),
         )?;
         Ok(ArticleSource::Primary {
@@ -960,7 +979,7 @@ fn render_passage<M: ArticleMetadata>(
     language: PassageLanguage,
     title: Option<String>,
     math: bool,
-    (music, cited): (&[MusicMetadata], &[Reference]),
+    (media, cited): (&[MediaDetails], &[Reference]),
     (numbering, article, first_line): (TheoremNumbering, &str, usize),
 ) -> Result<Passage> {
     ensure!(
@@ -986,7 +1005,7 @@ fn render_passage<M: ArticleMetadata>(
         // passages of one page never share an identifier.
         footnote_prefix: Some(language.code()),
         inline_languages: true,
-        music: Some(music),
+        media: Some(media),
         // Theorem identifiers carry the passage's language, as footnotes do,
         // and on a shared page the article's identity too.
         theorems: Some(TheoremOptions {
@@ -1196,9 +1215,9 @@ pub(crate) struct MarkdownRules<'a> {
     pub(crate) footnote_prefix: Option<&'static str>,
     /// Whether `[phrase]{lang=xx}` marks the language of a phrase.
     pub(crate) inline_languages: bool,
-    /// Whether a paragraph of music addresses becomes a music card, and the
-    /// details the file gives for them (src/music.rs).
-    pub(crate) music: Option<&'a [MusicMetadata]>,
+    /// Whether a paragraph of media addresses becomes a media card, and the
+    /// details the file gives for them (src/media/).
+    pub(crate) media: Option<&'a [MediaDetails]>,
     /// Whether theorem environments are read (src/theorems.rs), and how.
     pub(crate) theorems: Option<TheoremOptions<'a>>,
     /// Whether `::: {#refs}` lists the works cited (src/references.rs), and which.
@@ -1220,7 +1239,7 @@ fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown>
             footnotes: true,
             footnote_prefix: None,
             inline_languages: false,
-            music: None,
+            media: None,
             theorems: None,
             references: None,
         },
@@ -1281,10 +1300,10 @@ pub(crate) fn render_markdown_analyzed(
     let mut ruby_written: Option<usize> = None;
     // Each event's place in the text, for the theorem environments.
     let mut ranges: Vec<Option<Range<usize>>> = Vec::new();
-    // How deep in blocks the parser is: a music card stands only at the top
+    // How deep in blocks the parser is: a media card stands only at the top
     // level, never inside a list, quotation, table, or footnote.
     let mut depth = 0_usize;
-    // Inside a paragraph that became a music card: its events are dropped.
+    // Inside a paragraph that became a media card: its events are dropped.
     let mut in_card = false;
     for (event, range) in Parser::new_ext(text, options).into_offset_iter() {
         if in_card {
@@ -1294,10 +1313,10 @@ pub(crate) fn render_markdown_analyzed(
             }
             continue;
         }
-        if let (Event::Start(Tag::Paragraph), 0, Some(metadata)) = (&event, depth, rules.music) {
+        if let (Event::Start(Tag::Paragraph), 0, Some(metadata)) = (&event, depth, rules.media) {
             // The paragraph's whole lines, from the start of its first.
             let line_start = text[..range.start].rfind('\n').map_or(0, |i| i + 1);
-            if let Some(links) = music_paragraph(&text[line_start..range.end]) {
+            if let Some(links) = media_paragraph(&text[line_start..range.end]) {
                 events.push(Event::Html(card_html(&links, metadata).into()));
                 ranges.push(None);
                 in_card = true;
@@ -1815,47 +1834,50 @@ impl StdError for CollectedErrors {}
 #[cfg(test)]
 mod tests {
     #[test]
-    fn music_addresses_alone_in_a_top_level_paragraph_become_a_card() {
-        use crate::music::MusicMetadata;
+    fn media_addresses_alone_in_a_top_level_paragraph_become_a_card() {
+        use crate::media::MediaDetails;
         let apple = "https://music.apple.com/jp/album/x/1440806071?i=1440806402";
         let spotify = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC";
-        let metadata = [MusicMetadata {
+        let episode = "https://podcasts.apple.com/us/podcast/x/id1200361736?i=1000797757135";
+        let details = [MediaDetails {
             url: apple.into(),
             title: "Symphony No. 9 in D Minor, Op. 125: IV. Presto".into(),
-            artist: Some("Wiener Philharmoniker & Karl Böhm".into()),
+            byline: Some("Wiener Philharmoniker & Karl Böhm".into()),
             detail: None,
             artwork: Some("https://is1-ssl.mzstatic.com/image/thumb/Music/x/300x300bb.jpg".into()),
         }];
-        let rules = |music| super::MarkdownRules {
+        let rules = |media| super::MarkdownRules {
             math: false,
             highest_heading: pulldown_cmark::HeadingLevel::H2,
             footnotes: true,
             footnote_prefix: Some("ja"),
             inline_languages: true,
-            music,
+            media,
             theorems: None,
             references: None,
         };
         let source = format!(
-            "Today.[^1]\n\n{apple}\n{spotify}\n\nIn a sentence: {apple}\n\n> {apple}\n\n- {spotify}\n\n{spotify}\n\n[^1]: A note: {apple}\n"
+            "Today.[^1]\n\n{apple}\n{spotify}\n\nIn a sentence: {apple}\n\n> {apple}\n\n- {spotify}\n\n{spotify}\n\n{episode}\n\n[^1]: A note: {apple}\n"
         );
-        let html = super::render_markdown_with(&source, rules(Some(&metadata)))
+        let html = super::render_markdown_with(&source, rules(Some(&details)))
             .unwrap()
             .0;
         assert_eq!(
-            html.matches("<figure class=\"music-card\"").count(),
-            2,
+            html.matches("<figure class=\"media-card\"").count(),
+            3,
             "{html}"
         );
         assert!(html.contains("Symphony No. 9 in D Minor, Op. 125: IV. Presto"));
         assert!(html.contains("A song on Spotify"));
+        assert!(html.contains("An episode on Apple Podcasts"));
         // Everywhere else the address stays text.
         assert!(html.contains(&format!("<p>In a sentence: {apple}</p>")));
         assert!(html.contains(&format!("<blockquote>\n<p>{apple}</p>")));
         assert!(html.contains(&format!("<li>{spotify}</li>")));
         assert!(html.contains(&format!("A note: {apple}")));
         assert!(html.contains("footnote-reference"));
-        assert!(!html.contains("<iframe"));
+        // Only the podcast has a player.
+        assert_eq!(html.matches("<iframe").count(), 1);
         // Where cards are not offered (not an article), the paragraph is text.
         let plain = super::render_markdown_with(apple, rules(None)).unwrap().0;
         assert_eq!(plain, format!("<p>{apple}</p>\n"));
@@ -1869,7 +1891,7 @@ mod tests {
             footnotes: false,
             footnote_prefix: None,
             inline_languages: true,
-            music: None,
+            media: None,
             theorems: None,
             references: None,
         };

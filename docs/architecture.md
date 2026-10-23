@@ -22,10 +22,11 @@ Rust:
 - explicit static route construction;
 - reusable Maud layout and page components;
 - Markdown, footnote, and KaTeX rendering;
+- media cards (`src/media/`): which music and podcast addresses are recognised, how each is rebuilt, the players' addresses, the front matter's details (`music:`, `podcasts:`), and the card's static HTML (`docs/media.md`);
 - metadata, RSS, sitemap, robots, 404, and asset generation;
 - internal-link, anchor, favicon, accessibility-sensitive markup, and public-artifact checks.
 
-OCaml:
+OCaml (Updates only; it knows nothing of Miscellany, media, or the Writing Studio):
 
 - parsing update source JSON, including duplicate-key rejection;
 - validating update slugs, real dates, categories, event kinds, award outcomes, links, and visibility;
@@ -36,11 +37,16 @@ TypeScript:
 
 - initial system/light/dark resolution and the appearance button;
 - decoding the numeric email attribute only after user activation;
-- the Miscellany search page, which reads the static search index (below), and the forwarding of earlier Diary anchors to their month's page.
+- the Miscellany search page, which reads the static search index (below), and the forwarding of earlier Diary anchors to their month's page;
+- media cards' interaction only (`client/media.ts`, loaded by `client/site.ts` only on a page whose card offers two services): the choice of service, where "Open" goes, and which one player a podcast card holds. It parses no address; the markup Rust wrote is its only input.
+
+The TypeScript is compiled by `tsc` alone, with no bundler and no framework: `site.js` is a classic script (it must run in `<head>` to set the theme before the page is drawn), and `media.js` an ES module it imports when needed.
 
 Node.js (scripts/search-index.mjs):
 
 - building the Miscellany search index with Pagefind, pinned exactly, from an explicit list of built pages, and checking every file of it before it is written. See `docs/search.md`.
+
+The Writing Studio (a separate, private application) owns authoring and enrichment: it finds the details of media addresses and writes them into the published file's front matter, which the Rust build only checks and renders.
 
 CSS remains CSS. The prior stylesheet is copied rather than embedded in Rust. Font and KaTeX files are ordinary public assets.
 

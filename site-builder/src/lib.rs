@@ -1,8 +1,8 @@
 mod artifact;
 pub mod build;
 mod content;
+pub mod media;
 pub mod model;
-pub mod music;
 mod publish;
 pub mod references;
 mod render;

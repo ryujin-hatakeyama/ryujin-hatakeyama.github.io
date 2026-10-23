@@ -157,6 +157,8 @@ fn generated_site_files(
     let site = read_required(&root.join("assets/styles/site.css"))?;
     let katex = read_required(&root.join("assets/styles/katex.min.css"))?;
     let client = read_required(&root.join("target/client/site.js"))?;
+    // Loaded by site.js only on a page with a media card that offers a choice.
+    let media = read_required(&root.join("target/client/media.js"))?;
     let (sitemap, sitemap_index) = render::sitemap(pages);
 
     let mut artifacts = ArtifactSet::new();
@@ -165,6 +167,7 @@ fn generated_site_files(
         format!("{fonts}\n{site}\n{katex}\n").into_bytes(),
     )?;
     artifacts.insert("assets/site.js", client.into_bytes())?;
+    artifacts.insert("assets/media.js", media.into_bytes())?;
     artifacts.insert("rss.xml", render::rss(content.updates()).into_bytes())?;
     // The published articles a message may be about (render::articles_json), for the Studio's intake.
     artifacts.insert(
