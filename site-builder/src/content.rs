@@ -469,6 +469,10 @@ impl Passage {
     pub(crate) fn rendered_body(&self) -> &str {
         self.body.as_str()
     }
+
+    pub(crate) fn headings(&self) -> &[Heading] {
+        self.body.headings()
+    }
 }
 
 /// An article's passages: at least one, at most one per passage language,
@@ -651,17 +655,28 @@ impl ValidatedWriting {
     pub(crate) fn rendered_body(&self) -> &str {
         self.rendered_body.as_str()
     }
+
+    pub(crate) fn headings(&self) -> &[Heading] {
+        self.rendered_body.headings()
+    }
 }
 
 /// HTML emitted by the Markdown renderer after rejecting source HTML and
 /// validating content-controlled URLs. Its constructor remains private to
 /// this module; KaTeX is the only source of deliberately unescaped events.
 #[derive(Debug)]
-struct RenderedMarkdown(String);
+struct RenderedMarkdown {
+    html: String,
+    headings: Vec<Heading>,
+}
 
 impl RenderedMarkdown {
     fn as_str(&self) -> &str {
-        &self.0
+        &self.html
+    }
+
+    fn headings(&self) -> &[Heading] {
+        &self.headings
     }
 }
 
@@ -791,7 +806,7 @@ fn load_writings(directory: &Path) -> Result<Vec<ValidatedWriting>> {
         let metadata: WritingFrontMatter = serde_yaml_ng::from_str(front_matter)
             .with_context(|| format!("invalid front matter in {}", path.display()))?;
         metadata.validate(&path.display().to_string())?;
-        let rendered_body = render_markdown(body, metadata.math)
+        let rendered_body = render_writing(body, metadata.math)
             .with_context(|| format!("failed to render {}", path.display()))?;
         Ok(Some(ValidatedWriting {
             metadata,
@@ -1021,6 +1036,12 @@ fn render_passage<M: ArticleMetadata>(
             list: cited,
             id_prefix: Some(&id_prefix),
         }),
+        // Headings are identified like footnotes: by passage language.
+        heading_ids: if M::SHARES_PAGE {
+            None
+        } else {
+            Some(language.code())
+        },
     };
     let body = render_markdown_with(body, rules)
         .with_context(|| format!("failed to render {}", path.display()))?;
@@ -1225,6 +1246,17 @@ pub(crate) struct MarkdownRules<'a> {
     pub(crate) theorems: Option<TheoremOptions<'a>>,
     /// Whether `::: {#refs}` lists the works cited (src/references.rs), and which.
     pub(crate) references: Option<References<'a>>,
+    /// Whether headings get stable identifiers (and are listed in the
+    /// rendered body's outline), each carrying this prefix.
+    pub(crate) heading_ids: Option<&'a str>,
+}
+
+/// A heading of a rendered body: what the page's "On this page" list links to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Heading {
+    pub(crate) level: u8,
+    pub(crate) id: String,
+    pub(crate) text: String,
 }
 
 #[derive(Clone, Copy)]
@@ -1233,24 +1265,39 @@ pub(crate) struct References<'a> {
     pub(crate) id_prefix: Option<&'a str>,
 }
 
-fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown> {
+/// A writing's body: as any Markdown, with its headings identified for the
+/// page's section list.
+fn render_writing(source: &str, math_enabled: bool) -> Result<RenderedMarkdown> {
     render_markdown_with(
         source,
         MarkdownRules {
-            math: math_enabled,
-            highest_heading: HeadingLevel::H1,
-            footnotes: true,
-            footnote_prefix: None,
-            inline_languages: false,
-            media: None,
-            theorems: None,
-            references: None,
+            heading_ids: Some(""),
+            ..plain_rules(math_enabled)
         },
     )
 }
 
+fn plain_rules<'a>(math_enabled: bool) -> MarkdownRules<'a> {
+    MarkdownRules {
+        math: math_enabled,
+        highest_heading: HeadingLevel::H1,
+        footnotes: true,
+        footnote_prefix: None,
+        inline_languages: false,
+        media: None,
+        theorems: None,
+        references: None,
+        heading_ids: None,
+    }
+}
+
+#[cfg(test)]
+fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown> {
+    render_markdown_with(source, plain_rules(math_enabled))
+}
+
 fn render_markdown_with(source: &str, rules: MarkdownRules<'_>) -> Result<RenderedMarkdown> {
-    let (html, analysis) = render_markdown_analyzed(source, rules)?;
+    let (html, analysis, headings) = render_markdown_outlined(source, rules)?;
     let first_line = rules.theorems.map_or(1, |t| t.first_line);
     if let Some(analysis) = analysis
         && !analysis.diagnostics.is_empty()
@@ -1262,9 +1309,10 @@ fn render_markdown_with(source: &str, rules: MarkdownRules<'_>) -> Result<Render
             .collect();
         bail!("theorem environments: {}", problems.join("; "));
     }
-    Ok(RenderedMarkdown(html))
+    Ok(RenderedMarkdown { html, headings })
 }
 
+#[cfg(test)]
 /// The HTML, and what the theorem environments came to (when they are read),
 /// even when they have problems: the build refuses those
 /// (`render_markdown_with`), the shared fixtures compare them.
@@ -1272,6 +1320,15 @@ pub(crate) fn render_markdown_analyzed(
     source: &str,
     rules: MarkdownRules<'_>,
 ) -> Result<(String, Option<Analysis>)> {
+    render_markdown_outlined(source, rules).map(|(html, analysis, _)| (html, analysis))
+}
+
+/// As `render_markdown_analyzed`, with the headings given identifiers
+/// (when the rules ask) listed in document order.
+fn render_markdown_outlined(
+    source: &str,
+    rules: MarkdownRules<'_>,
+) -> Result<(String, Option<Analysis>, Vec<Heading>)> {
     let mut options = Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TABLES
@@ -1467,9 +1524,99 @@ pub(crate) fn render_markdown_analyzed(
     }
     // Last: every pass before has seen the code blocks as verbatim text.
     events = highlight_code_blocks(events)?;
+    let mut headings = Vec::new();
+    if let Some(prefix) = rules.heading_ids {
+        events = identify_headings(events, prefix, &mut headings);
+    }
     let mut output = String::new();
     html::push_html(&mut output, events.into_iter());
-    Ok((output, analysis))
+    Ok((output, analysis, headings))
+}
+
+/// Gives every heading without an identifier one made from its text:
+/// lower-cased letters and digits joined by hyphens, after `prefix`, with
+/// `-2`, `-3`, … for a repeat. The identifiers depend only on the headings
+/// before them, so a rebuild writes the same ones.
+fn identify_headings<'a>(
+    events: Vec<Event<'a>>,
+    prefix: &str,
+    outline: &mut Vec<Heading>,
+) -> Vec<Event<'a>> {
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut identified = Vec::with_capacity(events.len());
+    let mut index = 0;
+    while index < events.len() {
+        let Event::Start(Tag::Heading {
+            level,
+            id: None,
+            classes,
+            attrs,
+        }) = &events[index]
+        else {
+            identified.push(events[index].clone());
+            index += 1;
+            continue;
+        };
+        let mut text = String::new();
+        let mut end = index + 1;
+        while end < events.len() && !matches!(events[end], Event::End(TagEnd::Heading(_))) {
+            match &events[end] {
+                Event::Text(part) | Event::Code(part) => text.push_str(part),
+                Event::SoftBreak | Event::HardBreak => text.push(' '),
+                _ => {}
+            }
+            end += 1;
+        }
+        let base = heading_slug(&text);
+        let mut id = if prefix.is_empty() {
+            base.clone()
+        } else {
+            format!("{prefix}-{base}")
+        };
+        let mut repeat = 2;
+        while !taken.insert(id.clone()) {
+            id = if prefix.is_empty() {
+                format!("{base}-{repeat}")
+            } else {
+                format!("{prefix}-{base}-{repeat}")
+            };
+            repeat += 1;
+        }
+        outline.push(Heading {
+            level: *level as u8,
+            id: id.clone(),
+            text: text.trim().to_owned(),
+        });
+        identified.push(Event::Start(Tag::Heading {
+            level: *level,
+            id: Some(id.into()),
+            classes: classes.clone(),
+            attrs: attrs.clone(),
+        }));
+        index += 1;
+    }
+    identified
+}
+
+fn heading_slug(text: &str) -> String {
+    let mut slug = String::new();
+    let mut separated = false;
+    for c in text.chars() {
+        if c.is_alphanumeric() {
+            if separated && !slug.is_empty() {
+                slug.push('-');
+            }
+            separated = false;
+            slug.extend(c.to_lowercase());
+        } else {
+            separated = true;
+        }
+    }
+    if slug.is_empty() {
+        "section".to_owned()
+    } else {
+        slug
+    }
 }
 
 /// Fenced code that names a language, as the highlighter's HTML
@@ -1877,6 +2024,36 @@ impl StdError for CollectedErrors {}
 #[cfg(test)]
 mod tests {
     #[test]
+    fn headings_get_stable_distinct_identifiers_and_an_outline() {
+        let source = "# Title\n\n## Same\n\n### Same\n\n## Same!\n\n#### Deep\n\n## 日本語 の 見出し\n\n## `code` & more\n";
+        let rules = || super::MarkdownRules {
+            heading_ids: Some(""),
+            ..super::plain_rules(false)
+        };
+        let (html, _, outline) = super::render_markdown_outlined(source, rules()).unwrap();
+        let ids: Vec<_> = outline.iter().map(|h| (h.level, h.id.as_str())).collect();
+        assert_eq!(
+            ids,
+            [
+                (1, "title"),
+                (2, "same"),
+                (3, "same-2"),
+                (2, "same-3"),
+                (4, "deep"),
+                (2, "日本語-の-見出し"),
+                (2, "code-more"),
+            ]
+        );
+        assert!(html.contains("<h3 id=\"same-2\">Same</h3>"), "{html}");
+        let again = super::render_markdown_outlined(source, rules()).unwrap();
+        assert_eq!(again.0, html);
+        // Without the rule, no identifiers and no outline.
+        let (plain, _, none) =
+            super::render_markdown_outlined(source, super::plain_rules(false)).unwrap();
+        assert!(none.is_empty() && !plain.contains(" id="));
+    }
+
+    #[test]
     fn media_addresses_alone_in_a_top_level_paragraph_become_a_card() {
         use crate::media::MediaDetails;
         let apple = "https://music.apple.com/jp/album/x/1440806071?i=1440806402";
@@ -1898,13 +2075,14 @@ mod tests {
             media,
             theorems: None,
             references: None,
+            heading_ids: None,
         };
         let source = format!(
             "Today.[^1]\n\n{apple}\n{spotify}\n\nIn a sentence: {apple}\n\n> {apple}\n\n- {spotify}\n\n{spotify}\n\n{episode}\n\n[^1]: A note: {apple}\n"
         );
         let html = super::render_markdown_with(&source, rules(Some(&details)))
             .unwrap()
-            .0;
+            .html;
         assert_eq!(
             html.matches("<figure class=\"media-card\"").count(),
             3,
@@ -1922,7 +2100,9 @@ mod tests {
         // Only the podcast has a player.
         assert_eq!(html.matches("<iframe").count(), 1);
         // Where cards are not offered (not an article), the paragraph is text.
-        let plain = super::render_markdown_with(apple, rules(None)).unwrap().0;
+        let plain = super::render_markdown_with(apple, rules(None))
+            .unwrap()
+            .html;
         assert_eq!(plain, format!("<p>{apple}</p>\n"));
     }
 
@@ -1941,8 +2121,9 @@ mod tests {
                 first_line: 1,
             }),
             references: None,
+            heading_ids: None,
         };
-        let html = |source: &str| super::render_markdown_with(source, rules).map(|r| r.0);
+        let html = |source: &str| super::render_markdown_with(source, rules).map(|r| r.html);
         // In a theorem and a proof: the environments, math, a footnote, a
         // highlight, a ruby, and a language mark around the code are read;
         // inside the code nothing is.
@@ -1998,8 +2179,9 @@ mod tests {
             media: None,
             theorems: None,
             references: None,
+            heading_ids: None,
         };
-        let html = |source: &str| super::render_markdown_with(source, rules()).unwrap().0;
+        let html = |source: &str| super::render_markdown_with(source, rules()).unwrap().html;
         assert_eq!(
             html("A ==marked phrase== here."),
             "<p>A <mark>marked phrase</mark> here.</p>\n"
@@ -2537,7 +2719,7 @@ mod tests {
             ),
             "{html}"
         );
-        assert!(html.contains("<h2>References</h2>\n<div id=\"en-refs\" class=\"references csl-bib-body\" role=\"list\">\n<div id=\"en-ref-Landini2021\" class=\"csl-entry\" role=\"listitem\">Landini, G. (2021). <em>Example title</em>. <a href=\"https://doi.org/10.1000/example\">https://doi.org/10.1000/example</a></div>\n<div id=\"en-ref-Weiss2017\" class=\"csl-entry\" role=\"listitem\">Weiss, M. (2017). <em>例の題名</em>.</div>\n</div>\n"), "{html}");
+        assert!(html.contains("<h2 id=\"en-references\">References</h2>\n<div id=\"en-refs\" class=\"references csl-bib-body\" role=\"list\">\n<div id=\"en-ref-Landini2021\" class=\"csl-entry\" role=\"listitem\">Landini, G. (2021). <em>Example title</em>. <a href=\"https://doi.org/10.1000/example\">https://doi.org/10.1000/example</a></div>\n<div id=\"en-ref-Weiss2017\" class=\"csl-entry\" role=\"listitem\">Weiss, M. (2017). <em>例の題名</em>.</div>\n</div>\n"), "{html}");
         assert!(!html.contains("{#refs}"), "{html}");
         // A text without citations is as before; the list and its place go together.
         assert!(rendered(note("draft: false\n", "Text.\n")).is_ok());

@@ -130,6 +130,7 @@ fn render(source: &str, numbering: TheoremNumbering) -> (String, Analysis) {
             first_line: 1,
         }),
         references: None,
+        heading_ids: None,
     };
     let (html, analysis) = render_markdown_analyzed(source, rules).expect("renders");
     (html, analysis.expect("theorems are read"))

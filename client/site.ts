@@ -78,6 +78,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.querySelector('[data-diary-weeks]')) {
     import('./diary.js').then((diary) => diary.setUpDiaryWeeks()).catch(() => undefined);
   }
+  if (document.querySelector('[data-section-nav]')) {
+    import('./toc.js').then((toc) => toc.setUpSectionNav()).catch(() => undefined);
+  }
   setUpSiteMessage();
 
   for (const control of document.querySelectorAll<HTMLElement>('[data-email-code]')) {

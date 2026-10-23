@@ -161,6 +161,8 @@ fn generated_site_files(
     let media = read_required(&root.join("target/client/media.js"))?;
     // Loaded by site.js only on a Diary month page with its week navigator.
     let diary = read_required(&root.join("target/client/diary.js"))?;
+    // Loaded by site.js only on a page with a section list ("On this page").
+    let toc = read_required(&root.join("target/client/toc.js"))?;
     let (sitemap, sitemap_index) = render::sitemap(pages);
 
     let mut artifacts = ArtifactSet::new();
@@ -171,6 +173,7 @@ fn generated_site_files(
     artifacts.insert("assets/site.js", client.into_bytes())?;
     artifacts.insert("assets/media.js", media.into_bytes())?;
     artifacts.insert("assets/diary.js", diary.into_bytes())?;
+    artifacts.insert("assets/toc.js", toc.into_bytes())?;
     artifacts.insert("rss.xml", render::rss(content.updates()).into_bytes())?;
     // The published articles a message may be about (render::articles_json), for the Studio's intake.
     artifacts.insert(

@@ -10,6 +10,8 @@
   --rule-strong: #9fa5a2;
   --selection: #c9e1df;
   --code-bg: #e9e4da;
+  --code-surface: #f6f7f8;
+  --code-line: rgba(23, 36, 45, .12);
   --focus: #087f8c;
   --toggle-knob: rgba(23, 111, 120, .16);
   --sans: 'IBM Plex Sans Variable', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Noto Sans JP', system-ui, sans-serif;
@@ -31,6 +33,8 @@
   --rule-strong: #56646d;
   --selection: #28545a;
   --code-bg: #19242d;
+  --code-surface: #1e1e1e;
+  --code-line: rgba(232, 229, 220, .1);
   --focus: #8ad3d8;
   --toggle-knob: rgba(115, 193, 199, .22);
 }
@@ -442,16 +446,62 @@ main { min-height: 64vh; }
 .prose h3 { font-family: var(--sans); font-size: 1em; font-weight: 600; }
 .prose p { margin: 0 0 1.5em; }
 .prose blockquote { margin: 2.5rem -3rem; padding: .2rem 0 .2rem 1.6rem; border-left: 2px solid var(--accent); color: var(--ink-soft); font-size: 1.15em; }
-.prose pre { overflow-x: auto; margin: 2.2rem 0; padding: 1.25rem; border: 1px solid var(--rule); background: var(--code-bg); font-family: var(--mono); font-size: .78rem; line-height: 1.6; }
+/* A fenced block is one quiet surface: neutral, a little cooler than the page,
+   its own text scrolling sideways and nothing else. Its margins are the whole
+   space around it (the paragraph before it gives up its own), and `pre code`
+   adds neither padding nor margin nor background. */
+.prose pre { overflow-x: auto; margin: 1.4rem 0; padding: 1rem 1.1rem; border: 1px solid var(--code-line); border-radius: 7px; background: var(--code-surface); font-family: var(--mono); font-size: .85rem; line-height: 1.55; tab-size: 2; }
+.prose p:has(+ pre) { margin-bottom: 1.4rem; }
 /* Code in a block takes the block's face and size, not the browser's own monospace. */
-.prose pre code { font: inherit; }
-@media (max-width: 36rem) { .prose pre { padding: 1rem; } }
+.prose pre code { margin: 0; padding: 0; background: none; font: inherit; }
+@media (max-width: 36rem) { .prose pre { padding: .9rem 1rem; } }
 /* Highlighted code (site-builder/src/highlight.rs): each token's colour in the light
    theme is written inline, its colour in the dark one in --shiki-dark, which the dark
-   theme uses. Nothing is highlighted in the browser. */
-:root[data-theme='dark'] .shiki { background-color: var(--shiki-dark-bg) !important; color: var(--shiki-dark) !important; }
+   theme uses. Nothing is highlighted in the browser. The block's own surface replaces
+   the theme's background in both. */
+.prose pre.shiki { background-color: var(--code-surface) !important; }
+:root[data-theme='dark'] .shiki { color: var(--shiki-dark) !important; }
 :root[data-theme='dark'] .shiki span { color: var(--shiki-dark) !important; }
 .prose code:not(pre code) { padding: .08em .3em; background: var(--code-bg); font-family: var(--mono); font-size: .82em; }
+/* Lists nest to any depth: each list's own padding is one step inside its item,
+   so every level steps in by the same amount and no level is special. */
+.prose { --list-indent: 1.25rem; }
+.prose :is(ul, ol) { margin: 0 0 1.5em; padding-inline-start: var(--list-indent); }
+.prose > ol { padding-inline-start: calc(var(--list-indent) + .4rem); }
+.prose li { margin: .3em 0; overflow-wrap: break-word; }
+.prose li > :is(ul, ol) { margin: .3em 0 .45em; }
+.prose li > p { margin-bottom: .6em; }
+.prose li::marker { color: var(--ink-soft); }
+@media (max-width: 36rem) { .prose { --list-indent: 1rem; } }
+.prose :is(h2, h3)[id] { scroll-margin-top: 2rem; }
+
+/* "On this page" (site-builder/src/render.rs, client/toc.ts): a quiet list in the
+   margin of a long page, there only where the window has room for the text at its
+   own width, a gutter, and the list; elsewhere the page is as it always was. The
+   centered layout (a writing) balances the list with a gutter as wide, so the text
+   stays where it was; a note or sketch, set from the left, keeps its left edge. */
+.section-nav { display: none; }
+.toc-layout { --toc-width: 11.5rem; --toc-gap: 2.5rem; }
+/* gutter + text + two gaps + list = 71rem within a page 3rem narrower than the window */
+@media (min-width: 74rem) {
+  /* Wider than some pages' column, so it is centered on the column, not fitted to it. */
+  .toc-layout-centered.has-toc { --toc-span: calc(var(--reading) + 2 * (var(--toc-width) + var(--toc-gap))); display: grid; grid-template-columns: var(--toc-width) minmax(0, var(--reading)) var(--toc-width); column-gap: var(--toc-gap); width: var(--toc-span); margin-inline: calc(50% - var(--toc-span) / 2); }
+  .toc-layout-centered.has-toc > .prose { grid-column: 2; grid-row: 1; width: auto; margin: 0; }
+  .toc-layout-centered.has-toc > .section-nav { display: block; grid-column: 3; grid-row: 1; }
+  .toc-layout-centered.has-toc .prose blockquote { margin-inline: -1.5rem; }
+}
+@media (min-width: 61rem) {
+  .toc-layout:not(.toc-layout-centered).has-toc { display: grid; grid-template-columns: minmax(0, var(--reading)) var(--toc-width); column-gap: var(--toc-gap); }
+  .toc-layout:not(.toc-layout-centered).has-toc > .section-nav { display: block; }
+}
+.section-nav { position: sticky; top: 2rem; align-self: start; max-height: calc(100vh - 4rem); overflow-y: auto; overscroll-behavior: contain; font-family: var(--sans); font-size: .78rem; line-height: 1.4; }
+.section-nav-title { margin: 0 0 .7rem; color: var(--ink-faint); font-family: var(--mono); font-size: .68rem; letter-spacing: .07em; text-transform: uppercase; }
+.section-nav ol { margin: 0; padding: 0; list-style: none; }
+.section-nav a { display: block; padding: .26rem 0 .26rem .8rem; border-left: 1.5px solid transparent; color: var(--ink-soft); text-decoration: none; overflow-wrap: anywhere; }
+.section-nav .section-nav-sub a { padding-left: 1.6rem; }
+.section-nav a:hover { color: var(--ink); }
+.section-nav a[aria-current='location'] { border-left-color: var(--accent); color: var(--ink); }
+html:has([data-section-nav]) { scroll-behavior: smooth; }
 .prose hr { margin: 4rem auto; width: 5rem; border: 0; border-top: 1px solid var(--rule-strong); }
 .prose .footnotes { margin-top: 5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: .82em; }
 /* Ruby (<ruby>漢字<rt>かんじ</rt></ruby>, written by the site's builder in a

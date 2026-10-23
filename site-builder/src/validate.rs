@@ -38,6 +38,7 @@ const REQUIRED_FILES: &[&str] = &[
     "assets/site.js",
     "assets/media.js",
     "assets/diary.js",
+    "assets/toc.js",
     ".nojekyll",
 ];
 

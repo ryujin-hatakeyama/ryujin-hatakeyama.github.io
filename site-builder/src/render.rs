@@ -5,7 +5,7 @@ use chrono::{Datelike, Duration, NaiveDate};
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 use crate::content::{
-    Miscellany, Passage, Passages, ValidatedDiaryEntry, ValidatedHome, ValidatedNote,
+    Heading, Miscellany, Passage, Passages, ValidatedDiaryEntry, ValidatedHome, ValidatedNote,
     ValidatedReadingItem, ValidatedSiteContent, ValidatedSketch, ValidatedWriting,
     public_english_writings, reading_anchor,
 };
@@ -646,18 +646,19 @@ fn cv(publications: &[&Publication], presentations: &[&Publication]) -> Markup {
                 div.cv-entry {
                     time datetime="2025" { "2025–present" }
                     div {
-                        p { strong { "Master's program, Graduate School of Information Sciences, Tohoku University" } }
+                        p { strong { "Master's Program, Graduate School of Information Sciences, Tohoku University" } }
+                        p { "Department of Computer and Mathematical Sciences" }
                         p { a href="https://www.is.tohoku.ac.jp/en/laboratory/list_dept/a11.html" { "Foundations of Software Science" } }
-                        p { "Current status: second-year master's student (M2), academic year 2026." }
-                        p { "Supervisor: " a href="https://www.kb.ecei.tohoku.ac.jp/~sumii/" { "Prof. Eijiro Sumii" } "." }
+                        p { "Research supervisor: " a href="https://www.kb.ecei.tohoku.ac.jp/~sumii/" { "Prof. Eijiro Sumii" } }
                     }
                 }
                 div.cv-entry {
-                    time datetime="2025" { "2025" }
+                    time datetime="2021" { "2021–2025" }
                     div {
                         p { strong { "Bachelor of Engineering, Tohoku University" } }
                         p { "School of Engineering, Department of Electrical, Information and Physics Engineering" }
                         p { "Computer Science Course" }
+                        p { "Research supervisor: " a href="https://www.kb.ecei.tohoku.ac.jp/~sumii/" { "Prof. Eijiro Sumii" } }
                     }
                 }
             }
@@ -1186,6 +1187,34 @@ fn writing_list_item(writing: &ValidatedWriting) -> Markup {
     }
 }
 
+/// The page's own sections, as an ordinary list of links: the level-2 and
+/// level-3 headings of its text, when there are enough of them to be worth
+/// a list. The page's script only marks which one is being read.
+fn section_nav<'a>(headings: impl IntoIterator<Item = &'a Heading>) -> Option<Markup> {
+    let items: Vec<&Heading> = headings
+        .into_iter()
+        .filter(|heading| matches!(heading.level, 2 | 3))
+        .collect();
+    if items.len() < MIN_SECTION_LINKS {
+        return None;
+    }
+    Some(html! {
+        nav.section-nav aria-label="On this page" data-section-nav data-pagefind-ignore="all" {
+            p.section-nav-title aria-hidden="true" { "On this page" }
+            ol {
+                @for heading in items {
+                    li class=(if heading.level == 3 { "section-nav-sub" } else { "section-nav-top" }) {
+                        a href=(format!("#{}", heading.id)) { (&heading.text) }
+                    }
+                }
+            }
+        }
+    })
+}
+
+/// Fewer headings than this are read at a glance, and have no list.
+const MIN_SECTION_LINKS: usize = 3;
+
 fn writing_detail(writing: &ValidatedWriting) -> Markup {
     let metadata = writing.metadata();
     let class = if metadata.lang == Language::Ja {
@@ -1204,7 +1233,11 @@ fn writing_detail(writing: &ValidatedWriting) -> Markup {
                 p.dek { (&metadata.description) }
                 @if let Some(publication) = &metadata.publication { p.publication-context { (publication) } }
             }
-            div.prose { (PreEscaped(writing.rendered_body())) }
+            @let nav = section_nav(writing.headings());
+            div.toc-layout.toc-layout-centered.has-toc[nav.is_some()] {
+                @if let Some(nav) = nav { (nav) }
+                div.prose { (PreEscaped(writing.rendered_body())) }
+            }
         }
     }
 }
@@ -1525,6 +1558,10 @@ fn markdown_passage(passage: &Passage, title_level: u8) -> Markup {
     }
 }
 
+fn passage_headings(passages: &Passages) -> impl Iterator<Item = &Heading> {
+    passages.iter().flat_map(|passage| passage.headings())
+}
+
 fn article_passages(passages: &Passages, title_level: u8, offered: &[DisplayLanguage]) -> Markup {
     passage_group(
         &passages.designated_languages(),
@@ -1674,6 +1711,7 @@ fn note_detail(note: &ValidatedNote, languages: &[DisplayLanguage]) -> Markup {
             }
             (article_passages(note.passages(), 2, languages))
         },
+        section_nav(passage_headings(note.passages())),
     )
 }
 
@@ -1684,14 +1722,18 @@ fn standalone_article(
     languages: &[DisplayLanguage],
     section: &MiscellanySection,
     article: Markup,
+    nav: Option<Markup>,
 ) -> Markup {
     html! {
         div.miscellany-header.miscellany-article-header {
             (miscellany_trail(Some(section)))
             (language_filter(languages))
         }
-        article.miscellany-note data-pagefind-body data-pagefind-filter=(search_filter(section)) {
-            (article)
+        div.toc-layout.has-toc[nav.is_some()] {
+            article.miscellany-note data-pagefind-body data-pagefind-filter=(search_filter(section)) {
+                (article)
+            }
+            @if let Some(nav) = nav { (nav) }
         }
     }
 }
@@ -1741,6 +1783,7 @@ fn sketch_detail(sketch: &ValidatedSketch, languages: &[DisplayLanguage]) -> Mar
             }
             (article_passages(sketch.passages(), 2, languages))
         },
+        section_nav(passage_headings(sketch.passages())),
     )
 }
 
@@ -3606,8 +3649,14 @@ mod tests {
 
 #[cfg(test)]
 mod miscellany_tests {
+    fn between<'a>(html: &'a str, start: &str, end: &str) -> &'a str {
+        let from = html.find(start).unwrap_or_else(|| panic!("no {start}"));
+        let rest = &html[from..];
+        &rest[..rest.find(end).unwrap_or_else(|| panic!("no {end}"))]
+    }
+
     use super::{
-        MISCELLANY_ICONS, diary_months, diary_page, diary_week_starts, fixture_today, header,
+        MISCELLANY_ICONS, cv, diary_months, diary_page, diary_week_starts, fixture_today, header,
         miscellany_overview, note_detail, notes_page, pages, reading_page,
     };
     use crate::content::{Miscellany, ValidatedSiteContent};
@@ -3647,6 +3696,116 @@ mod miscellany_tests {
         "---\ndate: 2026-10-22\nlang: en\ndraft: false\n---\n\nFull entry for the twenty-second.\n";
     const DIARY_OCTOBER_23: &str =
         "---\ndate: 2026-10-23\nlang: en\ndraft: false\n---\n\nFull entry for the twenty-third.\n";
+
+    const LONG_NOTE: &str = "---\nslug: long-note\ntitle: A long note\nlang: en\ndraft: false\n---\n\n## Staging\n\nText.\n\n### Brackets\n\nText.\n\n#### Too deep\n\nText.\n\n## Staging\n\n```haskell\ntype family F a\ntype instance F Int = Bool\n\ndata R = MkR (F Int)\ntype Foo = 'MkR 'True\n```\n\n- 1\n  - 2\n    - 3\n      - 4\n        - 5\n          - 6\n            - 7\n              - 8\n";
+    const SHORT_NOTE: &str = "---\nslug: short-note\ntitle: A short note\nlang: en\ndraft: false\n---\n\n## One\n\nText.\n\n## Two\n\nText.\n";
+
+    #[test]
+    fn long_notes_list_their_sections_and_short_ones_do_not() {
+        let content = ValidatedSiteContent::with_miscellany(miscellany(
+            "items: []",
+            &[LONG_NOTE, SHORT_NOTE],
+            &[DIARY_OCTOBER_22, DIARY_OCTOBER_23],
+        ));
+        let html = page_html(&content, "miscellany/notes/long-note/index.html");
+        let nav = between(&html, "<nav class=\"section-nav\"", "</nav>");
+        // Level 2 and 3 only, in order; repeated names get distinct anchors.
+        assert_eq!(nav.matches("<li ").count(), 3, "{nav}");
+        for (href, label) in [
+            ("#en-staging", "Staging"),
+            ("#en-brackets", "Brackets"),
+            ("#en-staging-2", "Staging"),
+        ] {
+            assert!(
+                nav.contains(&format!("<a href=\"{href}\">{label}</a>")),
+                "{nav}"
+            );
+        }
+        assert!(!nav.contains("Too deep"));
+        // Each link has its heading.
+        for id in ["en-staging", "en-brackets", "en-staging-2", "en-too-deep"] {
+            assert_eq!(
+                html.matches(&format!("<h2 id=\"{id}\"")).count()
+                    + html.matches(&format!("<h3 id=\"{id}\"")).count()
+                    + html.matches(&format!("<h4 id=\"{id}\"")).count(),
+                1,
+                "{id}"
+            );
+        }
+        assert!(html.contains("aria-label=\"On this page\""));
+        // The same bytes every time.
+        assert_eq!(
+            html,
+            page_html(&content, "miscellany/notes/long-note/index.html")
+        );
+
+        // Three eligible headings are needed: two are not enough.
+        let short = page_html(&content, "miscellany/notes/short-note/index.html");
+        assert!(!short.contains("data-section-nav") && !short.contains("has-toc"));
+
+        // Neither the Diary, nor the Notes index, has the list.
+        for path in [
+            "miscellany/diary/index.html",
+            "miscellany/diary/2026/10/index.html",
+            "miscellany/notes/index.html",
+            "miscellany/index.html",
+        ] {
+            assert!(
+                !page_html(&content, path).contains("data-section-nav"),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn code_blocks_keep_their_text_exactly_and_lists_nest_to_any_depth() {
+        let content =
+            ValidatedSiteContent::with_miscellany(miscellany("items: []", &[LONG_NOTE], &[]));
+        let html = page_html(&content, "miscellany/notes/long-note/index.html");
+        let block = between(&html, "<pre class=\"shiki", "</pre>");
+        let text = block
+            .replace("</span>", "")
+            .split('<')
+            .map(|piece| piece.split_once('>').map_or(piece, |(_, text)| text))
+            .collect::<String>();
+        let text = text.replace("&#x3C;", "<").replace("&#x26;", "&");
+        // Nothing before the first token or after the last, nothing added.
+        assert!(block.ends_with("</code>"));
+        assert!(text.ends_with("type Foo = 'MkR 'True"), "{text:?}");
+        assert!(
+            text.contains("type family F a\ntype instance F Int = Bool\n\ndata R = MkR (F Int)\n")
+        );
+        assert!(html.contains("<code><span class=\"line\">"));
+        // Eight nested lists, plain markup: the depth is the structure's, not a class.
+        assert_eq!(html.matches("<ul>").count(), 8);
+        assert!(!html.contains("depth-"));
+        let css = include_str!("../../assets/styles/site.css");
+        assert!(!css.contains("nth-child") || !css.contains("depth"));
+        assert!(css.contains("--list-indent"));
+        assert!(css.contains("--code-surface"));
+    }
+
+    #[test]
+    fn cv_education_gives_each_programme_its_attendance_years() {
+        let html = cv(&[], &[]).into_string();
+        let education = between(&html, "id=\"education-heading\"", "id=\"programs-heading\"");
+        assert!(education.contains(">2025–present</time>"));
+        assert!(education.contains(">2021–2025</time>"));
+        assert!(!education.contains(">2025</time>"));
+        for text in [
+            "Master's Program, Graduate School of Information Sciences, Tohoku University",
+            "Department of Computer and Mathematical Sciences",
+            "Foundations of Software Science",
+            "Bachelor of Engineering, Tohoku University",
+            "School of Engineering, Department of Electrical, Information and Physics Engineering",
+            "Computer Science Course",
+        ] {
+            assert!(education.contains(text), "{text}");
+        }
+        assert_eq!(education.matches("Research supervisor: ").count(), 2);
+        assert!(!html.contains("Current status") && !html.contains("M2"));
+        assert!(!html.contains("data-section-nav"));
+    }
 
     #[test]
     fn miscellany_is_the_third_primary_section_and_current_below_its_route() {
@@ -3881,7 +4040,7 @@ mod miscellany_tests {
         assert_eq!(main.matches("<h1").count(), 1);
         assert!(main.contains(r#"<article class="miscellany-note" data-pagefind-body data-pagefind-filter="section:Notes"><header><h1 lang="en" data-pagefind-meta="title">Staged &lt;interpreters&gt; &amp; you</h1><p class="summary" lang="en">How a staged interpreter becomes a compiler.</p></header><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose">"#));
         for fragment in [
-            "<h2>Background</h2>",
+            r#"<h2 id="en-background">Background</h2>"#,
             "<code>inline code</code>",
             r#"<a href="https://example.org/paper">reference</a>"#,
             "<ul>\n<li>first</li>",
@@ -4027,7 +4186,7 @@ mod miscellany_tests {
         let note = notes.public_notes().next().unwrap();
         let html = note_detail(note, &[]).into_string();
         assert!(html.contains(r#"<article class="miscellany-note" data-pagefind-body data-pagefind-filter="section:Notes"><header><h1 lang="ja" data-pagefind-meta="title">クリプキ意味論の覚え書き</h1></header><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja">"#));
-        assert!(html.contains("<h2>可能世界</h2>"));
+        assert!(html.contains(r#"<h2 id="ja-可能世界">可能世界</h2>"#));
         assert!(!html.contains("summary"));
         assert!(
             notes_page(&notes)
@@ -4372,8 +4531,8 @@ mod multilingual_tests {
         // passages have different lengths, titles, and sections.
         assert_eq!(passage_markers(&html), ["en", "ja"]);
         assert!(html.contains(r#"<div class="passage" data-passage="en" lang="en"><h2 class="passage-title">On &lt;the&gt; moon</h2><div class="prose miscellany-prose"><p>A longer English text"#));
-        assert!(html.contains("<h3>A section only here</h3>"));
-        assert!(html.contains(r#"<div class="passage longform-ja" data-passage="ja" lang="ja"><div class="prose miscellany-prose"><h2>見えるもの</h2>"#));
+        assert!(html.contains(r#"<h3 id="en-a-section-only-here">A section only here</h3>"#));
+        assert!(html.contains(r#"<div class="passage longform-ja" data-passage="ja" lang="ja"><div class="prose miscellany-prose"><h2 id="ja-見えるもの">見えるもの</h2>"#));
         // The article keeps its one title and heading.
         assert_eq!(html.matches("<h1").count(), 1);
         assert!(html.contains(r#"<h1 lang="ja" data-pagefind-meta="title">月について</h1>"#));
@@ -4641,7 +4800,7 @@ mod sketches_and_search_tests {
         // The same Markdown as Notes: headings, inline languages, math,
         // quotations, and footnotes.
         for fragment in [
-            "<h2>一</h2>",
+            r#"<h2 id="ja-一">一</h2>"#,
             r#"<span lang="de">Begriff</span>"#,
             r#"<span lang="fr">jugement</span>"#,
             r#"<span class="katex">"#,
