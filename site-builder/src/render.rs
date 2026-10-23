@@ -3830,7 +3830,9 @@ mod miscellany_tests {
             r#"<a href="https://example.org/paper">reference</a>"#,
             "<ul>\n<li>first</li>",
             "<blockquote>\n<p>A quotation.</p>",
-            r#"<pre><code class="language-ocaml">let rec power n x = if n = 0 then .&lt;1&gt;."#,
+            // Highlighted at build time (src/highlight.rs), the staging brackets kept.
+            r#"<pre class="shiki shiki-themes code-light code-dark""#,
+            ".&#x3C;</span>",
             r#"<span class="katex">"#,
             r#"<span class="katex-display">"#,
             "<annotation encoding=\"application/x-tex\">x^2</annotation>",

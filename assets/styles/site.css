@@ -443,8 +443,13 @@ main { min-height: 64vh; }
 .prose p { margin: 0 0 1.5em; }
 .prose blockquote { margin: 2.5rem -3rem; padding: .2rem 0 .2rem 1.6rem; border-left: 2px solid var(--accent); color: var(--ink-soft); font-size: 1.15em; }
 .prose pre { overflow-x: auto; margin: 2.2rem 0; padding: 1.25rem; border: 1px solid var(--rule); background: var(--code-bg) !important; font-family: var(--mono); font-size: .78rem; line-height: 1.6; }
-.astro-code, .astro-code span { color: var(--shiki-light) !important; background-color: var(--shiki-light-bg) !important; }
-:root[data-theme='dark'] .astro-code, :root[data-theme='dark'] .astro-code span { color: var(--shiki-dark) !important; background-color: var(--shiki-dark-bg) !important; font-style: var(--shiki-dark-font-style) !important; font-weight: var(--shiki-dark-font-weight) !important; text-decoration: var(--shiki-dark-text-decoration) !important; }
+/* Code in a block takes the block's face and size, not the browser's own monospace. */
+.prose pre code { font: inherit; }
+@media (max-width: 36rem) { .prose pre { padding: 1rem; } }
+/* Highlighted code (site-builder/src/highlight.rs): each token's colour in the light
+   theme is written inline, its colour in the dark one in --shiki-dark, which the dark
+   theme uses. Nothing is highlighted in the browser. */
+:root[data-theme='dark'] .shiki, :root[data-theme='dark'] .shiki span { color: var(--shiki-dark) !important; }
 .prose code:not(pre code) { padding: .08em .3em; background: var(--code-bg); font-family: var(--mono); font-size: .82em; }
 .prose hr { margin: 4rem auto; width: 5rem; border: 0; border-top: 1px solid var(--rule-strong); }
 .prose .footnotes { margin-top: 5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: .82em; }

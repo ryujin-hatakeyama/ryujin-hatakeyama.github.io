@@ -8,8 +8,11 @@ use anyhow::{Context, Result, bail, ensure};
 use katex::{Opts, render_with_opts};
 use std::ops::Range;
 
-use pulldown_cmark::{CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd, html};
+use pulldown_cmark::{
+    CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd, html,
+};
 
+use crate::highlight::highlight_fenced_code;
 use crate::media::{
     self, MediaDetails, MusicMetadata, PodcastMetadata, card_html, media_paragraph,
 };
@@ -1462,9 +1465,47 @@ pub(crate) fn render_markdown_analyzed(
         // Japanese and Chinese have no italic: in an italic environment their runs stay upright.
         events = theorems::upright_cjk(events);
     }
+    // Last: every pass before has seen the code blocks as verbatim text.
+    events = highlight_code_blocks(events)?;
     let mut output = String::new();
     html::push_html(&mut output, events.into_iter());
     Ok((output, analysis))
+}
+
+/// Fenced code that names a language, as the highlighter's HTML
+/// (src/highlight.rs); a fence without one, or a `text` fence, is written
+/// by the Markdown renderer as before. Inline code is never highlighted.
+fn highlight_code_blocks(events: Vec<Event<'_>>) -> Result<Vec<Event<'_>>> {
+    let mut out = Vec::with_capacity(events.len());
+    // A fenced block being read: its info string and its text so far.
+    let mut block: Option<(CowStr<'_>, String)> = None;
+    for event in events {
+        let Some((_, code)) = &mut block else {
+            match event {
+                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
+                    block = Some((info, String::new()));
+                }
+                other => out.push(other),
+            }
+            continue;
+        };
+        match event {
+            Event::Text(text) => code.push_str(&text),
+            Event::End(TagEnd::CodeBlock) => {
+                let (info, code) = block.take().expect("a block is being read");
+                match highlight_fenced_code(&info, &code)? {
+                    Some(html) => out.push(Event::Html(format!("{html}\n").into())),
+                    None => out.extend([
+                        Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))),
+                        Event::Text(code.into()),
+                        Event::End(TagEnd::CodeBlock),
+                    ]),
+                }
+            }
+            other => bail!("unexpected {other:?} inside a fenced code block"),
+        }
+    }
+    Ok(out)
 }
 
 /// What no line may start with (closing brackets, stops), kept with the ruby
@@ -1883,6 +1924,67 @@ mod tests {
         // Where cards are not offered (not an article), the paragraph is text.
         let plain = super::render_markdown_with(apple, rules(None)).unwrap().0;
         assert_eq!(plain, format!("<p>{apple}</p>\n"));
+    }
+
+    #[test]
+    fn fenced_code_is_highlighted_last_and_stays_verbatim() {
+        let rules = super::MarkdownRules {
+            math: true,
+            highest_heading: pulldown_cmark::HeadingLevel::H2,
+            footnotes: true,
+            footnote_prefix: None,
+            inline_languages: true,
+            media: None,
+            theorems: Some(super::TheoremOptions {
+                numbering: super::TheoremNumbering::default(),
+                id_prefix: None,
+                first_line: 1,
+            }),
+            references: None,
+        };
+        let html = |source: &str| super::render_markdown_with(source, rules).map(|r| r.0);
+        // In a theorem and a proof: the environments, math, a footnote, a
+        // highlight, a ruby, and a language mark around the code are read;
+        // inside the code nothing is.
+        let source = "::: {#thm-id name=\"Identity\"}\nFor all $x$, ==this== holds.[^1]\n\n```haskell\nid :: a -> a\nid x = x -- \"==not a mark==\" $y$ [^1] <ruby>字<rt>じ</rt></ruby> [x]{lang=ja}\n```\n:::\n\n::: {.proof of=\"thm-id\"}\n```rocq\nProof. intros. reflexivity. Qed.\n```\n:::\n\nSee `id` and @thm-id.\n\n[^1]: A note.\n";
+        let out = html(source).unwrap();
+        assert_eq!(out.matches("<pre class=\"shiki").count(), 2, "{out}");
+        assert!(out.contains("<mark>this</mark>"));
+        assert_eq!(out.matches("<mark>").count(), 1);
+        assert!(out.contains("==not a mark=="));
+        assert!(out.contains("&#x3C;ruby>"));
+        assert!(!out.contains("<ruby>"));
+        assert!(out.contains("<code>id</code>"));
+        assert!(out.contains("class=\"theorem theorem-plain\""));
+        assert!(out.contains("class=\"katex\""));
+        // Each block stays inside its environment, the proof's end mark after its code.
+        let theorem = out.find("data-kind=\"theorem\"").unwrap();
+        let proof = out.find("data-kind=\"proof\"").unwrap();
+        let first = out.find("<pre class=\"shiki").unwrap();
+        let second = out.rfind("<pre class=\"shiki").unwrap();
+        assert!(theorem < first && first < proof && proof < second, "{out}");
+        assert!(out[second..].contains("Qed"));
+        let qed = out
+            .find("class=\"qed\"")
+            .expect("the proof ends with its mark");
+        assert!(qed > second && out[second..qed].contains("</pre>"), "{out}");
+
+        // Plain fences are written as before, and an unknown language stops the build.
+        assert_eq!(
+            html("```\na <b>\n```\n").unwrap(),
+            "<pre><code>a &lt;b&gt;\n</code></pre>\n"
+        );
+        assert_eq!(
+            html("```text\na <b>\n```\n").unwrap(),
+            "<pre><code class=\"language-text\">a &lt;b&gt;\n</code></pre>\n"
+        );
+        let error = html("```definitely-not-a-language\nx\n```\n").unwrap_err();
+        assert!(
+            format!("{error:#}")
+                .contains("unknown fenced-code language \"definitely-not-a-language\"")
+        );
+        // Raw HTML outside code is still refused.
+        assert!(html("<script>alert(1)</script>\n").is_err());
     }
 
     #[test]

@@ -1,0 +1,141 @@
+{
+  "name": "code-dark",
+  "type": "dark",
+  "colors": {
+    "editor.background": "#19242d",
+    "editor.foreground": "#e8e5dc"
+  },
+  "tokenColors": [
+    {
+      "settings": {
+        "foreground": "#e8e5dc",
+        "background": "#19242d"
+      }
+    },
+    {
+      "name": "Comments",
+      "scope": [
+        "comment",
+        "punctuation.definition.comment"
+      ],
+      "settings": {
+        "foreground": "#aeb9bd"
+      }
+    },
+    {
+      "name": "Keywords, storage, and declarations",
+      "scope": [
+        "keyword",
+        "storage",
+        "meta.preprocessor"
+      ],
+      "settings": {
+        "foreground": "#9bd5d9"
+      }
+    },
+    {
+      "name": "Operators and punctuation",
+      "scope": [
+        "keyword.operator",
+        "punctuation",
+        "meta.brace"
+      ],
+      "settings": {
+        "foreground": "#aeb9bd"
+      }
+    },
+    {
+      "name": "Strings",
+      "scope": [
+        "string",
+        "constant.character",
+        "punctuation.definition.string",
+        "markup.inserted"
+      ],
+      "settings": {
+        "foreground": "#d4b77d"
+      }
+    },
+    {
+      "name": "Numbers and language constants",
+      "scope": [
+        "constant.numeric",
+        "constant.language",
+        "support.constant",
+        "markup.deleted"
+      ],
+      "settings": {
+        "foreground": "#d4a8b4"
+      }
+    },
+    {
+      "name": "Functions",
+      "scope": [
+        "entity.name.function",
+        "support.function"
+      ],
+      "settings": {
+        "foreground": "#73c1c7"
+      }
+    },
+    {
+      "name": "Types, modules, and constructors",
+      "scope": [
+        "entity.name.type",
+        "entity.name.class",
+        "entity.name.namespace",
+        "entity.other.inherited-class",
+        "support.type",
+        "support.class",
+        "constant.language.constructor",
+        "source.haskell constant.other",
+        "source.haskell storage.type"
+      ],
+      "settings": {
+        "foreground": "#73c1c7"
+      }
+    },
+    {
+      "name": "Identifiers",
+      "scope": [
+        "variable",
+        "meta.definition.variable"
+      ],
+      "settings": {
+        "foreground": "#e8e5dc"
+      }
+    },
+    {
+      "name": "OCaml: operators and brackets",
+      "scope": [
+        "source.ocaml support.type",
+        "source.ocaml string.regexp",
+        "source.ocaml keyword strong",
+        "source.ocaml punctuation.definition.tag"
+      ],
+      "settings": {
+        "foreground": "#aeb9bd"
+      }
+    },
+    {
+      "name": "OCaml: module, struct, end",
+      "scope": [
+        "source.ocaml entity.name.filename",
+        "source.ocaml punctuation.definition.tag emphasis"
+      ],
+      "settings": {
+        "foreground": "#9bd5d9"
+      }
+    },
+    {
+      "name": "OCaml: constructors and module paths",
+      "scope": [
+        "source.ocaml entity.other.attribute-name",
+        "source.ocaml entity.name.class constant.numeric"
+      ],
+      "settings": {
+        "foreground": "#73c1c7"
+      }
+    }
+  ]
+}

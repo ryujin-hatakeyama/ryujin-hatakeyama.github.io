@@ -77,6 +77,10 @@ Inside any Markdown passage, mark the language of a phrase with `[Stimme]{lang=d
 
 To add a selectable language, add it to `DisplayLanguage` in `site-builder/src/model.rs` with its code, its own name, and its English name; nothing else needs to change.
 
+## Code
+
+A fenced code block that names its language is highlighted when the site is built: `rocq` (or `coq`), `haskell` (`hs`), `ocaml` (`ml`), `metaocaml` (`ber-metaocaml`, read as OCaml), `lean` (`lean4`), `rust`, `typescript`, `python`, `bash`, `latex`, `bibtex`, `json`, `yaml`, and the other languages of Shiki's grammar collection. A fence with no language, or `text`, stays plain. Any other name stops the build, so a typo is never left plain unnoticed. Inline code is never highlighted.
+
 ## Music and podcasts
 
 In a note, diary entry, or sketch, a paragraph that holds nothing but one address, or two addresses of the same work on two services (on two lines, or separated by a space), becomes a media card: the work's title, a second line, its cover, and "Open" for the chosen service. Recognised: songs, albums, and playlists at `https://music.apple.com/…` and `https://open.spotify.com/…`, and podcasts and episodes at `https://podcasts.apple.com/…` and `https://open.spotify.com/show/…` or `/episode/…`. A podcast card also has the service's own player; music never plays on the page. An address anywhere else (in a sentence, a list, a quotation, a footnote) stays text.

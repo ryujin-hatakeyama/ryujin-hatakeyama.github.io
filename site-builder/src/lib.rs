@@ -1,6 +1,7 @@
 mod artifact;
 pub mod build;
 mod content;
+mod highlight;
 pub mod media;
 pub mod model;
 mod publish;
