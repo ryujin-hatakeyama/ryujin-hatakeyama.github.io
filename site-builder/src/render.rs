@@ -810,29 +810,26 @@ fn publication_entries(
 }
 
 fn classification(publication: &Publication, presentations: bool) -> String {
-    if !presentations {
-        if let Some(review) = publication
+    if !presentations
+        && let Some(review) = publication
             .presentation
             .as_ref()
             .and_then(|metadata| metadata.proceedings_review)
-        {
-            return review.label().to_owned();
-        }
+    {
+        return review.label().to_owned();
     }
-    if presentations {
-        if let Some(metadata) = &publication.presentation {
-            let mut format = metadata.format.label().to_owned();
-            if let Some(category) = &metadata.category {
-                format.push_str(" (");
-                format.push_str(category);
-                format.push(')');
-            }
-            if let Some(review) = metadata.proceedings_review {
-                format.push_str(" · ");
-                format.push_str(review.label());
-            }
-            return format;
+    if presentations && let Some(metadata) = &publication.presentation {
+        let mut format = metadata.format.label().to_owned();
+        if let Some(category) = &metadata.category {
+            format.push_str(" (");
+            format.push_str(category);
+            format.push(')');
         }
+        if let Some(review) = metadata.proceedings_review {
+            format.push_str(" · ");
+            format.push_str(review.label());
+        }
+        return format;
     }
     format!(
         "{} · {}",
@@ -930,14 +927,14 @@ fn update_detail_path(update: &Update) -> String {
 /// detail page separately.
 fn update_title(update: &Update, link_detail: bool) -> Markup {
     let title = &update.title.en;
-    if let Some(link) = &update.title_link {
-        if let Some((before, after)) = link.split(title) {
-            return html! {
-                (before)
-                a href=(&link.url) lang=[link.lang.map(Language::code)] { (&link.text) }
-                (after)
-            };
-        }
+    if let Some(link) = &update.title_link
+        && let Some((before, after)) = link.split(title)
+    {
+        return html! {
+            (before)
+            a href=(&link.url) lang=[link.lang.map(Language::code)] { (&link.text) }
+            (after)
+        };
     }
     if link_detail && update.detail {
         html! { a href=(update_detail_path(update)) { (title) } }
@@ -5110,7 +5107,13 @@ mod timeline_tests {
     fn publishing_again_or_renaming_keeps_one_entry_under_one_id() {
         let source = note("stable", "First title", Some("2026-10-10"));
         // The same file published twice over is the same article.
-        let again = site(Vec::new(), "items: []\n", &[source.clone()], &[], &[]);
+        let again = site(
+            Vec::new(),
+            "items: []\n",
+            std::slice::from_ref(&source),
+            &[],
+            &[],
+        );
         let html = page(&again, "updates/index.html", today());
         assert_eq!(update_ids(&html), ["published-notes-stable"]);
         assert_eq!(html.matches("First title").count(), 1);

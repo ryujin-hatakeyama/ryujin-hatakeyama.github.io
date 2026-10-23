@@ -1249,15 +1249,15 @@ fn render_markdown(source: &str, math_enabled: bool) -> Result<RenderedMarkdown>
 fn render_markdown_with(source: &str, rules: MarkdownRules<'_>) -> Result<RenderedMarkdown> {
     let (html, analysis) = render_markdown_analyzed(source, rules)?;
     let first_line = rules.theorems.map_or(1, |t| t.first_line);
-    if let Some(analysis) = analysis {
-        if !analysis.diagnostics.is_empty() {
-            let problems: Vec<String> = analysis
-                .diagnostics
-                .iter()
-                .map(|d| format!("line {}: {}", d.line + first_line - 1, d.message))
-                .collect();
-            bail!("theorem environments: {}", problems.join("; "));
-        }
+    if let Some(analysis) = analysis
+        && !analysis.diagnostics.is_empty()
+    {
+        let problems: Vec<String> = analysis
+            .diagnostics
+            .iter()
+            .map(|d| format!("line {}: {}", d.line + first_line - 1, d.message))
+            .collect();
+        bail!("theorem environments: {}", problems.join("; "));
     }
     Ok(RenderedMarkdown(html))
 }
@@ -1329,15 +1329,17 @@ pub(crate) fn render_markdown_analyzed(
             Event::End(_) => depth = depth.saturating_sub(1),
             _ => {}
         }
-        if let (Event::Html(mark), Some(cited)) = (&event, rules.references) {
-            if placed.is_some() && !listed && mark.trim_end() == references::MARK {
-                listed = true;
-                events.push(Event::Html(
-                    references::list_html(cited.list, cited.id_prefix)?.into(),
-                ));
-                ranges.push(None);
-                continue;
-            }
+        if let (Event::Html(mark), Some(cited)) = (&event, rules.references)
+            && placed.is_some()
+            && !listed
+            && mark.trim_end() == references::MARK
+        {
+            listed = true;
+            events.push(Event::Html(
+                references::list_html(cited.list, cited.id_prefix)?.into(),
+            ));
+            ranges.push(None);
+            continue;
         }
         let event = match (event, rules.references) {
             (
@@ -1374,12 +1376,12 @@ pub(crate) fn render_markdown_analyzed(
                     .char_indices()
                     .find(|(_, c)| !RUBY_CLOSERS.contains(*c))
                     .map_or(text.len(), |(i, _)| i);
-                if kept > 0 {
-                    if let Event::InlineHtml(html) = &events[at] {
-                        let html = html.strip_suffix("</span>").unwrap_or(html);
-                        events[at] =
-                            Event::InlineHtml(format!("{html}{}</span>", &text[..kept]).into());
-                    }
+                if kept > 0
+                    && let Event::InlineHtml(html) = &events[at]
+                {
+                    let html = html.strip_suffix("</span>").unwrap_or(html);
+                    events[at] =
+                        Event::InlineHtml(format!("{html}{}</span>", &text[..kept]).into());
                 }
                 if kept == text.len() {
                     continue;

@@ -315,13 +315,13 @@ pub(crate) fn parse_opener(line: &str) -> Option<Result<Spec, String>> {
         )));
     }
     let kind = from_id.or_else(|| from_class.first().copied())?;
-    if let (Some(from_id), Some(from_class)) = (from_id, from_class.first()) {
-        if from_id != *from_class {
-            return Some(Err(format!(
-                "The label says {}, the class says {}.",
-                from_id.label, from_class.label
-            )));
-        }
+    if let (Some(from_id), Some(from_class)) = (from_id, from_class.first())
+        && from_id != *from_class
+    {
+        return Some(Err(format!(
+            "The label says {}, the class says {}.",
+            from_id.label, from_class.label
+        )));
     }
     if kind.style == Style::Proof && id.is_some() {
         return Some(Err(
@@ -475,18 +475,20 @@ impl CodeFences {
     pub(crate) fn code(&mut self, line: &str) -> bool {
         let fence = code_fence(line);
         if let Some((char, length)) = self.0 {
-            if let Some((c, l, rest)) = fence {
-                if c == char && l >= length && rest.trim().is_empty() {
-                    self.0 = None;
-                }
+            if let Some((c, l, rest)) = fence
+                && c == char
+                && l >= length
+                && rest.trim().is_empty()
+            {
+                self.0 = None;
             }
             return true;
         }
-        if let Some((c, l, rest)) = fence {
-            if !(c == b'`' && rest.contains('`')) {
-                self.0 = Some((c, l));
-                return true;
-            }
+        if let Some((c, l, rest)) = fence
+            && !(c == b'`' && rest.contains('`'))
+        {
+            self.0 = Some((c, l));
+            return true;
         }
         false
     }
@@ -977,10 +979,11 @@ pub(crate) fn apply<'a>(
                 }
             }
             Event::Start(tag) => {
-                if let Tag::Heading { level, .. } = tag {
-                    if depth == 0 && !inside {
-                        outline.push(Some(*level as u8));
-                    }
+                if let Tag::Heading { level, .. } = tag
+                    && depth == 0
+                    && !inside
+                {
+                    outline.push(Some(*level as u8));
                 }
                 depth += 1;
             }
@@ -995,23 +998,23 @@ pub(crate) fn apply<'a>(
     let mut seen: HashMap<&str, usize> = HashMap::new();
     let mut duplicates: HashSet<&str> = HashSet::new();
     for (index, environment) in prepared.environments.iter().enumerate() {
-        if let Some(label) = &environment.spec.label {
-            if seen.insert(label.as_str(), index).is_some() {
-                duplicates.insert(label.as_str());
-            }
+        if let Some(label) = &environment.spec.label
+            && seen.insert(label.as_str(), index).is_some()
+        {
+            duplicates.insert(label.as_str());
         }
     }
     for environment in &prepared.environments {
-        if let Some(label) = &environment.spec.label {
-            if duplicates.contains(label.as_str()) {
-                diagnostics.push(Diagnostic {
-                    line: environment.open,
-                    code: "duplicate-label",
-                    message: format!(
-                        "“{label}” labels more than one environment; give each its own label."
-                    ),
-                });
-            }
+        if let Some(label) = &environment.spec.label
+            && duplicates.contains(label.as_str())
+        {
+            diagnostics.push(Diagnostic {
+                line: environment.open,
+                code: "duplicate-label",
+                message: format!(
+                    "“{label}” labels more than one environment; give each its own label."
+                ),
+            });
         }
     }
     let target = |label: &str| {
@@ -1197,93 +1200,92 @@ pub(crate) fn apply<'a>(
             _ => {}
         }
         // References: in plain text, as written (not escaped, not in code or an image description).
-        if let (Event::Text(text), Some(range)) = (&event, &range) {
-            if verbatim_depth == 0
-                && text.contains('@')
-                && source.get(range.clone()) == Some(text.as_ref())
-            {
-                let mut rest_start = 0;
-                let mut i = 0;
-                let bytes = text.as_bytes();
-                let mut pieces: Vec<Event<'a>> = Vec::new();
-                while i < bytes.len() {
-                    if bytes[i] != b'@' || escaped(source, range.start + i) {
-                        i += 1;
-                        continue;
-                    }
-                    let Some((label, to, valid)) = cross_ref_at(source, range.start + i, range.end)
-                    else {
-                        i += 1;
-                        continue;
-                    };
-                    let line = line_of(source, range.start + i);
-                    let resolved = if valid { Some(target(&label)) } else { None };
-                    let (html, read) = match resolved {
-                        Some(Target::Found(n)) => {
-                            let html = if link_depth > 0 {
-                                escape(&n.reference)
-                            } else {
-                                format!(
-                                    r##"<a class="theorem-ref" href="#{}">{}</a>"##,
-                                    escape(&id_of(&label)),
-                                    escape(&n.reference)
-                                )
-                            };
-                            (html, Some(n.reference.clone()))
-                        }
-                        other => {
-                            let (code, message) = match other {
-                                None => (
-                                    "incomplete-reference",
-                                    format!(
-                                        "“@{label}” is not a whole reference: a label follows the prefix (as @thm-soundness)."
-                                    ),
-                                ),
-                                Some(Target::Duplicate) => (
-                                    "ambiguous-reference",
-                                    format!(
-                                        "“{label}” labels more than one environment; give each its own label."
-                                    ),
-                                ),
-                                _ => (
-                                    "undefined-reference",
-                                    format!("No environment is labelled “{label}”."),
-                                ),
-                            };
-                            diagnostics.push(Diagnostic {
-                                line,
-                                code,
-                                message: message.clone(),
-                            });
-                            (
-                                format!(
-                                    r#"<span class="theorem-ref-missing" title="{}">@{}</span>"#,
-                                    escape(&message),
-                                    escape(&label)
-                                ),
-                                None,
-                            )
-                        }
-                    };
-                    analysis.references.push(ReferenceFacts {
-                        line,
-                        label,
-                        text: read,
-                    });
-                    if i > rest_start {
-                        pieces.push(Event::Text(text[rest_start..i].to_owned().into()));
-                    }
-                    pieces.push(Event::InlineHtml(html.into()));
-                    i = to - range.start;
-                    rest_start = i;
-                }
-                if !pieces.is_empty() {
-                    if rest_start < text.len() {
-                        pieces.push(Event::Text(text[rest_start..].to_owned().into()));
-                    }
-                    out.extend(pieces);
+        if let (Event::Text(text), Some(range)) = (&event, &range)
+            && verbatim_depth == 0
+            && text.contains('@')
+            && source.get(range.clone()) == Some(text.as_ref())
+        {
+            let mut rest_start = 0;
+            let mut i = 0;
+            let bytes = text.as_bytes();
+            let mut pieces: Vec<Event<'a>> = Vec::new();
+            while i < bytes.len() {
+                if bytes[i] != b'@' || escaped(source, range.start + i) {
+                    i += 1;
                     continue;
                 }
+                let Some((label, to, valid)) = cross_ref_at(source, range.start + i, range.end)
+                else {
+                    i += 1;
+                    continue;
+                };
+                let line = line_of(source, range.start + i);
+                let resolved = if valid { Some(target(&label)) } else { None };
+                let (html, read) = match resolved {
+                    Some(Target::Found(n)) => {
+                        let html = if link_depth > 0 {
+                            escape(&n.reference)
+                        } else {
+                            format!(
+                                r##"<a class="theorem-ref" href="#{}">{}</a>"##,
+                                escape(&id_of(&label)),
+                                escape(&n.reference)
+                            )
+                        };
+                        (html, Some(n.reference.clone()))
+                    }
+                    other => {
+                        let (code, message) = match other {
+                            None => (
+                                "incomplete-reference",
+                                format!(
+                                    "“@{label}” is not a whole reference: a label follows the prefix (as @thm-soundness)."
+                                ),
+                            ),
+                            Some(Target::Duplicate) => (
+                                "ambiguous-reference",
+                                format!(
+                                    "“{label}” labels more than one environment; give each its own label."
+                                ),
+                            ),
+                            _ => (
+                                "undefined-reference",
+                                format!("No environment is labelled “{label}”."),
+                            ),
+                        };
+                        diagnostics.push(Diagnostic {
+                            line,
+                            code,
+                            message: message.clone(),
+                        });
+                        (
+                            format!(
+                                r#"<span class="theorem-ref-missing" title="{}">@{}</span>"#,
+                                escape(&message),
+                                escape(&label)
+                            ),
+                            None,
+                        )
+                    }
+                };
+                analysis.references.push(ReferenceFacts {
+                    line,
+                    label,
+                    text: read,
+                });
+                if i > rest_start {
+                    pieces.push(Event::Text(text[rest_start..i].to_owned().into()));
+                }
+                pieces.push(Event::InlineHtml(html.into()));
+                i = to - range.start;
+                rest_start = i;
+            }
+            if !pieces.is_empty() {
+                if rest_start < text.len() {
+                    pieces.push(Event::Text(text[rest_start..].to_owned().into()));
+                }
+                out.extend(pieces);
+                continue;
             }
         }
         out.push(event);
@@ -1328,11 +1330,11 @@ fn close_proof(
                 return;
             }
             let end = out.len() - 1;
-            if let Some(Event::Text(text)) = out.get(end - 1) {
-                if let Some(stripped) = strip_text_qed(text) {
-                    let stripped = stripped.to_owned();
-                    out[end - 1] = Event::Text(stripped.into());
-                }
+            if let Some(Event::Text(text)) = out.get(end - 1)
+                && let Some(stripped) = strip_text_qed(text)
+            {
+                let stripped = stripped.to_owned();
+                out[end - 1] = Event::Text(stripped.into());
             }
             out.insert(end, Event::InlineHtml(QED.into()));
         }

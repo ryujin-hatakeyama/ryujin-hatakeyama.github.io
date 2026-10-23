@@ -130,7 +130,7 @@ mod tests {
             "https://music.apple.com/jp/album/x/1?i=2",
             Some("https://is1-ssl.mzstatic.com/image/thumb/Music/v4/a/b/c/source/300x300bb.jpg"),
         );
-        assert!(details(&[good.clone()], &[]).is_ok());
+        assert!(details(std::slice::from_ref(&good), &[]).is_ok());
         assert!(details(&[good.clone(), good.clone()], &[]).is_err());
         assert!(
             details(
@@ -151,7 +151,7 @@ mod tests {
             detail: Some("23 Oct 2026 · 30 min".into()),
             artwork: None,
         };
-        let all = details(&[good.clone()], &[episode.clone()]).unwrap();
+        let all = details(std::slice::from_ref(&good), std::slice::from_ref(&episode)).unwrap();
         assert_eq!(all.len(), 2);
         assert_eq!(all[1].byline.as_deref(), Some("The Daily"));
         // Each section holds only its own kind of address.
