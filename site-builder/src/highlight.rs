@@ -1,7 +1,7 @@
 //! Fenced code, highlighted when the site is built, with irosashi: the
 //! TextMate grammars of VS Code and Shiki, in Rust. A fence that names a
 //! language becomes static HTML in Shiki's form, each token coloured by the
-//! site's light theme and, in a CSS variable, its dark one, which
+//! VS Code Light+ and, in a CSS variable, VS Code Dark+, which
 //! `assets/styles/site.css` switches to with the site's theme. Nothing is
 //! highlighted in the browser.
 //!
@@ -15,9 +15,8 @@ use std::sync::LazyLock;
 use anyhow::{Result, anyhow, bail};
 use irosashi::{CodeToHtmlOptions, Highlighter, HighlighterBuilder};
 
-/// The site's code themes, after its paper, ink, and teal (`site-builder/themes/`).
-const LIGHT: &str = include_str!("../themes/code-light.json");
-const DARK: &str = include_str!("../themes/code-dark.json");
+const LIGHT: &str = "light-plus";
+const DARK: &str = "dark-plus";
 
 /// The site's names for languages, where the bundled grammar has another.
 const ALIASES: &[(&str, &str)] = &[
@@ -47,9 +46,7 @@ const PLAIN: &[&str] = &["text", "txt", "plain", "plaintext"];
 /// needed, and then shared by every page.
 static HIGHLIGHTER: LazyLock<Result<Highlighter, String>> = LazyLock::new(|| {
     HighlighterBuilder::embedded()
-        .theme("code-light", LIGHT.as_bytes())
-        .and_then(|builder| builder.theme("code-dark", DARK.as_bytes()))
-        .and_then(HighlighterBuilder::build)
+        .build()
         .map_err(|error| error.to_string())
 });
 
@@ -90,8 +87,8 @@ pub(crate) fn highlight_fenced_code(info: &str, source: &str) -> Result<Option<S
         return Ok(None);
     };
     let themes = BTreeMap::from([
-        ("light".to_owned(), "code-light".to_owned()),
-        ("dark".to_owned(), "code-dark".to_owned()),
+        ("light".to_owned(), LIGHT.to_owned()),
+        ("dark".to_owned(), DARK.to_owned()),
     ]);
     let options = CodeToHtmlOptions::multi(&grammar, themes).shiki();
     // The lines, without the block's final newline (no empty last line).
@@ -198,16 +195,11 @@ mod tests {
     #[test]
     fn haskell_is_highlighted_by_its_grammar_and_keeps_its_text() {
         let html = highlighted("haskell", HASKELL);
-        assert!(html.starts_with("<pre class=\"shiki shiki-themes code-light code-dark\""));
+        assert!(html.starts_with("<pre class=\"shiki shiki-themes light-plus dark-plus\""));
         assert_eq!(text(&html), HASKELL.trim_end_matches('\n'));
-        assert_colour(&html, "data", "#0d5962", "#9bd5d9");
-        assert_colour(&html, "where", "#0d5962", "#9bd5d9");
-        assert_colour(&html, "eval", "#176f78", "#73c1c7");
-        assert_colour(&html, "Lit", "#176f78", "#73c1c7");
-        assert_colour(&html, "Expr", "#176f78", "#73c1c7");
-        assert_colour(&html, "\"hello, \"", "#6b5b3e", "#d4b77d");
-        assert_colour(&html, "::", "#53616a", "#aeb9bd");
-        assert_colour(&html, "&#x3C;>", "#53616a", "#aeb9bd");
+        assert_colour(&html, "data", "#0000ff", "#569cd6");
+        assert_colour(&html, "where", "#0000ff", "#569cd6");
+        assert_colour(&html, "\"hello, \"", "#a31515", "#ce9178");
         // `hs` is Haskell too.
         assert_eq!(highlighted("hs", HASKELL), html);
     }
@@ -216,15 +208,11 @@ mod tests {
     fn ocaml_is_highlighted_by_its_grammar_and_keeps_its_text() {
         let html = highlighted("ocaml", OCAML);
         assert_eq!(text(&html), OCAML.trim_end_matches('\n'));
-        assert_colour(&html, "module", "#0d5962", "#9bd5d9");
-        assert_colour(&html, "type", "#0d5962", "#9bd5d9");
-        assert_colour(&html, "struct", "#0d5962", "#9bd5d9");
-        assert_colour(&html, "Var", "#176f78", "#73c1c7");
-        assert_colour(&html, "Printf", "#176f78", "#73c1c7");
-        assert_colour(&html, "shift", "#176f78", "#73c1c7");
-        assert_colour(&html, "\"(%s %s)\"", "#6b5b3e", "#d4b77d");
-        assert_colour(&html, "1", "#7a4f5d", "#d4a8b4");
-        assert_colour(&html, "|", "#53616a", "#aeb9bd");
+        // The OCaml grammar scopes `module` as a link, which Light+/Dark+
+        // intentionally render like other links rather than a site override.
+        assert_colour(&html, "module", "#0451a5", "#ce9178");
+        assert_colour(&html, "type", "#0000ff", "#569cd6");
+        assert_colour(&html, "\"(%s %s)\"", "#a31515", "#ce9178");
         assert_eq!(highlighted("ml", OCAML), html);
     }
 
@@ -235,10 +223,8 @@ mod tests {
         assert_eq!(highlighted("ber-metaocaml", METAOCAML), html);
         assert_eq!(highlighted("ocaml", METAOCAML), html);
         // Quotation and escape are punctuation, and ordinary OCaml around them is highlighted.
-        assert_colour(&html, ".&#x3C;", "#53616a", "#aeb9bd");
-        assert_colour(&html, ".~", "#53616a", "#aeb9bd");
-        assert_colour(&html, "let", "#0d5962", "#9bd5d9");
-        assert_colour(&html, "Runnative", "#176f78", "#73c1c7");
+        assert_colour(&html, ".&#x3C;", "#811f3f", "#d16969");
+        assert_colour(&html, "let", "#0000ff", "#569cd6");
         assert_eq!(
             html.matches("<span class=\"line\">").count(),
             METAOCAML.lines().count()
@@ -253,18 +239,13 @@ mod tests {
         assert_eq!(highlighted("coq", ROCQ), html);
         assert_eq!(highlighted("Rocq", ROCQ), html);
         for vernacular in ["Theorem", "Proof", "Qed", "Fixpoint", "Lemma"] {
-            assert_colour(&html, vernacular, "#0d5962", "#9bd5d9");
+            assert_colour(&html, vernacular, "#0000ff", "#569cd6");
         }
-        for tactic in ["intros", "induction", "simpl", "rewrite", "reflexivity"] {
-            assert_colour(&html, tactic, "#176f78", "#73c1c7");
-        }
-        assert_colour(&html, "forall", "#176f78", "#73c1c7");
-        assert_colour(&html, "S", "#176f78", "#73c1c7");
         assert_colour(
             &html,
             "(* Addition on the naturals is commutative. *)",
-            "#53616a",
-            "#aeb9bd",
+            "#008000",
+            "#6a9955",
         );
     }
 
@@ -339,8 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn the_themes_use_only_the_site_palette() {
-        let mut all = Vec::new();
+    fn bundled_vscode_themes_are_used_without_site_palette_overrides() {
         let fixtures = [
             ("haskell", HASKELL),
             ("ocaml", OCAML),
@@ -348,23 +328,11 @@ mod tests {
             ("rocq", ROCQ),
         ];
         for (info, code) in fixtures {
-            let (light, dark) = colours(&highlighted(info, code));
-            all.extend(light.into_iter().map(|c| (c, true)));
-            all.extend(dark.into_iter().map(|c| (c, false)));
-        }
-        let light = [
-            "#17242d", "#53616a", "#0d5962", "#176f78", "#6b5b3e", "#7a4f5d",
-        ];
-        let dark = [
-            "#e8e5dc", "#aeb9bd", "#9bd5d9", "#73c1c7", "#d4b77d", "#d4a8b4",
-        ];
-        for (colour, is_light) in all {
-            let palette = if is_light { &light } else { &dark };
-            assert!(palette.contains(&colour.as_str()), "{colour}");
-        }
-        for (info, code) in fixtures {
             let html = highlighted(info, code);
-            assert!(!html.contains("font-style") && !html.contains("font-weight"));
+            let html = html.to_ascii_lowercase();
+            assert!(html.starts_with("<pre class=\"shiki shiki-themes light-plus dark-plus\""));
+            assert!(html.contains("background-color:#ffffff"), "{info}");
+            assert!(html.contains("--shiki-dark-bg:#1e1e1e"), "{info}");
         }
     }
 }

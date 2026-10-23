@@ -1,6 +1,6 @@
 # Diary
 
-Each `*.md` file here (other than this README) is one diary entry. Entries are stored one per file and shown by month: `/miscellany/diary/` lists the months that have published entries (newest first), and each month's page, `/miscellany/diary/<year>/<month>/` (for example `/miscellany/diary/2026/10/`), shows that month's entries in full, oldest first. A month without published entries has no page.
+Each `*.md` file here (other than this README) is one diary entry. Entries are stored one per file and shown by month: `/miscellany/diary/` lists the months that have published entries (newest first), and each month's page, `/miscellany/diary/<year>/<month>/` (for example `/miscellany/diary/2026/10/`), shows that month's entries in full, newest first. A month without published entries has no page.
 
 ```markdown
 ---

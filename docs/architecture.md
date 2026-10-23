@@ -22,7 +22,7 @@ Rust:
 - explicit static route construction;
 - reusable Maud layout and page components;
 - Markdown, footnote, and KaTeX rendering;
-- syntax highlighting of fenced code at build time (`src/highlight.rs`): a fence's language (the site's names, such as `rocq`, `metaocaml`, and `hs`, then the bundled grammars' own) is tokenized by irosashi, a Rust port of vscode-textmate with Shiki's TextMate grammars, pinned exactly, and written as Shiki-form HTML coloured by the site's two code themes (`site-builder/themes/`); an unlabelled or `text` fence stays plain, and an unknown name stops the build;
+- syntax highlighting of fenced code at build time (`src/highlight.rs`): a fence's language (the site's names, such as `rocq`, `metaocaml`, and `hs`, then the bundled grammars' own) is tokenized by irosashi, a Rust port of vscode-textmate with Shiki's TextMate grammars, pinned exactly, and written as Shiki-form HTML coloured by its bundled VS Code Light+ and Dark+ themes; an unlabelled or `text` fence stays plain, and an unknown name stops the build;
 - media cards (`src/media/`): which music and podcast addresses are recognised, how each is rebuilt, the players' addresses, the front matter's details (`music:`, `podcasts:`), and the card's static HTML (`docs/media.md`);
 - metadata, RSS, sitemap, robots, 404, and asset generation;
 - internal-link, anchor, favicon, accessibility-sensitive markup, and public-artifact checks.
@@ -43,7 +43,7 @@ TypeScript:
 
 TypeScript does no syntax highlighting: the browser gets highlighted code as static HTML, each token's light colour inline and its dark one in a CSS variable that the stylesheet uses with the dark theme.
 
-The TypeScript is compiled by `tsc` alone, with no bundler and no framework: `site.js` is a classic script (it must run in `<head>` to set the theme before the page is drawn), and `media.js` an ES module it imports when needed.
+The TypeScript is compiled by `tsc` alone, with no bundler and no framework: `site.js` is a classic script (it must run in `<head>` to set the theme before the page is drawn), and `media.js` and `diary.js` are ES modules it imports only on pages that need them.
 
 Node.js (scripts/search-index.mjs):
 

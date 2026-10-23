@@ -442,14 +442,15 @@ main { min-height: 64vh; }
 .prose h3 { font-family: var(--sans); font-size: 1em; font-weight: 600; }
 .prose p { margin: 0 0 1.5em; }
 .prose blockquote { margin: 2.5rem -3rem; padding: .2rem 0 .2rem 1.6rem; border-left: 2px solid var(--accent); color: var(--ink-soft); font-size: 1.15em; }
-.prose pre { overflow-x: auto; margin: 2.2rem 0; padding: 1.25rem; border: 1px solid var(--rule); background: var(--code-bg) !important; font-family: var(--mono); font-size: .78rem; line-height: 1.6; }
+.prose pre { overflow-x: auto; margin: 2.2rem 0; padding: 1.25rem; border: 1px solid var(--rule); background: var(--code-bg); font-family: var(--mono); font-size: .78rem; line-height: 1.6; }
 /* Code in a block takes the block's face and size, not the browser's own monospace. */
 .prose pre code { font: inherit; }
 @media (max-width: 36rem) { .prose pre { padding: 1rem; } }
 /* Highlighted code (site-builder/src/highlight.rs): each token's colour in the light
    theme is written inline, its colour in the dark one in --shiki-dark, which the dark
    theme uses. Nothing is highlighted in the browser. */
-:root[data-theme='dark'] .shiki, :root[data-theme='dark'] .shiki span { color: var(--shiki-dark) !important; }
+:root[data-theme='dark'] .shiki { background-color: var(--shiki-dark-bg) !important; color: var(--shiki-dark) !important; }
+:root[data-theme='dark'] .shiki span { color: var(--shiki-dark) !important; }
 .prose code:not(pre code) { padding: .08em .3em; background: var(--code-bg); font-family: var(--mono); font-size: .82em; }
 .prose hr { margin: 4rem auto; width: 5rem; border: 0; border-top: 1px solid var(--rule-strong); }
 .prose .footnotes { margin-top: 5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: .82em; }
@@ -1260,9 +1261,8 @@ main { min-height: 64vh; }
 .miscellany-list .miscellany-date { margin: .1rem 0 0; color: var(--ink-faint); font-size: .78rem; }
 .miscellany-note .article-date { margin: 0 0 .65rem; color: var(--ink-faint); font-size: .86rem; }
 
-/* The Diary: months by year on its front page; on a month's page, each
-   entry's day of the month and weekday in a narrow column beside its text.
-   The column is part of the text's grid, not a calendar. */
+/* The Diary: months by year on its front page; a small week navigator on a
+   month page; then each entry's day and weekday beside its full text. */
 .diary-archive { max-width: 48rem; }
 .diary-year + .diary-year { margin-top: 1.9rem; }
 .diary-year > h2 { margin: 0 0 .45rem; color: var(--ink-soft); font-family: var(--mono); font-size: .8rem; font-weight: 500; letter-spacing: .02em; }
@@ -1275,9 +1275,54 @@ main { min-height: 64vh; }
 .diary-month-nav { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .4rem 1.5rem; max-width: var(--reading); margin-top: .9rem; font-size: .86rem; }
 .diary-month-nav .diary-next { margin-left: auto; }
 .diary-month-nav-end { margin: 2.2rem 0 0; padding-top: 1.1rem; border-top: 1px solid var(--rule); }
-.diary-days { display: flex; flex-wrap: wrap; gap: .1rem .85rem; max-width: var(--reading); margin-top: .7rem; font-family: var(--mono); font-size: .78rem; }
-.diary-days a { color: var(--ink-soft); text-decoration: none; }
-.diary-days a:hover { color: var(--accent); text-decoration: underline; }
+.diary-weeks {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) 2.25rem;
+  align-items: end;
+  gap: .35rem;
+  width: min(100%, var(--reading));
+  margin-top: .8rem;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.diary-week-viewport { min-width: 0; }
+.diary-week[hidden] { display: none; }
+.diary-weekdays, .diary-weekdates { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); text-align: center; }
+.diary-weekdays { color: var(--ink-faint); font-size: .64rem; letter-spacing: .01em; }
+.diary-weekdates { margin-top: .12rem; color: var(--ink-soft); font-size: .77rem; }
+.diary-weekday { display: flex; justify-content: center; min-width: 0; }
+.diary-weekday.adjacent-month { color: color-mix(in srgb, var(--ink-faint) 55%, transparent); }
+.diary-weekday > a, .diary-weekday > .diary-week-number {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 1.5rem;
+  min-height: 2.15rem;
+  color: inherit;
+  text-decoration: none;
+}
+.diary-weekday > a { color: var(--ink); }
+.diary-weekday > a:hover { color: var(--accent); }
+.diary-entry-dot { width: .22rem; height: .22rem; margin-top: .22rem; border-radius: 50%; background: var(--ink-faint); }
+.diary-weekday > a[aria-current='date'] { color: var(--accent-strong); font-weight: 600; }
+.diary-weekday > a[aria-current='date'] .diary-entry-dot { width: 1.15rem; height: .13rem; border-radius: 1px; background: var(--accent); }
+.diary-week-control {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-bottom: .05rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+.diary-week-control[hidden] { visibility: hidden; display: grid; }
+.diary-week-control svg { width: .9rem; height: .9rem; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.diary-week-control:hover:not(:disabled) { color: var(--accent); }
+.diary-week-control:disabled { color: color-mix(in srgb, var(--ink-faint) 35%, transparent); cursor: default; }
 .diary-month-header + .miscellany-search { max-width: 22rem; margin: 0 0 2rem; }
 
 .diary { --diary-day-column: 2.6rem; max-width: calc(var(--reading) + var(--diary-day-column) + 1.4rem); }
@@ -1298,7 +1343,7 @@ main { min-height: 64vh; }
   font-size: 1.05rem;
   font-weight: 600;
   line-height: 1.4;
-  scroll-margin-top: 1rem;
+  scroll-margin-top: 3rem;
 }
 .diary-entry.has-title .diary-heading {
   grid-column: 1 / -1;
@@ -1381,7 +1426,7 @@ main { min-height: 64vh; }
 
 @media print {
   .media-player { display: none !important; }
-  .miscellany-sections, .miscellany-search, .miscellany-updates, .diary-month-nav, .diary-days { display: none; }
+  .miscellany-sections, .miscellany-search, .miscellany-updates, .diary-month-nav, .diary-weeks { display: none; }
 }
 /* A message to the author, at the end of a category's page
    (site-builder/src/render.rs message_form, client/site.ts): quiet, the

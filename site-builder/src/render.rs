@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, Duration, NaiveDate};
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 use crate::content::{
@@ -1744,7 +1744,7 @@ fn sketch_detail(sketch: &ValidatedSketch, languages: &[DisplayLanguage]) -> Mar
     )
 }
 
-/// The published diary entries of one calendar month, oldest first (entries
+/// The published diary entries of one calendar month, newest first (entries
 /// of one day in the order of their anchors).
 struct DiaryMonth<'a> {
     first_day: NaiveDate,
@@ -1783,15 +1783,77 @@ fn diary_months(miscellany: &Miscellany) -> Vec<DiaryMonth<'_>> {
             }),
         }
     }
-    for month in &mut months {
-        month.entries.sort_by(|left, right| {
-            let key =
-                |entry: &ValidatedDiaryEntry| (entry.metadata().date, entry.metadata().anchor());
-            key(left).cmp(&key(right))
-        });
-    }
     months.sort_by(|left, right| right.first_day.cmp(&left.first_day));
     months
+}
+
+/// Mondays of every calendar week that intersects a month.
+fn diary_week_starts(month: &DiaryMonth<'_>) -> Vec<NaiveDate> {
+    let first = month.first_day;
+    let next_month = if first.month() == 12 {
+        NaiveDate::from_ymd_opt(first.year() + 1, 1, 1)
+    } else {
+        NaiveDate::from_ymd_opt(first.year(), first.month() + 1, 1)
+    }
+    .expect("the next month has a first day");
+    let last = next_month.pred_opt().expect("a month has a last day");
+    let monday =
+        |date: NaiveDate| date - Duration::days(i64::from(date.weekday().num_days_from_monday()));
+    let mut week = monday(first);
+    let last_week = monday(last);
+    let mut weeks = Vec::new();
+    while week <= last_week {
+        weeks.push(week);
+        week += Duration::days(7);
+    }
+    weeks
+}
+
+fn diary_week_navigator(month: &DiaryMonth<'_>) -> Markup {
+    let selected = month.entries[0].metadata().date;
+    let selected_week =
+        selected - Duration::days(i64::from(selected.weekday().num_days_from_monday()));
+    let name = month.name();
+    html! {
+        nav.diary-weeks aria-label=(format!("Diary dates in {name}")) data-diary-weeks data-default-date=(selected.format("%Y-%m-%d")) data-pagefind-ignore="all" {
+            button.diary-week-control type="button" data-diary-week-previous aria-label="Previous week" hidden {
+                svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" { path d="M10 3 5 8l5 5" {} }
+            }
+            div.diary-week-viewport {
+                @for week in diary_week_starts(month) {
+                    div.diary-week data-diary-week=(week.format("%Y-%m-%d")) hidden[week != selected_week] {
+                        div.diary-weekdays aria-hidden="true" {
+                            @for label in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] {
+                                span { (label) }
+                            }
+                        }
+                        div.diary-weekdates {
+                            @for offset in 0..7 {
+                                @let date = week + Duration::days(offset);
+                                @let entries: Vec<_> = month.entries.iter().filter(|entry| entry.metadata().date == date).collect();
+                                @let in_month = date.month() == month.first_day.month();
+                                @let class = if in_month { "diary-weekday" } else { "diary-weekday adjacent-month" };
+                                span class=(class) {
+                                    @if let Some(entry) = entries.first() {
+                                        @let anchors = entries.iter().map(|entry| entry.metadata().anchor()).collect::<Vec<_>>().join(" ");
+                                        a href=(format!("#{}", entry.metadata().anchor())) data-diary-date=(date.format("%Y-%m-%d")) data-diary-anchors=(anchors) aria-label=(date.format("%A %-d %B %Y").to_string()) aria-current=(if date == selected { "date" } else { "false" }) {
+                                            span.diary-week-number { (date.format("%-d")) }
+                                            span.diary-entry-dot aria-hidden="true" {}
+                                        }
+                                    } @else {
+                                        span.diary-week-number { (date.format("%-d")) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            button.diary-week-control type="button" data-diary-week-next aria-label="Next week" hidden {
+                svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" { path d="m6 3 5 5-5 5" {} }
+            }
+        }
+    }
 }
 
 /// The Diary's front page: the months that have entries, by year, newest
@@ -1850,7 +1912,7 @@ fn month_languages(month: &DiaryMonth<'_>) -> Vec<DisplayLanguage> {
     languages
 }
 
-/// One month of the Diary: its entries in full, oldest first, under a
+/// One month of the Diary: its entries in full, newest first, under a
 /// heading and the way to the months before and after it.
 fn diary_month_page(
     month: &DiaryMonth<'_>,
@@ -1877,18 +1939,7 @@ fn diary_month_page(
                     }
                 }
             }
-            @if month.entries.len() > 1 {
-                nav.diary-days aria-label=(format!("Days in {name}")) {
-                    @for (index, entry) in month.entries.iter().enumerate() {
-                        @let date = entry.metadata().date;
-                        @if index == 0 || month.entries[index - 1].metadata().date != date {
-                            a href=(format!("#{}", entry.metadata().anchor())) aria-label=(date.format("%-d %B").to_string()) {
-                                (date.format("%-d"))
-                            }
-                        }
-                    }
-                }
-            }
+            (diary_week_navigator(month))
             (language_filter(languages))
         }
         (search_form(Some(DIARY)))
@@ -3556,10 +3607,11 @@ mod tests {
 #[cfg(test)]
 mod miscellany_tests {
     use super::{
-        MISCELLANY_ICONS, diary_months, diary_page, fixture_today, header, miscellany_overview,
-        note_detail, notes_page, pages, reading_page,
+        MISCELLANY_ICONS, diary_months, diary_page, diary_week_starts, fixture_today, header,
+        miscellany_overview, note_detail, notes_page, pages, reading_page,
     };
     use crate::content::{Miscellany, ValidatedSiteContent};
+    use chrono::NaiveDate;
 
     /// Published fixtures parsed through the real validation; they exist only
     /// in memory and are never written to the content directory.
@@ -3591,6 +3643,10 @@ mod miscellany_tests {
         "---\ndate: 2026-10-02\nlang: en\ndraft: false\n---\n\nEarlier in October.\n";
     const DIARY_LAST_YEAR: &str =
         "---\ndate: 2025-12-31\nlang: en\ndraft: false\n---\n\nLast year.\n";
+    const DIARY_OCTOBER_22: &str =
+        "---\ndate: 2026-10-22\nlang: en\ndraft: false\n---\n\nFull entry for the twenty-second.\n";
+    const DIARY_OCTOBER_23: &str =
+        "---\ndate: 2026-10-23\nlang: en\ndraft: false\n---\n\nFull entry for the twenty-third.\n";
 
     #[test]
     fn miscellany_is_the_third_primary_section_and_current_below_its_route() {
@@ -3831,7 +3887,7 @@ mod miscellany_tests {
             "<ul>\n<li>first</li>",
             "<blockquote>\n<p>A quotation.</p>",
             // Highlighted at build time (src/highlight.rs), the staging brackets kept.
-            r#"<pre class="shiki shiki-themes code-light code-dark""#,
+            r#"<pre class="shiki shiki-themes light-plus dark-plus""#,
             ".&#x3C;</span>",
             r#"<span class="katex">"#,
             r#"<span class="katex-display">"#,
@@ -4019,7 +4075,7 @@ mod miscellany_tests {
     }
 
     #[test]
-    fn a_month_shows_its_entries_oldest_first_with_stable_anchors_and_neighbours() {
+    fn a_month_shows_its_entries_newest_first_with_stable_anchors_and_neighbours() {
         let content = ValidatedSiteContent::with_miscellany(miscellany(
             "items: []",
             &[],
@@ -4040,20 +4096,20 @@ mod miscellany_tests {
         // no later month.
         assert!(main.contains(r#"<a class="diary-previous" href="/miscellany/diary/2026/03/" rel="prev"><span aria-hidden="true">← </span>March 2026</a>"#));
         assert!(!main.contains("diary-next"));
-        assert!(main.contains(r##"<nav class="diary-days" aria-label="Days in October 2026"><a href="#diary-2026-10-02" aria-label="2 October">2</a><a href="#diary-2026-10-10" aria-label="10 October">10</a></nav>"##));
+        assert!(main.contains(r#"<nav class="diary-weeks" aria-label="Diary dates in October 2026" data-diary-weeks data-default-date="2026-10-10" data-pagefind-ignore="all">"#));
         let earlier = main
             .find(r##"<article class="diary-entry"><h2 class="diary-heading" id="diary-2026-10-02"><a class="diary-date" href="#diary-2026-10-02" aria-label="Friday 2 October 2026" data-pagefind-ignore="all"><time datetime="2026-10-02"><span class="diary-day">2</span> <span class="diary-weekday">Fri</span></time></a></h2><div class="diary-body"><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose"><p>Earlier in October.</p>"##)
             .unwrap();
         let later = main
             .find(r##"<article class="diary-entry has-title"><h2 class="diary-heading" id="diary-2026-10-10"><a class="diary-date" href="#diary-2026-10-10" aria-label="Saturday 10 October 2026" data-pagefind-ignore="all"><time datetime="2026-10-10"><span class="diary-day">10</span> <span class="diary-weekday">Sat</span></time></a><span class="diary-title" lang="ja">仙台にて</span></h2><div class="diary-body"><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja"><div class="prose miscellany-prose"><p>今日は図書館で一日を過ごした。</p>"##)
             .unwrap();
-        assert!(earlier < later, "oldest first within the month");
+        assert!(later < earlier, "newest first within the month");
         assert_eq!(main.matches("<article").count(), 2);
         assert!(!main.contains("Not public") && !main.contains("2026-10-11"));
         // Only the entries are read by the search index, filed under Diary.
         assert_eq!(main.matches("data-pagefind-body").count(), 1);
         assert!(main.contains(r#"<div class="diary" data-pagefind-body data-pagefind-filter="section:Diary" data-pagefind-meta="title:October 2026">"#));
-        assert!(main.find("data-pagefind-body").unwrap() > main.find("diary-days").unwrap());
+        assert!(main.find("data-pagefind-body").unwrap() > main.find("diary-weeks").unwrap());
         // The section's search starts in the Diary.
         assert!(main.contains(r#"<input type="hidden" name="section" value="diary">"#));
 
@@ -4061,9 +4117,67 @@ mod miscellany_tests {
         let main = main_of(&march);
         assert!(main.contains(r#"<a class="diary-next" href="/miscellany/diary/2026/10/" rel="next">October 2026<span aria-hidden="true"> →</span></a>"#));
         assert!(main.contains(r#"href="/miscellany/diary/2025/12/" rel="prev""#));
-        // One entry: no list of days.
-        assert!(!main.contains("diary-days"));
+        // A one-entry month still has its week as calendar context.
+        assert!(main.contains("data-diary-weeks"));
         assert!(main.contains("<p>First paragraph.</p>"));
+    }
+
+    #[test]
+    fn october_2026_week_navigation_follows_the_newest_diary_date() {
+        let entries = miscellany("items: []", &[], &[DIARY_OCTOBER_22, DIARY_OCTOBER_23]);
+        let months = diary_months(&entries);
+        let month = &months[0];
+        assert_eq!(
+            diary_week_starts(month),
+            [
+                NaiveDate::from_ymd_opt(2026, 9, 28).unwrap(),
+                NaiveDate::from_ymd_opt(2026, 10, 5).unwrap(),
+                NaiveDate::from_ymd_opt(2026, 10, 12).unwrap(),
+                NaiveDate::from_ymd_opt(2026, 10, 19).unwrap(),
+                NaiveDate::from_ymd_opt(2026, 10, 26).unwrap(),
+            ]
+        );
+
+        let content = ValidatedSiteContent::with_miscellany(entries);
+        let html = page_html(&content, "miscellany/diary/2026/10/index.html");
+        let main = main_of(&html);
+        let twenty_third = main.find(r#"id="diary-2026-10-23""#).unwrap();
+        let twenty_second = main.find(r#"id="diary-2026-10-22""#).unwrap();
+        assert!(
+            twenty_third < twenty_second,
+            "23 must be rendered before 22"
+        );
+        assert!(main.contains("Full entry for the twenty-third."));
+        assert!(main.contains("Full entry for the twenty-second."));
+        assert!(main.contains(r#"data-default-date="2026-10-23""#));
+
+        let week_start = main.find(r#"data-diary-week="2026-10-19""#).unwrap();
+        let week_end = main.find(r#"data-diary-week="2026-10-26""#).unwrap();
+        let week = &main[week_start..week_end];
+        for weekday in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] {
+            assert!(week.contains(&format!(">{weekday}</span>")));
+        }
+        for day in 19..=25 {
+            assert!(week.contains(&format!(">{day}</span>")), "missing {day}");
+        }
+        assert_eq!(week.matches("diary-entry-dot").count(), 2);
+        assert!(
+            week.contains(r#"data-diary-date="2026-10-22" data-diary-anchors="diary-2026-10-22""#)
+        );
+        assert!(
+            week.contains(r#"data-diary-date="2026-10-23" data-diary-anchors="diary-2026-10-23""#)
+        );
+        assert!(week.contains(r#"data-diary-anchors="diary-2026-10-23" aria-label="Friday 23 October 2026" aria-current="date""#));
+        assert!(!week.contains(r#"data-diary-date="2026-10-21""#));
+
+        // Calendar chrome is outside the indexed entry body, and the archive
+        // root remains only a year/month index without the week navigator.
+        assert!(main.find("data-diary-weeks").unwrap() < main.find("data-pagefind-body").unwrap());
+        assert!(
+            !diary_page(content.miscellany())
+                .into_string()
+                .contains("data-diary-weeks")
+        );
     }
 
     #[test]
@@ -4343,17 +4457,35 @@ mod multilingual_tests {
             .filter(|page| page.output_path.starts_with("miscellany/"))
         {
             let html = &page.html;
-            // Only the controls and the notices start hidden.
+            // Only progressive controls, notices, and non-current calendar
+            // weeks start hidden. Entry passages themselves always remain.
             let hidden = html.matches(" hidden").count();
+            let hidden_weeks = html
+                .split(r#"class="diary-week" "#)
+                .skip(1)
+                .filter(|week| {
+                    week.split('>')
+                        .next()
+                        .is_some_and(|tag| tag.contains(" hidden"))
+                })
+                .count();
+            let diary_controls = if html.contains("data-diary-weeks") {
+                2
+            } else {
+                0
+            };
             let controls = html.matches("data-language-filter").count()
                 + html.matches("data-language-notice").count()
                 + html.matches("data-search-more hidden").count()
                 // The message form, shown by the site's script.
-                + html.matches("data-site-message data-category").count();
+                + html.matches("data-site-message data-category").count()
+                + hidden_weeks
+                + diary_controls;
             assert_eq!(hidden, controls, "{}", page.output_path);
             assert!(
                 !html.contains("data-passage=\"en\" hidden")
                     && !html.contains("aria-hidden=\"true\" data-passage")
+                    && !html.contains("class=\"diary-entry\" hidden")
             );
         }
     }
@@ -4381,12 +4513,9 @@ mod multilingual_tests {
         let second = html
             .find(r#"<article class="diary-entry same-day"><h2 class="diary-heading" id="diary-2026-10-10-evening">"#)
             .unwrap();
-        assert_eq!(
-            html.matches(r##"<a href="#diary-2026-10-10" aria-label="10 October">10</a>"##)
-                .count(),
-            1
-        );
-        assert!(!html.contains(r##"<a href="#diary-2026-10-10-evening" aria-label"##));
+        assert_eq!(html.matches(r#"data-diary-date="2026-10-10""#).count(), 1);
+        assert!(html.contains(r#"data-diary-anchors="diary-2026-10-10 diary-2026-10-10-evening""#));
+        assert!(!html.contains(r##"href="#diary-2026-10-10-evening" data-diary-date"##));
         assert_eq!(passage_markers(&html[first..second]), ["en", "ja"]);
         assert_eq!(passage_markers(&html[second..]), ["en"]);
         assert!(html[first..second].contains("A different, shorter English entry."));

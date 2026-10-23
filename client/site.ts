@@ -75,6 +75,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.querySelector('[data-media-card] .media-switch')) {
     import('./media.js').then((cards) => cards.setUpMediaCards()).catch(() => undefined);
   }
+  if (document.querySelector('[data-diary-weeks]')) {
+    import('./diary.js').then((diary) => diary.setUpDiaryWeeks()).catch(() => undefined);
+  }
   setUpSiteMessage();
 
   for (const control of document.querySelectorAll<HTMLElement>('[data-email-code]')) {
