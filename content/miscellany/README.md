@@ -11,16 +11,11 @@ Source for `/miscellany/` and its four sections. A published note, diary entry, 
 
 Published Reading, Notes, Diary, and Sketches are searchable at `/miscellany/search/` (see `docs/search.md`). Only those pages are indexed: drafts are never rendered, and no other page of the site is read by the index.
 
-## What a visitor has read
+## Visited links
 
-Each visitor's browser remembers which articles they have opened and which they have marked as read, so that lists can tell them apart: a small dot beside an article not yet opened, a slightly quieter title for one opened, a small check for one marked as read. Nothing is shown on a first visit, before anything has been opened. The marks appear in the Notes, Sketches, Reading, and Diary lists (a month's row is marked by its entries), in search results, and beside articles in Updates; never on a section itself.
+Linked titles in Reading and article-title links in the Sketches list use the browser's standard `:visited` state. A visited title uses the site's existing `--ink-soft` grey; its underline, typography, hover, and focus treatment stay unchanged. Reading entries without a `url` remain plain text.
 
-- Opening a note's or sketch's page counts as opening it. Diary entries and reading records share a page, so one counts as opened once it has been on screen for about a second, or when the page is opened at its own anchor.
-- An article is read only when the visitor presses **Mark as read**, at the end of a note or sketch and of each diary entry; **Mark as unread** undoes it. Scrolling never marks anything read.
-- Articles are remembered by their section and stable identity (`notes/<slug>`, `sketches/<slug>`, `diary/<date>[-<slug>]`, `reading/<id>`), so a corrected title keeps its mark; a changed slug, date, or reading `id` starts afresh. A reading item without an `id` is remembered by its title and author.
-- The record lives only in the visitor's `localStorage` (`miscellany-reading`). It is never sent to the site, to GoatCounter, or anywhere else, and the repository holds none of it. Without JavaScript or storage, or when the record cannot be read, no marks or buttons are shown and the record is left as it was. Safari removes a site's stored data after seven days of use without a visit to the site, and private browsing keeps nothing; the Privacy page says so.
-
-The code is `setUpReadingState` in `client/site.ts`; the markup it relies on is checked in `render.rs` (`reading_state_tests`).
+The selectors are deliberately limited to `.reading-list .reading-title a` and `.sketch-list > li > h2 > a`. Notes, Diary, search results, Updates, navigation, breadcrumbs, and links inside articles do not receive visited styling. There is no JavaScript or site-managed storage for reading or visit state.
 
 ## Announcing in Updates
 

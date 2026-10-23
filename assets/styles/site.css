@@ -1124,6 +1124,14 @@ main { min-height: 64vh; }
 .miscellany-list h2 { margin: 0; font-family: var(--sans); font-size: 1rem; font-weight: 550; line-height: 1.45; }
 .miscellany-list p { max-width: 43rem; margin: .2rem 0 0; color: var(--ink-soft); font-size: .88rem; line-height: 1.6; }
 
+/* Only linked titles in Reading and Sketches use the browser's own history.
+   The visited colour is the existing secondary-text grey; every other link
+   keeps the site's ordinary styling. */
+.reading-list .reading-title a:visited,
+.sketch-list > li > h2 > a:visited { color: var(--ink-soft); }
+.reading-list .reading-title a:visited:hover,
+.sketch-list > li > h2 > a:visited:hover { color: var(--accent); }
+
 .miscellany-note { max-width: var(--reading); padding-bottom: 1rem; }
 .miscellany-note header { margin-bottom: 2.2rem; }
 .miscellany-note h1 { margin: 0 0 .65rem; font-family: var(--sans); font-size: clamp(1.85rem, 4vw, 2.35rem); font-weight: 600; letter-spacing: -.025em; line-height: 1.2; }
@@ -1374,54 +1382,6 @@ main { min-height: 64vh; }
   .music-player, .music-play { display: none !important; }
   .miscellany-sections, .miscellany-search, .miscellany-updates, .diary-month-nav, .diary-days { display: none; }
 }
-
-/* A visitor's own reading marks (client/site.ts), shown only once they have
-   opened something. They take no room: each mark is a zero-width box whose
-   sign is drawn beside it, so a title never moves or rewraps when its mark
-   appears. A dot for an article not yet opened, a slightly quieter title for
-   one opened, a small check for one marked as read; each also says so to
-   screen readers. The title itself stays fully legible in every state. */
-.reading-mark { display: inline-block; position: relative; width: 0; height: 0; vertical-align: middle; }
-.reading-mark::before { position: absolute; left: .42em; top: 0; transform: translateY(-50%); line-height: 1; pointer-events: none; }
-.reading-mark[data-state='unvisited']::before { content: ''; width: .36em; height: .36em; border-radius: 50%; background: var(--accent); }
-.reading-mark[data-state='read']::before { content: '✓'; content: '✓' / ''; color: var(--ink-faint); font-size: .78em; font-weight: 600; }
-[data-reading-list] a[data-reading-state='visited'],
-[data-reading-list] a[data-reading-state='read'],
-.reading-title[data-reading-state='visited'] cite,
-.reading-title[data-reading-state='read'] cite,
-.diary-title[data-reading-state='visited'],
-.diary-title[data-reading-state='read'] { color: color-mix(in srgb, var(--ink) 78%, var(--paper)); }
-/* A Diary month's row lines its items up as a row; the mark sits on its middle. */
-.diary-months li > .reading-mark { align-self: center; }
-@media (forced-colors: active) {
-  .reading-mark[data-state='unvisited']::before { background: CanvasText; }
-}
-
-/* Mark as read: one quiet control after the text, never in its way. */
-.reading-control { max-width: var(--reading); margin: 2.4rem 0 0; padding-top: 1rem; border-top: 1px solid var(--rule); }
-.diary-entry .reading-control { grid-column: 2; margin-top: 1.1rem; padding-top: 0; border-top: 0; }
-.reading-control button {
-  display: inline-flex;
-  align-items: center;
-  gap: .4rem;
-  min-height: 2rem;
-  padding: .2rem .7rem;
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--ink-soft);
-  font: inherit;
-  font-family: var(--sans);
-  font-size: .8rem;
-  cursor: pointer;
-}
-.reading-control button::before { content: '✓'; content: '✓' / ''; color: var(--ink-faint); font-size: .85em; }
-.reading-control[data-read='true'] button::before { color: var(--accent-strong); }
-.reading-control button:hover { border-color: var(--rule-strong); color: var(--ink); }
-.reading-control button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.diary-entry .reading-control button { min-height: 1.8rem; padding: .1rem .55rem; font-size: .74rem; }
-@media print { .reading-control, .reading-mark { display: none !important; } }
-
 /* A message to the author, at the end of a category's page
    (site-builder/src/render.rs message_form, client/site.ts): quiet, the
    site's own fields and rule; nothing sent is shown on the site. */

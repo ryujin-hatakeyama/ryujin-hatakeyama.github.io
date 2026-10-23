@@ -36,8 +36,7 @@ TypeScript:
 
 - initial system/light/dark resolution and the appearance button;
 - decoding the numeric email attribute only after user activation;
-- the Miscellany search page, which reads the static search index (below), and the forwarding of earlier Diary anchors to their month's page;
-- the visitor's own reading marks in Miscellany (opened, read), kept only in their browser's `localStorage` and never sent anywhere (`content/miscellany/README.md`).
+- the Miscellany search page, which reads the static search index (below), and the forwarding of earlier Diary anchors to their month's page.
 
 Node.js (scripts/search-index.mjs):
 

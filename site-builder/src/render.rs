@@ -1592,8 +1592,8 @@ fn reading_page(miscellany: &Miscellany) -> Markup {
                 @for (item, anchor) in items.iter().zip(&anchors) {
                     @let work = item.work();
                     @let lang = work.lang.as_ref().map(LanguageTag::as_str);
-                    li data-reading-article=(reading_key(READING, anchor.trim_start_matches("reading-"))) data-reading-seen {
-                        h2.reading-title id=(anchor) data-reading-target {
+                    li {
+                        h2.reading-title id=(anchor) {
                             cite lang=[lang] {
                                 @if let Some(url) = &work.url {
                                     a href=(url) { (&work.title) }
@@ -1648,7 +1648,7 @@ fn notes_page(miscellany: &Miscellany) -> Markup {
         @if notes.is_empty() {
             (no_entries())
         } @else {
-            ol.miscellany-list data-reading-list {
+            ol.miscellany-list {
                 @for note in notes {
                     @let metadata = note.metadata();
                     li lang=[metadata.title_language()] {
@@ -1668,7 +1668,6 @@ fn note_detail(note: &ValidatedNote, languages: &[DisplayLanguage]) -> Markup {
     standalone_article(
         languages,
         NOTES,
-        &metadata.slug,
         html! {
             header {
                 h1 lang=[metadata.title_language()] data-pagefind-meta="title" { (&metadata.title) }
@@ -1687,7 +1686,6 @@ fn note_detail(note: &ValidatedNote, languages: &[DisplayLanguage]) -> Markup {
 fn standalone_article(
     languages: &[DisplayLanguage],
     section: &MiscellanySection,
-    slug: &str,
     article: Markup,
 ) -> Markup {
     html! {
@@ -1695,29 +1693,8 @@ fn standalone_article(
             (miscellany_trail(Some(section)))
             (language_filter(languages))
         }
-        article.miscellany-note data-pagefind-body data-pagefind-filter=(search_filter(section)) data-reading-article=(reading_key(section, slug)) {
+        article.miscellany-note data-pagefind-body data-pagefind-filter=(search_filter(section)) {
             (article)
-        }
-        (reading_control())
-    }
-}
-
-/// The key under which a visitor's own browser remembers having opened or
-/// read an article: its section and its stable identity, the same identity
-/// its address and its entry in Updates are made from. The script derives
-/// the same key from any link to the article (client/site.ts).
-fn reading_key(section: &MiscellanySection, identity: &str) -> String {
-    format!("{}/{identity}", section.key)
-}
-
-/// The visitor's own "Mark as read" choice for an article, kept in their
-/// browser only. It is hidden until the script finds that it can remember
-/// the choice, so without JavaScript or storage there is nothing to press.
-/// The search index never reads it.
-fn reading_control() -> Markup {
-    html! {
-        p.reading-control data-reading-control data-pagefind-ignore="all" hidden {
-            button type="button" aria-pressed="false" { "Mark as read" }
         }
     }
 }
@@ -1731,7 +1708,7 @@ fn sketches_page(miscellany: &Miscellany) -> Markup {
         @if sketches.is_empty() {
             (no_entries())
         } @else {
-            ol.miscellany-list.sketch-list data-reading-list {
+            ol.miscellany-list.sketch-list {
                 @for sketch in sketches {
                     @let metadata = sketch.metadata();
                     li lang=[metadata.title_language()] {
@@ -1754,7 +1731,6 @@ fn sketch_detail(sketch: &ValidatedSketch, languages: &[DisplayLanguage]) -> Mar
     standalone_article(
         languages,
         SKETCHES,
-        &metadata.slug,
         html! {
             header {
                 h1 lang=[metadata.title_language()] data-pagefind-meta="title" { (&metadata.title) }
@@ -1779,15 +1755,6 @@ struct DiaryMonth<'a> {
 }
 
 impl DiaryMonth<'_> {
-    /// The reading keys of the month's entries, separated by spaces.
-    fn reading_keys(&self) -> String {
-        self.entries
-            .iter()
-            .map(|entry| reading_key(DIARY, &entry.metadata().id()))
-            .collect::<Vec<_>>()
-            .join(" ")
-    }
-
     fn path(&self) -> String {
         format!("/miscellany/diary/{}/", self.first_day.format("%Y/%m"))
     }
@@ -1855,7 +1822,7 @@ fn diary_page(miscellany: &Miscellany) -> Markup {
                         ol.diary-months {
                             @for month in list {
                                 li {
-                                    a href=(month.path()) aria-label=(month.name()) data-reading-entries=(month.reading_keys()) {
+                                    a href=(month.path()) aria-label=(month.name()) {
                                         (month.first_day.format("%B"))
                                     }
                                     " "
@@ -1966,23 +1933,20 @@ fn diary_entry(entry: &ValidatedDiaryEntry, same_day: bool, offered: &[DisplayLa
         (None, false) => "diary-entry",
     };
     html! {
-        article class=(class) data-reading-article=(reading_key(DIARY, &metadata.id())) data-reading-seen {
-            // The visitor's reading mark goes beside the title, or the day
-            // when there is none (client/site.ts).
+        article class=(class) {
             h2.diary-heading id=(anchor) {
                 a.diary-date href=(format!("#{anchor}")) aria-label=(date.format("%A %-d %B %Y").to_string()) data-pagefind-ignore="all" {
                     time datetime=(date.format("%Y-%m-%d")) {
-                        span.diary-day data-reading-target=[metadata.title.is_none().then_some("")] { (date.format("%-d")) }
+                        span.diary-day { (date.format("%-d")) }
                         " "
                         span.diary-weekday { (date.format("%a")) }
                     }
                 }
                 @if let Some(title) = &metadata.title {
-                    span.diary-title lang=[metadata.title_language()] data-reading-target { (title) }
+                    span.diary-title lang=[metadata.title_language()] { (title) }
                 }
             }
             div.diary-body { (article_passages(entry.passages(), 3, offered)) }
-            (reading_control())
         }
     }
 }
@@ -2017,7 +1981,7 @@ fn search_page() -> Markup {
             }
             p.search-status role="status" data-search-status {}
             noscript { p.search-status { "Searching needs JavaScript. The sections can be read from the " a href="/miscellany/" { "overview" } "." } }
-            ol.search-results data-search-results data-reading-list {}
+            ol.search-results data-search-results {}
             p.search-more { button type="button" data-search-more hidden { "More results" } }
         }
     }
@@ -2035,9 +1999,6 @@ fn privacy() -> Markup {
                 a href="https://www.goatcounter.com/help/privacy" { "privacy policy" }
                 "."
             }
-            h2 { "What you have read" }
-            p { "In Miscellany, your browser remembers which notes, sketches, diary entries, and reading records you have opened, and which you have marked as read, so that lists can show them apart. This record is kept only in your browser’s storage on this device. It is never sent to this site, to GoatCounter, or to anyone else, and the site keeps no copy." }
-            p { "It is not kept in private browsing, and it is lost when you clear this site’s data or use another browser or device. Safari may also remove it after about seven days of use without a visit to this site. Nothing else depends on it." }
         }
     }
 }
@@ -3865,7 +3826,7 @@ mod miscellany_tests {
         assert!(html.contains(r#"<a href="/miscellany/" aria-current="page">Miscellany</a>"#));
         let main = main_of(&html);
         assert_eq!(main.matches("<h1").count(), 1);
-        assert!(main.contains(r#"<article class="miscellany-note" data-pagefind-body data-pagefind-filter="section:Notes" data-reading-article="notes/staged-interpreters"><header><h1 lang="en" data-pagefind-meta="title">Staged &lt;interpreters&gt; &amp; you</h1><p class="summary" lang="en">How a staged interpreter becomes a compiler.</p></header><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose">"#));
+        assert!(main.contains(r#"<article class="miscellany-note" data-pagefind-body data-pagefind-filter="section:Notes"><header><h1 lang="en" data-pagefind-meta="title">Staged &lt;interpreters&gt; &amp; you</h1><p class="summary" lang="en">How a staged interpreter becomes a compiler.</p></header><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose">"#));
         for fragment in [
             "<h2>Background</h2>",
             "<code>inline code</code>",
@@ -4010,7 +3971,7 @@ mod miscellany_tests {
         let notes = miscellany("items: []", &[NOTE_JA], &[]);
         let note = notes.public_notes().next().unwrap();
         let html = note_detail(note, &[]).into_string();
-        assert!(html.contains(r#"<article class="miscellany-note" data-pagefind-body data-pagefind-filter="section:Notes" data-reading-article="notes/kripke-semantics"><header><h1 lang="ja" data-pagefind-meta="title">クリプキ意味論の覚え書き</h1></header><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja">"#));
+        assert!(html.contains(r#"<article class="miscellany-note" data-pagefind-body data-pagefind-filter="section:Notes"><header><h1 lang="ja" data-pagefind-meta="title">クリプキ意味論の覚え書き</h1></header><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja">"#));
         assert!(html.contains("<h2>可能世界</h2>"));
         assert!(!html.contains("summary"));
         assert!(
@@ -4035,7 +3996,7 @@ mod miscellany_tests {
         );
         let html = diary_page(&entries).into_string();
         let year = html
-            .find(r#"<section class="diary-year" aria-labelledby="diary-year-2026"><h2 id="diary-year-2026">2026</h2><ol class="diary-months"><li><a href="/miscellany/diary/2026/10/" aria-label="October 2026" data-reading-entries="diary/2026-10-02 diary/2026-10-10">October</a> <span class="diary-month-count" aria-hidden="true">2</span></li><li><a href="/miscellany/diary/2026/03/" aria-label="March 2026" data-reading-entries="diary/2026-03-01">March</a> <span class="diary-month-count" aria-hidden="true">1</span></li></ol></section>"#)
+            .find(r#"<section class="diary-year" aria-labelledby="diary-year-2026"><h2 id="diary-year-2026">2026</h2><ol class="diary-months"><li><a href="/miscellany/diary/2026/10/" aria-label="October 2026">October</a> <span class="diary-month-count" aria-hidden="true">2</span></li><li><a href="/miscellany/diary/2026/03/" aria-label="March 2026">March</a> <span class="diary-month-count" aria-hidden="true">1</span></li></ol></section>"#)
             .unwrap();
         let earlier_year = html.find(r#"<h2 id="diary-year-2025">2025</h2>"#).unwrap();
         assert!(year < earlier_year);
@@ -4082,10 +4043,10 @@ mod miscellany_tests {
         assert!(!main.contains("diary-next"));
         assert!(main.contains(r##"<nav class="diary-days" aria-label="Days in October 2026"><a href="#diary-2026-10-02" aria-label="2 October">2</a><a href="#diary-2026-10-10" aria-label="10 October">10</a></nav>"##));
         let earlier = main
-            .find(r##"<article class="diary-entry" data-reading-article="diary/2026-10-02" data-reading-seen><h2 class="diary-heading" id="diary-2026-10-02"><a class="diary-date" href="#diary-2026-10-02" aria-label="Friday 2 October 2026" data-pagefind-ignore="all"><time datetime="2026-10-02"><span class="diary-day" data-reading-target="">2</span> <span class="diary-weekday">Fri</span></time></a></h2><div class="diary-body"><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose"><p>Earlier in October.</p>"##)
+            .find(r##"<article class="diary-entry"><h2 class="diary-heading" id="diary-2026-10-02"><a class="diary-date" href="#diary-2026-10-02" aria-label="Friday 2 October 2026" data-pagefind-ignore="all"><time datetime="2026-10-02"><span class="diary-day">2</span> <span class="diary-weekday">Fri</span></time></a></h2><div class="diary-body"><div class="passages" data-passages><div class="passage" data-passage="en" lang="en"><div class="prose miscellany-prose"><p>Earlier in October.</p>"##)
             .unwrap();
         let later = main
-            .find(r##"<article class="diary-entry has-title" data-reading-article="diary/2026-10-10" data-reading-seen><h2 class="diary-heading" id="diary-2026-10-10"><a class="diary-date" href="#diary-2026-10-10" aria-label="Saturday 10 October 2026" data-pagefind-ignore="all"><time datetime="2026-10-10"><span class="diary-day">10</span> <span class="diary-weekday">Sat</span></time></a><span class="diary-title" lang="ja" data-reading-target>仙台にて</span></h2><div class="diary-body"><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja"><div class="prose miscellany-prose"><p>今日は図書館で一日を過ごした。</p>"##)
+            .find(r##"<article class="diary-entry has-title"><h2 class="diary-heading" id="diary-2026-10-10"><a class="diary-date" href="#diary-2026-10-10" aria-label="Saturday 10 October 2026" data-pagefind-ignore="all"><time datetime="2026-10-10"><span class="diary-day">10</span> <span class="diary-weekday">Sat</span></time></a><span class="diary-title" lang="ja">仙台にて</span></h2><div class="diary-body"><div class="passages" data-passages><div class="passage longform-ja" data-passage="ja" lang="ja"><div class="prose miscellany-prose"><p>今日は図書館で一日を過ごした。</p>"##)
             .unwrap();
         assert!(earlier < later, "oldest first within the month");
         assert_eq!(main.matches("<article").count(), 2);
@@ -4386,7 +4347,6 @@ mod multilingual_tests {
             // Only the controls and the notices start hidden.
             let hidden = html.matches(" hidden").count();
             let controls = html.matches("data-language-filter").count()
-                + html.matches("data-reading-control").count()
                 + html.matches("data-language-notice").count()
                 + html.matches("data-search-more hidden").count()
                 // The message form, shown by the site's script.
@@ -4416,11 +4376,11 @@ mod multilingual_tests {
         assert_eq!(html.matches("<article").count(), 2);
         let first = html
             .find(
-                r#"<article class="diary-entry" data-reading-article="diary/2026-10-10" data-reading-seen><h2 class="diary-heading" id="diary-2026-10-10">"#,
+                r#"<article class="diary-entry"><h2 class="diary-heading" id="diary-2026-10-10">"#,
             )
             .unwrap();
         let second = html
-            .find(r#"<article class="diary-entry same-day" data-reading-article="diary/2026-10-10-evening" data-reading-seen><h2 class="diary-heading" id="diary-2026-10-10-evening">"#)
+            .find(r#"<article class="diary-entry same-day"><h2 class="diary-heading" id="diary-2026-10-10-evening">"#)
             .unwrap();
         assert_eq!(
             html.matches(r##"<a href="#diary-2026-10-10" aria-label="10 October">10</a>"##)
@@ -4451,7 +4411,7 @@ mod multilingual_tests {
         let plain = &html[html.find("No Commentary").unwrap()..];
         let plain = &plain[..plain.find("</li>").unwrap()];
         assert!(!plain.contains("passages") && !plain.contains("notice"));
-        assert_eq!(html.matches("<li data-reading-article=").count(), 3);
+        assert_eq!(html.matches("<li>").count(), 3);
     }
 
     #[test]
@@ -4549,7 +4509,7 @@ mod sketches_and_search_tests {
         let html = page(&content, "miscellany/sketches/on-borrowed-words/index.html");
         assert!(html.contains(r#"<link rel="canonical" href="https://ryujin-hatakeyama.github.io/miscellany/sketches/on-borrowed-words/">"#));
         assert!(html.contains(r#"<meta property="og:type" content="article">"#));
-        assert!(html.contains(r#"<article class="miscellany-note" data-pagefind-body data-pagefind-filter="section:Sketches" data-reading-article="sketches/on-borrowed-words"><header><h1 lang="ja" data-pagefind-meta="title">借りた言葉について</h1><p class="article-date" lang="en" data-pagefind-ignore><time datetime="2026-09-19" data-pagefind-meta="date[datetime]">19 September 2026</time></p><p class="summary" lang="ja">合成された説明文。</p></header>"#));
+        assert!(html.contains(r#"<article class="miscellany-note" data-pagefind-body data-pagefind-filter="section:Sketches"><header><h1 lang="ja" data-pagefind-meta="title">借りた言葉について</h1><p class="article-date" lang="en" data-pagefind-ignore><time datetime="2026-09-19" data-pagefind-meta="date[datetime]">19 September 2026</time></p><p class="summary" lang="ja">合成された説明文。</p></header>"#));
         // The same Markdown as Notes: headings, inline languages, math,
         // quotations, and footnotes.
         for fragment in [
@@ -4703,7 +4663,7 @@ mod sketches_and_search_tests {
         assert_eq!(&reading_anchors(more.reading())[..3], &anchors[..]);
         let html = page(&content, "miscellany/reading/index.html");
         assert!(html.contains(&format!(
-            r#"<h2 class="reading-title" id="{}" data-reading-target><cite lang="ja">架空の本</cite></h2>"#,
+            r#"<h2 class="reading-title" id="{}"><cite lang="ja">架空の本</cite></h2>"#,
             anchors[0]
         )));
         assert!(html.contains(r#"<ol class="reading-list" data-pagefind-body data-pagefind-filter="section:Reading" data-pagefind-meta="title:Reading">"#));
@@ -5366,25 +5326,23 @@ mod timeline_tests {
 }
 
 #[cfg(test)]
-mod reading_state_tests {
-    //! The markup the visitor's reading marks rely on (client/site.ts), from
-    //! fictional articles that are never written to the content directory.
+mod visited_link_tests {
+    //! Browser history is represented only by scoped CSS. No generated
+    //! markup or client script keeps a separate reading state.
 
     use super::pages;
     use crate::content::{Miscellany, ValidatedSiteContent};
     use chrono::NaiveDate;
 
-    const NOTE: &str = "---\nslug: modal-logic\ntitle: Some Notes on Modal Logic\nlang: en\npublished: 2026-10-14\ndraft: false\n---\n\nText.\n";
+    const NOTE: &str = "---\nslug: modal-logic\ntitle: Some Notes on Modal Logic\nlang: en\ndraft: false\n---\n\nText.\n";
     const SKETCH: &str =
         "---\nslug: kaze\ntitle: 風\nlang: ja\ndate: 2026-10-01\ndraft: false\n---\n\n本文。\n";
     const DIARY: &str = "---\ndate: 2026-10-02\nlang: en\ndraft: false\n---\n\nAn entry.\n";
-    const DIARY_TITLED: &str = "---\ndate: 2026-10-02\nslug: evening\nlang: en\ntitle: Evening\ndraft: false\n---\n\nLater.\n";
-    const READING: &str = "items:\n  - id: conservativity\n    title: Conservativity of Definitional Extension\n  - title: Without an id\n";
+    const READING: &str = "items:\n  - title: Conservativity of Definitional Extension\n    url: https://example.org/conservativity\n";
 
     fn site() -> Vec<crate::render::GeneratedPage> {
         let miscellany =
-            Miscellany::from_all_sources(READING, &[NOTE], &[DIARY, DIARY_TITLED], &[SKETCH])
-                .unwrap();
+            Miscellany::from_all_sources(READING, &[NOTE], &[DIARY], &[SKETCH]).unwrap();
         pages(
             &ValidatedSiteContent::with_miscellany(miscellany),
             NaiveDate::from_ymd_opt(2026, 10, 21).unwrap(),
@@ -5398,88 +5356,62 @@ mod reading_state_tests {
             .html
     }
 
-    const CONTROL: &str = r#"<p class="reading-control" data-reading-control data-pagefind-ignore="all" hidden><button type="button" aria-pressed="false">Mark as read</button></p>"#;
-
     #[test]
-    fn articles_carry_the_keys_their_links_lead_to() {
+    fn reading_and_sketches_use_ordinary_title_links_without_reading_state() {
         let all = site();
-        // A note's and a sketch's pages: the key from the address, and one
-        // hidden control after the article, outside what the index reads.
-        for (path, key) in [
-            (
-                "miscellany/notes/modal-logic/index.html",
-                "notes/modal-logic",
-            ),
-            ("miscellany/sketches/kaze/index.html", "sketches/kaze"),
-        ] {
-            let html = page(&all, path);
+        assert!(
+            page(&all, "miscellany/reading/index.html")
+                .contains(r#"<h2 class="reading-title" id="reading-"#)
+        );
+        assert!(page(&all, "miscellany/reading/index.html").contains(
+            r#"<cite><a href="https://example.org/conservativity">Conservativity of Definitional Extension</a></cite>"#
+        ));
+        assert!(page(&all, "miscellany/sketches/index.html").contains(
+            r#"<ol class="miscellany-list sketch-list"><li lang="ja"><h2><a href="/miscellany/sketches/kaze/">風</a></h2>"#
+        ));
+
+        for generated in &all {
             assert!(
-                html.contains(&format!(r#" data-reading-article="{key}">"#)),
-                "{path}"
+                !generated.html.contains("data-reading"),
+                "{}",
+                generated.output_path
             );
-            assert_eq!(html.matches(CONTROL).count(), 1, "{path}");
-            let article_end = html.find("</article>").unwrap();
-            assert!(html.find(CONTROL).unwrap() > article_end, "{path}");
-            // Opening the page is the visit: it is not one of those counted
-            // by time on screen.
-            assert!(!html.contains("data-reading-seen"), "{path}");
-        }
-        // The lists link to those addresses, and mark their links.
-        assert!(page(&all, "miscellany/notes/index.html").contains(r#"<ol class="miscellany-list" data-reading-list><li lang="en"><h2><a href="/miscellany/notes/modal-logic/">"#));
-        assert!(page(&all, "miscellany/sketches/index.html").contains(r#"<ol class="miscellany-list sketch-list" data-reading-list><li lang="ja"><h2><a href="/miscellany/sketches/kaze/">"#));
-        // Diary entries share their month's page: each its own key, counted
-        // as seen on screen, with its own control inside the entry.
-        let month = page(&all, "miscellany/diary/2026/10/index.html");
-        assert!(month.contains(r#"<article class="diary-entry" data-reading-article="diary/2026-10-02" data-reading-seen>"#));
-        assert!(
-            month.contains(r#"data-reading-article="diary/2026-10-02-evening" data-reading-seen>"#)
-        );
-        assert!(
-            month.contains(
-                r#"<span class="diary-title" lang="en" data-reading-target>Evening</span>"#
-            )
-        );
-        assert_eq!(month.matches(CONTROL).count(), 2);
-        // The month's row on the Diary page knows its entries, not itself.
-        assert!(
-            page(&all, "miscellany/diary/index.html")
-                .contains(r#"data-reading-entries="diary/2026-10-02 diary/2026-10-02-evening""#)
-        );
-        // Reading records: by id when there is one, else by the hash anchor.
-        let reading = page(&all, "miscellany/reading/index.html");
-        assert!(reading.contains(r#"<li data-reading-article="reading/conservativity" data-reading-seen><h2 class="reading-title" id="reading-conservativity" data-reading-target>"#));
-        assert_eq!(
-            reading.matches("data-reading-article=\"reading/").count(),
-            2
-        );
-        assert!(!reading.contains("data-reading-control"));
-        // Recent Updates links to the article's own address, from which the
-        // script derives the same key.
-        assert!(
-            page(&all, "miscellany/index.html")
-                .contains(r#"Published “<a href="/miscellany/notes/modal-logic/" lang="en">"#)
-        );
-        // Section and overview pages are not articles.
-        for path in [
-            "miscellany/index.html",
-            "miscellany/notes/index.html",
-            "miscellany/diary/index.html",
-        ] {
-            assert!(!page(&all, path).contains("data-reading-article"), "{path}");
+            assert!(
+                !generated.html.contains("Mark as read"),
+                "{}",
+                generated.output_path
+            );
+            assert!(
+                !generated.html.contains("Mark as unread"),
+                "{}",
+                generated.output_path
+            );
         }
     }
 
     #[test]
-    fn the_privacy_page_says_where_the_record_is_kept() {
+    fn visited_css_is_scoped_and_reuses_the_secondary_text_token() {
+        let css = include_str!("../../assets/styles/site.css");
+        assert!(css.contains(
+            ".reading-list .reading-title a:visited,\n.sketch-list > li > h2 > a:visited { color: var(--ink-soft); }"
+        ));
+        assert!(css.contains(
+            ".reading-list .reading-title a:visited:hover,\n.sketch-list > li > h2 > a:visited:hover { color: var(--accent); }"
+        ));
+        assert_eq!(css.matches(":visited").count(), 4);
+        assert!(!css.contains("\na:visited"));
+
+        let client = include_str!("../../client/site.ts");
+        assert!(!client.contains("miscellany-reading"));
+        assert!(!client.contains("data-reading"));
+    }
+
+    #[test]
+    fn privacy_page_no_longer_describes_a_site_managed_reading_record() {
         let all = site();
         let privacy = page(&all, "privacy/index.html");
-        for words in [
-            "kept only in your browser’s storage on this device",
-            "never sent to this site, to GoatCounter, or to anyone else",
-            "Safari may also remove it",
-        ] {
-            assert!(privacy.contains(words), "{words}");
-        }
+        assert!(!privacy.contains("What you have read"));
+        assert!(!privacy.contains("browser’s storage"));
     }
 }
 
